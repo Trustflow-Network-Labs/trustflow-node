@@ -1,0 +1,9 @@
+[postgresql]
+postgresql_host = localhost
+postgresql_port = 5432
+postgresql_database = trustflow
+postgresql_user = trustflow
+postgresql_password = DATABASE_PASSWORD
+
+[log]
+logfile = logs/log
