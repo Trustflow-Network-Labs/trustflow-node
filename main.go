@@ -37,7 +37,7 @@ func main() {
 	// Create or get previously created node key
 	priv, _, err := tfnode.GetNodeKey()
 	if err != nil {
-		panic(fmt.Sprintf("1: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 
 	h, err := libp2p.New(
@@ -70,7 +70,7 @@ func main() {
 		libp2p.EnableNATService(),
 	)
 	if err != nil {
-		panic(fmt.Sprintf("2: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 
 	var multiaddrs []string
@@ -83,31 +83,31 @@ func main() {
 	// Add node
 	err = tfnode.AddNode(h.ID().String(), multiaddrs, true)
 	if err != nil {
-		panic(fmt.Sprintf("3: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 
 	// Add key
 	key, err := crypto.MarshalPrivateKey(priv)
 	err = keystore.AddKey(h.ID().String(), fmt.Sprintf("%s: secp256r1", priv.Type().String()), key)
 	if err != nil {
-		panic(fmt.Sprintf("4: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 
 	go discoverPeers(ctx, h)
 
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	if err != nil {
-		panic(fmt.Sprintf("5: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 	topic, err := ps.Join(*topicNameFlag)
 	if err != nil {
-		panic(fmt.Sprintf("6: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
-	//	go broadcastMessage(ctx, topic)
+	go broadcastMessage(ctx, topic)
 
 	sub, err := topic.Subscribe()
 	if err != nil {
-		panic(fmt.Sprintf("7: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 	receivedMessage(ctx, sub)
 }
@@ -119,10 +119,10 @@ func initDHT(ctx context.Context, h host.Host) *dht.IpfsDHT {
 	// inhibiting future peer discovery.
 	kademliaDHT, err := dht.New(ctx, h)
 	if err != nil {
-		panic(fmt.Sprintf("8: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 	if err = kademliaDHT.Bootstrap(ctx); err != nil {
-		panic(fmt.Sprintf("9: %v", err))
+		panic(fmt.Sprintf("%v", err))
 	}
 	var wg sync.WaitGroup
 	for _, peerAddr := range dht.DefaultBootstrapPeers {
@@ -151,7 +151,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 		fmt.Println("Searching for peers...")
 		peerChan, err := routingDiscovery.FindPeers(ctx, *topicNameFlag)
 		if err != nil {
-			panic(fmt.Sprintf("10: %v", err))
+			panic(fmt.Sprintf("%v", err))
 		}
 		for peer := range peerChan {
 			if peer.ID == h.ID() {
@@ -169,23 +169,23 @@ func discoverPeers(ctx context.Context, h host.Host) {
 	fmt.Println("Peer discovery complete")
 }
 
-func sendServiceCatalogue(s network.Stream) {
-	var serviceCatalogue string = "TODO"
-	err := binary.Write(s, binary.BigEndian, serviceCatalogue)
+func sendStream(s network.Stream) {
+	var buff string = "TODO"
+	err := binary.Write(s, binary.BigEndian, buff)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func receivedServiceCatalogue(s network.Stream) {
-	var serviceCatalogue string
+func receivedStream(s network.Stream) {
+	var buff string
 
-	err := binary.Read(s, binary.BigEndian, &serviceCatalogue)
+	err := binary.Read(s, binary.BigEndian, &buff)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Received %s from %s\n", serviceCatalogue, s.ID())
+	fmt.Printf("Received %s from %s\n", buff, s.ID())
 }
 
 func broadcastMessage(ctx context.Context, topic *pubsub.Topic) {
@@ -193,7 +193,7 @@ func broadcastMessage(ctx context.Context, topic *pubsub.Topic) {
 	for {
 		s, err := reader.ReadString('\n')
 		if err != nil {
-			panic(fmt.Sprintf("11: %v", err))
+			panic(fmt.Sprintf("%v", err))
 		}
 		if err := topic.Publish(ctx, []byte(s)); err != nil {
 			fmt.Println("### Publish error:", err)
@@ -205,8 +205,14 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 	for {
 		m, err := sub.Next(ctx)
 		if err != nil {
-			panic(fmt.Sprintf("12: %v", err))
+			panic(fmt.Sprintf("%v", err))
 		}
-		fmt.Println(m.ReceivedFrom, ": ", string(m.Message.Data))
+		message := string(m.Message.Data)
+		fmt.Println(m.ReceivedFrom, ": ", string(message))
+
+		switch message {
+		case "":
+			// TODO
+		}
 	}
 }

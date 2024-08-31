@@ -1,5 +1,5 @@
 [postgresql]
-postgresql_host = localhost
+postgresql_host = postgres
 postgresql_port = 5432
 postgresql_database = trustflow
 postgresql_user = trustflow
