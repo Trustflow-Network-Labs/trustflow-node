@@ -6,10 +6,10 @@ import (
 
 // Declare node type
 type Node struct {
-	Id         utils.NullInt32    `json:"id"`
-	NodeId     utils.NullString   `json:"node_id"`
-	Multiaddrs []utils.NullString `json:"multiaddrs"`
-	Self       utils.NullBool     `json:"self"`
+	Id         utils.NullInt32  `json:"id"`
+	NodeId     utils.NullString `json:"node_id"`
+	Multiaddrs utils.NullString `json:"multiaddrs"`
+	Self       utils.NullBool   `json:"self"`
 }
 
 // Declare key type

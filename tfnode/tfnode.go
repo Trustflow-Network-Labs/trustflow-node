@@ -3,12 +3,12 @@ package tfnode
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
-	"github.com/lib/pq"
 	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
@@ -28,7 +28,7 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 
 	// Check do we have a node key already
 	node, err := FindItself()
-	if err != nil {
+	if err != nil && strings.ToLower(err.Error()) != "sql: no rows in result set" {
 		msg := err.Error()
 		utils.Log("error", msg, "node")
 		return nil, nil, err
@@ -83,10 +83,7 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 }
 
 // Add node
-func AddNode(nodeId string, multiaddrs []string, self bool) error {
-	// Declarations
-	var node node_types.Node
-
+func AddNode(nodeId string, multiaddrs string, self bool) error {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -96,9 +93,8 @@ func AddNode(nodeId string, multiaddrs []string, self bool) error {
 	}
 	defer db.Close()
 
-	addNodeResult := db.QueryRow(context.Background(), "select * from trustflow_node.add_node($1, $2, $3::boolean);",
+	_, err = db.ExecContext(context.Background(), "insert into nodes (node_id, multiaddrs, self) values (?, ?, ?);",
 		nodeId, multiaddrs, self)
-	err = addNodeResult.Scan(&node.Id, &node.NodeId, pq.Array(&node.Multiaddrs), &node.Self)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "node")
@@ -121,8 +117,9 @@ func FindItself() (node_types.Node, error) {
 	}
 	defer db.Close()
 
-	findItselfResult := db.QueryRow(context.Background(), "select * from trustflow_node.find_itself();")
-	err = findItselfResult.Scan(&node.Id, &node.NodeId, pq.Array(&node.Multiaddrs), &node.Self)
+	row := db.QueryRowContext(context.Background(), "select * from nodes where self = true;")
+
+	err = row.Scan(&node.Id, &node.NodeId, &node.Multiaddrs, &node.Self)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "node")

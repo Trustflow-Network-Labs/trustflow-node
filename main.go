@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/adgsm/trustflow-node/keystore"
@@ -23,6 +24,8 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -47,6 +50,8 @@ func main() {
 		libp2p.ListenAddrStrings(
 			"/ip4/0.0.0.0/tcp/30609",      // regular tcp connections
 			"/ip4/0.0.0.0/udp/30609/quic", // a UDP endpoint for the QUIC transport
+			"/ip6/::1/tcp/30609",
+			"/ip6/::1/udp/30609/quic",
 		),
 		// support TLS connections
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
@@ -81,7 +86,7 @@ func main() {
 	}
 
 	// Add node
-	err = tfnode.AddNode(h.ID().String(), multiaddrs, true)
+	err = tfnode.AddNode(h.ID().String(), strings.Join(multiaddrs, ","), true)
 	if err != nil {
 		panic(fmt.Sprintf("%v", err))
 	}

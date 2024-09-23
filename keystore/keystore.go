@@ -10,26 +10,23 @@ import (
 
 // Add node
 func AddKey(identifier string, algorithm string, key []byte) error {
-	// Declarations
-	var k node_types.Key
-
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		utils.Log("error", msg, "keystore")
 		return err
 	}
 	defer db.Close()
 
-	addKeyResult := db.QueryRow(context.Background(), "select * from trustflow_node.add_key($1, $2, $3::bytea);",
+	_, err = db.ExecContext(context.Background(), "insert into keystore (identifier, algorithm, key) values (?, ?, ?);",
 		identifier, algorithm, key)
-	err = addKeyResult.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		utils.Log("error", msg, "keystore")
 		return err
 	}
+
 	return nil
 }
 
@@ -42,16 +39,16 @@ func FindKey(identifier string) (node_types.Key, error) {
 	db, err := database.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		utils.Log("error", msg, "keystore")
 		return k, err
 	}
 	defer db.Close()
 
-	addKeyResult := db.QueryRow(context.Background(), "select * from trustflow_node.find_key($1);", identifier)
-	err = addKeyResult.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
+	row := db.QueryRowContext(context.Background(), "select * from keystore where identifier = ?;", identifier)
+	err = row.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		utils.Log("error", msg, "keystore")
 		return k, err
 	}
 	return k, nil
