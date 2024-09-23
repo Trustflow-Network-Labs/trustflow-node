@@ -39,4 +39,4 @@
 **/*.njsproj
 **/*.sln
 **/.keystore
-**/.db
+**/*.db
