@@ -40,3 +40,4 @@
 **/*.sln
 **/.keystore
 **/*.db
+trustflow-node
