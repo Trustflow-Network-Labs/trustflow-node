@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/adgsm/trustflow-node/utils"
+	_ "modernc.org/sqlite"
 )
 
 // provide configs file path

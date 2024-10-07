@@ -19,3 +19,10 @@ type Key struct {
 	Algorithm  utils.NullString `json:"algorithm"`
 	Key        []byte           `json:"key"`
 }
+
+// Declare stream data type
+type StreamData struct {
+	Type    uint16
+	Version uint16
+	PeerId  [255]byte
+}

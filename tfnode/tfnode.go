@@ -127,3 +127,28 @@ func FindItself() (node_types.Node, error) {
 	}
 	return node, nil
 }
+
+// Find node
+func FindNode(nodeId string) (node_types.Node, error) {
+	// Declarations
+	var node node_types.Node
+
+	// Create a database connection
+	db, err := database.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "node")
+		return node, err
+	}
+	defer db.Close()
+
+	row := db.QueryRowContext(context.Background(), "select * from nodes where node_id = ?;", nodeId)
+
+	err = row.Scan(&node.Id, &node.NodeId, &node.Multiaddrs, &node.Self)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "node")
+		return node, err
+	}
+	return node, nil
+}
