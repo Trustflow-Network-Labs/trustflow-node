@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -48,7 +47,7 @@ func Log(level string, message string, category string) {
 	defer file.Close()
 
 	// Set level
-	log.SetLevel(logrus.TraceLevel)
+	log.SetLevel(log.TraceLevel)
 
 	// set log output to log file
 	log.SetOutput(file)

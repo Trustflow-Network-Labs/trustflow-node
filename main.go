@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"flag"
@@ -194,20 +195,20 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			}
 			err := h.Connect(ctx, peer)
 			if err != nil {
-				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s\n", peer.ID, err), "main")
+				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "main")
 				h.Network().ClosePeer(peer.ID)
 				h.Network().Peerstore().RemovePeer(peer.ID)
 				kademliaDHT.RoutingTable().RemovePeer(peer.ID)
 				h.Peerstore().ClearAddrs(peer.ID)
 				h.Peerstore().RemovePeer(peer.ID)
-				utils.Log("debug", fmt.Sprintf("Removed peer %s from a peer store\n", peer.ID), "main")
+				utils.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "main")
 			} else {
-				fmt.Println("Connected to:", peer.ID)
+				utils.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "main")
 				anyConnected = true
 				// Determine multiaddrs
 				var multiaddrs []string
 				for _, ma := range peer.Addrs {
-					utils.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s\n", ma.String()), "main")
+					utils.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "main")
 					multiaddrs = append(multiaddrs, ma.String())
 				}
 				// Check if node is already existing in the DB
@@ -252,7 +253,7 @@ func streamProposal(s network.Stream, p [255]byte, t uint16, v uint16) {
 		utils.Log("error", err.Error(), "main")
 		s.Reset()
 	}
-	message := fmt.Sprintf("Sending stream proposal %v has ended in stream %s\n", streamData, s.ID())
+	message := fmt.Sprintf("Sending stream proposal %d (%d) has ended in stream %s", streamData.Type, streamData.Version, s.ID())
 	utils.Log("debug", message, "main")
 }
 
@@ -266,7 +267,7 @@ func streamProposalResponse(s network.Stream) {
 	}
 
 	message := fmt.Sprintf("Received stream data type %d, version %d from %s in stream %s",
-		streamData.Type, streamData.Version, string(streamData.PeerId[:]), s.ID())
+		streamData.Type, streamData.Version, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
 	utils.Log("debug", message, "main")
 
 	// Check what stream is being proposed
@@ -305,7 +306,7 @@ func streamAccepted(s network.Stream) {
 		s.Reset()
 	}
 
-	message := fmt.Sprintf("Sending READY ended %s\n", s.ID())
+	message := fmt.Sprintf("Sending READY ended %s", s.ID())
 	utils.Log("debug", message, "main")
 }
 
@@ -337,7 +338,7 @@ func sendStream(s network.Stream, data *[]byte) {
 			utils.Log("error", err.Error(), "main")
 			s.Reset()
 		}
-		message := fmt.Sprintf("Sending chunk size %d ended %s\n", chunkSize, s.ID())
+		message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
 		utils.Log("debug", message, "main")
 
 		if chunkSize == 0 {
@@ -349,13 +350,13 @@ func sendStream(s network.Stream, data *[]byte) {
 			utils.Log("error", err.Error(), "main")
 			s.Reset()
 		}
-		message = fmt.Sprintf("Sending chunk %v ended %s\n", (*data)[pointer:pointer+chunkSize], s.ID())
+		message = fmt.Sprintf("Sending chunk %v ended %s", (*data)[pointer:pointer+chunkSize], s.ID())
 		utils.Log("debug", message, "main")
 
 		pointer += chunkSize
 	}
 
-	message = fmt.Sprintf("Sending ended %s\n", s.ID())
+	message = fmt.Sprintf("Sending ended %s", s.ID())
 	utils.Log("debug", message, "main")
 }
 
@@ -369,7 +370,7 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 			s.Reset()
 		}
 
-		message := fmt.Sprintf("Received chunk size %d from %s\n", chunkSize, s.ID())
+		message := fmt.Sprintf("Received chunk size %d from %s", chunkSize, s.ID())
 		utils.Log("debug", message, "main")
 
 		if chunkSize == 0 {
@@ -384,16 +385,16 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 			s.Reset()
 		}
 
-		message = fmt.Sprintf("Received %v of type %v from %s\n", data, streamData, s.ID())
+		message = fmt.Sprintf("Received %v of type %d version %d from %s", data, streamData.Type, streamData.Version, s.ID())
 		utils.Log("debug", message, "main")
 	}
 
 	// TODO, concat the data and understand what was received
-	message := fmt.Sprintf("Received data type from %s is %d, version %d, node %s\n", s.ID(),
-		streamData.Type, streamData.Version, streamData.PeerId)
+	message := fmt.Sprintf("Received data type from %s is %d, version %d, node %s", s.ID(),
+		streamData.Type, streamData.Version, string(bytes.Trim(streamData.PeerId[:], "\x00")))
 	utils.Log("debug", message, "main")
 
-	message = fmt.Sprintf("Receiving ended %s\n", s.ID())
+	message = fmt.Sprintf("Receiving ended %s", s.ID())
 	utils.Log("debug", message, "main")
 
 	s.Reset()
