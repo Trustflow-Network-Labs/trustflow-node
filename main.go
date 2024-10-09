@@ -113,6 +113,13 @@ func main() {
 			utils.Log("panic", err.Error(), "main")
 			panic(fmt.Sprintf("%v", err))
 		}
+	} else {
+		// Update node
+		err = tfnode.UpdateNode(h.ID().String(), strings.Join(multiaddrs, ","), true)
+		if err != nil {
+			utils.Log("panic", err.Error(), "main")
+			panic(err)
+		}
 	}
 
 	// Setup a stream handler.
@@ -216,6 +223,13 @@ func discoverPeers(ctx context.Context, h host.Host) {
 				if err != nil {
 					// Add new nodes to DB
 					err = tfnode.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
+					if err != nil {
+						utils.Log("panic", err.Error(), "main")
+						panic(err)
+					}
+				} else {
+					// Update node
+					err = tfnode.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
 					if err != nil {
 						utils.Log("panic", err.Error(), "main")
 						panic(err)
