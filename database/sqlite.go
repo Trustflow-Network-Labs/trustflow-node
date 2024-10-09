@@ -67,15 +67,37 @@ CREATE INDEX IF NOT EXISTS keystore_algorithm_idx ON keystore ("algorithm");
 		return nil, err
 	}
 
+	createCurrenciesTableSql := `
+CREATE TABLE IF NOT EXISTS currencies (
+	"id" INTEGER PRIMARY KEY,
+	"currency" VARCHAR(255) NOT NULL,
+	"symbol" VARCHAR(255) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS currencies_id_idx ON currencies ("id");
+CREATE INDEX IF NOT EXISTS currencies_currency_idx ON currencies ("currency");
+CREATE INDEX IF NOT EXISTS currencies_symbol_idx ON currencies ("symbol");
+`
+	_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `currencies` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
 	createServiceCatalogueTable := `
 CREATE TABLE IF NOT EXISTS service_catalogue (
-	"id" SERIAL PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY,
 	"type" VARCHAR(255) NOT NULL,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT NULL,
 	"price" DOUBLE PRECISION DEFAULT 0.0,
+	"price_interval" INTEGER DEFAULT 0,
+	"currency_id" INTEGER NOT NULL,
+	"local_repo" VARCHAR(1000) DEFAULT NULL,
+	"remote_repo" VARCHAR(1000) DEFAULT NULL,
 	"node_id" INTEGER NOT NULL,
-	FOREIGN KEY("node_id") REFERENCES nodes("id")
+	FOREIGN KEY("node_id") REFERENCES nodes("id"),
+	FOREIGN KEY("currency_id") REFERENCES currencies("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS service_catalogue_id_idx ON service_catalogue ("id");
 CREATE INDEX IF NOT EXISTS service_catalogue_name_idx ON service_catalogue ("name");

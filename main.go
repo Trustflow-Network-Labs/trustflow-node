@@ -203,6 +203,11 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			err := h.Connect(ctx, peer)
 			if err != nil {
 				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "main")
+				utils.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "main")
+				err = tfnode.DeleteNode(peer.ID.String())
+				if err != nil {
+					utils.Log("warn", fmt.Sprintf("Failed deleting node %s, error: %s", peer.ID, err), "main")
+				}
 				h.Network().ClosePeer(peer.ID)
 				h.Network().Peerstore().RemovePeer(peer.ID)
 				kademliaDHT.RoutingTable().RemovePeer(peer.ID)
@@ -222,6 +227,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 				_, err := tfnode.FindNode(peer.ID.String())
 				if err != nil {
 					// Add new nodes to DB
+					utils.Log("debug", fmt.Sprintf("add node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "main")
 					err = tfnode.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
 					if err != nil {
 						utils.Log("panic", err.Error(), "main")
@@ -229,6 +235,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 					}
 				} else {
 					// Update node
+					utils.Log("debug", fmt.Sprintf("update node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "main")
 					err = tfnode.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
 					if err != nil {
 						utils.Log("panic", err.Error(), "main")

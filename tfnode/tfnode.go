@@ -115,7 +115,27 @@ func UpdateNode(nodeId string, multiaddrs string, self bool) error {
 	defer db.Close()
 
 	_, err = db.ExecContext(context.Background(), "update nodes set multiaddrs = ?, self = ? where node_id = ?;",
-		nodeId, multiaddrs, self)
+		multiaddrs, self, nodeId)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "node")
+		return err
+	}
+	return nil
+}
+
+// Delete node
+func DeleteNode(nodeId string) error {
+	// Create a database connection
+	db, err := database.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "node")
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(context.Background(), "delete from nodes where node_id = ?;", nodeId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "node")
