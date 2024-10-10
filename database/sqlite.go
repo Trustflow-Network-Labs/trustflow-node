@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS currencies (
 CREATE UNIQUE INDEX IF NOT EXISTS currencies_id_idx ON currencies ("id");
 CREATE INDEX IF NOT EXISTS currencies_currency_idx ON currencies ("currency");
 CREATE INDEX IF NOT EXISTS currencies_symbol_idx ON currencies ("symbol");
+
+INSERT INTO currencies ("currency", "symbol") VALUES ('BITCOIN', 'BTC');
+INSERT INTO currencies ("currency", "symbol") VALUES ('ETHER', 'ETH');
 `
 	_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
 	if err != nil {
