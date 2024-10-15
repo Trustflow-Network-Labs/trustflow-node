@@ -23,6 +23,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
@@ -31,27 +32,26 @@ import (
 )
 
 var (
-	topicNameFlag = flag.String("topicName", "trustflow.network", "name of topic to join")
+	topicNameFlag *string
+	protocolID    protocol.ID
 	idht          *dht.IpfsDHT
 )
-
-const protocolID = "/trustflow-network/1.0.0"
 
 // provide configs file path
 var configsPath string = "p2p/configs"
 
 func Start(port uint16) {
+	// Read configs
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		return
+	}
+
 	// Read port number from configs
 	if port == 0 {
-		config, err := utils.ReadConfigs(configsPath)
-		if err != nil {
-			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-			utils.Log("error", message, "p2p")
-			return
-		}
-
 		p := config["node_port"]
-		fmt.Println(p)
 		p64, err := strconv.ParseUint(p, 10, 16)
 		if err != nil {
 			port = 30609
@@ -59,6 +59,12 @@ func Start(port uint16) {
 			port = uint16(p64)
 		}
 	}
+
+	// Read topic name
+	topicNameFlag = flag.String("topicName", config["topic_name"], "name of topic to join")
+
+	// Read streaming protocol
+	protocolID = protocol.ID(config["protocol_id"])
 
 	flag.Parse()
 	ctx := context.Background()

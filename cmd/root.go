@@ -12,7 +12,9 @@ var rootCmd = &cobra.Command{
 	Short: "trustflow is a cli tool for p2p doker orchestration",
 	Long:  "trustflow is a cli tool for p2p doker orchestration - decentralized data & resource service provider.",
 	Run: func(cmd *cobra.Command, args []string) {
-
+		if len(args) == 0 {
+			cmd.Help()
+		}
 	},
 }
 
