@@ -79,6 +79,9 @@ CREATE INDEX IF NOT EXISTS currencies_symbol_idx ON currencies ("symbol");
 
 INSERT INTO currencies ("currency", "symbol") VALUES ('BITCOIN', 'BTC');
 INSERT INTO currencies ("currency", "symbol") VALUES ('ETHER', 'ETH');
+INSERT INTO currencies ("currency", "symbol") VALUES ('US Dollar', 'USD');
+INSERT INTO currencies ("currency", "symbol") VALUES ('Euro', 'EUR');
+INSERT INTO currencies ("currency", "symbol") VALUES ('Dirham', 'AED');
 `
 	_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
 	if err != nil {
@@ -87,27 +90,134 @@ INSERT INTO currencies ("currency", "symbol") VALUES ('ETHER', 'ETH');
 		return nil, err
 	}
 
-	createServiceCatalogueTable := `
-CREATE TABLE IF NOT EXISTS service_catalogue (
+	createResourcesTableSql := `
+CREATE TABLE IF NOT EXISTS resources (
 	"id" INTEGER PRIMARY KEY,
-	"type" VARCHAR(255) NOT NULL,
+	"resource" VARCHAR(255) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS resources_id_idx ON resources ("id");
+CREATE INDEX IF NOT EXISTS resources_resource_idx ON resources ("resource");
+
+INSERT INTO resources ("resource") VALUES ('Data');
+INSERT INTO resources ("resource") VALUES ('CPU');
+INSERT INTO resources ("resource") VALUES ('Memory');
+INSERT INTO resources ("resource") VALUES ('Disk space');
+INSERT INTO resources ("resource") VALUES ('Ingress');
+INSERT INTO resources ("resource") VALUES ('Egress');
+`
+	_, err = db.ExecContext(context.Background(), createResourcesTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `resources` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createServiceTypesTableSql := `
+CREATE TABLE IF NOT EXISTS service_types (
+	"id" INTEGER PRIMARY KEY,
+	"service_type" VARCHAR(255) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS service_types_id_idx ON service_types ("id");
+CREATE INDEX IF NOT EXISTS service_types_service_type_idx ON service_types ("service_type");
+
+INSERT INTO service_types ("service_type") VALUES ('Data');
+INSERT INTO service_types ("service_type") VALUES ('Docker execution environment');
+`
+	_, err = db.ExecContext(context.Background(), createServiceTypesTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `service_types` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createServicesTable := `
+CREATE TABLE IF NOT EXISTS services (
+	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT NULL,
-	"price" DOUBLE PRECISION DEFAULT 0.0,
-	"price_interval" INTEGER DEFAULT 0,
-	"currency_id" INTEGER NOT NULL,
-	"local_repo" VARCHAR(1000) DEFAULT NULL,
-	"remote_repo" VARCHAR(1000) DEFAULT NULL,
 	"node_id" INTEGER NOT NULL,
+	"service_type_id" INTEGER NOT NULL,
 	FOREIGN KEY("node_id") REFERENCES nodes("id"),
+	FOREIGN KEY("service_type_id") REFERENCES service_types("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS services_id_idx ON services ("id");
+CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
+`
+	_, err = db.ExecContext(context.Background(), createServicesTable)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `services` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createPricesTableSql := `
+CREATE TABLE IF NOT EXISTS prices (
+	"id" INTEGER PRIMARY KEY,
+	"service_id" INTEGER NOT NULL,
+	"resource_id" INTEGER NOT NULL,
+	"price" DOUBLE PRECISION DEFAULT 0.0,
+	"price_unit_normalizator" DOUBLE PRECISION DEFAULT 1.0,
+	"price_interval" DOUBLE PRECISION DEFAULT 0.0,
+	"currency_id" INTEGER NOT NULL,
+	FOREIGN KEY("resource_id") REFERENCES resources("id"),
+	FOREIGN KEY("service_id") REFERENCES nodes("id"),
 	FOREIGN KEY("currency_id") REFERENCES currencies("id")
 );
-CREATE UNIQUE INDEX IF NOT EXISTS service_catalogue_id_idx ON service_catalogue ("id");
-CREATE INDEX IF NOT EXISTS service_catalogue_name_idx ON service_catalogue ("name");
+CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 `
-	_, err = db.ExecContext(context.Background(), createServiceCatalogueTable)
+	_, err = db.ExecContext(context.Background(), createPricesTableSql)
 	if err != nil {
-		message := fmt.Sprintf("Can not create `service_catalogue` table. (%s)", err.Error())
+		message := fmt.Sprintf("Can not create `prices` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createJobsTable := `
+CREATE TABLE IF NOT EXISTS jobs (
+	"id" INTEGER PRIMARY KEY,
+	"service_id" INTEGER NOT NULL,
+	"status"  VARCHAR(255) NOT NULL,
+	FOREIGN KEY("service_id") REFERENCES services("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
+`
+	_, err = db.ExecContext(context.Background(), createJobsTable)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createResourcesUtilizationsTableSql := `
+CREATE TABLE IF NOT EXISTS resources_utilizations (
+	"id" INTEGER PRIMARY KEY,
+	"job_id" INTEGER NOT NULL,
+	"resource_id" INTEGER NOT NULL,
+	"utilization" DOUBLE PRECISION DEFAULT 0.0,
+	FOREIGN KEY("resource_id") REFERENCES resources("id"),
+	FOREIGN KEY("job_id") REFERENCES jobs("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_utilizations ("id");
+`
+	_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createWhitelistedReposTableSql := `
+CREATE TABLE IF NOT EXISTS whitelisted_repos (
+	"id" INTEGER PRIMARY KEY,
+	"service_type_id" INTEGER NOT NULL,
+	"repo"  VARCHAR(1000) NOT NULL,
+	FOREIGN KEY("service_type_id") REFERENCES service_types("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos ("id");
+`
+	_, err = db.ExecContext(context.Background(), createWhitelistedReposTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `whitelisted_repos` table. (%s)", err.Error())
 		utils.Log("error", message, "database")
 		return nil, err
 	}
