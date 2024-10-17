@@ -229,7 +229,19 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			if peer.ID == h.ID() {
 				continue // No self connection
 			}
-			err := h.Connect(ctx, peer)
+			err, blacklisted := tfnode.NodeBlacklisted(peer.ID.String())
+			if err != nil {
+				msg := err.Error()
+				utils.Log("error", msg, "p2p")
+				panic(err)
+			}
+			if blacklisted {
+				msg := fmt.Sprintf("Node %s is blacklisted", peer.ID.String())
+				utils.Log("warn", msg, "p2p")
+				continue // Do not connect blacklisted nodes
+			}
+
+			err = h.Connect(ctx, peer)
 			if err != nil {
 				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "p2p")
 				utils.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "p2p")
@@ -469,6 +481,19 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 		if err != nil {
 			utils.Log("error", err.Error(), "p2p")
 		}
+
+		err, blacklisted := tfnode.NodeBlacklisted(m.ReceivedFrom.String())
+		if err != nil {
+			msg := err.Error()
+			utils.Log("error", msg, "p2p")
+			return
+		}
+		if blacklisted {
+			msg := fmt.Sprintf("Node %s is blacklisted", m.ReceivedFrom.String())
+			utils.Log("warn", msg, "p2p")
+			return // Do not comminicate with blacklisted nodes
+		}
+
 		message := string(m.Message.Data)
 		fmt.Println(m.ReceivedFrom, ": ", string(message))
 
