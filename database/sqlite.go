@@ -49,6 +49,24 @@ CREATE INDEX IF NOT EXISTS nodes_node_id_idx ON nodes ("node_id");
 		return nil, err
 	}
 
+	createBlacklistedNodesTableSql := `
+CREATE TABLE IF NOT EXISTS blacklisted_nodes (
+	"id" INTEGER PRIMARY KEY,
+	"node_id" VARCHAR(255) NOT NULL,
+	"multiaddrs" TEXT NOT NULL,
+	"reason" TEXT NOT NULL,
+	"timestamp" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS blacklisted_nodes_id_idx ON blacklisted_nodes ("id");
+CREATE INDEX IF NOT EXISTS blacklisted_nodes_node_id_idx ON blacklisted_nodes ("node_id");
+`
+	_, err = db.ExecContext(context.Background(), createBlacklistedNodesTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `blacklisted_nodes` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
 	createKeystoreTableSql := `
 CREATE TABLE IF NOT EXISTS keystore (
 	"id" INTEGER PRIMARY KEY,
@@ -176,7 +194,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
 	"service_id" INTEGER NOT NULL,
-	"status"  VARCHAR(255) NOT NULL,
+	"status"  VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
+	"started" TEXT DEFAULT NULL,
+	"ended" TEXT DEFAULT NULL,
 	FOREIGN KEY("service_id") REFERENCES services("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
@@ -188,12 +208,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 		return nil, err
 	}
 
+	createJobInputsTableSql := `
+CREATE TABLE IF NOT EXISTS job_inputs (
+	"id" INTEGER PRIMARY KEY,
+	"job_id" INTEGER NOT NULL,
+	"input_job_id" DEFAULT NULL,
+	FOREIGN KEY("job_id") REFERENCES jobs("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
+`
+	_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
 	createResourcesUtilizationsTableSql := `
 CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"id" INTEGER PRIMARY KEY,
 	"job_id" INTEGER NOT NULL,
 	"resource_id" INTEGER NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
+	"timestamp" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY("resource_id") REFERENCES resources("id"),
 	FOREIGN KEY("job_id") REFERENCES jobs("id")
 );
@@ -202,6 +239,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 	_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
 	if err != nil {
 		message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createOrchestrationsTableSql := `
+CREATE TABLE IF NOT EXISTS orchestrations (
+	"id" INTEGER PRIMARY KEY,
+	"job_ids" TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id");
+`
+	_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
+		utils.Log("error", message, "database")
+		return nil, err
+	}
+
+	createExecutionsTable := `
+CREATE TABLE IF NOT EXISTS executions (
+	"id" INTEGER PRIMARY KEY,
+	"orchestration_id" INTEGER NOT NULL,
+	"status"  VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
+	"started" TEXT DEFAULT NULL,
+	"ended" TEXT DEFAULT NULL,
+	FOREIGN KEY("orchestration_id") REFERENCES orchestrations("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
+`
+	_, err = db.ExecContext(context.Background(), createExecutionsTable)
+	if err != nil {
+		message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
 		utils.Log("error", message, "database")
 		return nil, err
 	}
