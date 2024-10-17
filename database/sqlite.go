@@ -53,7 +53,6 @@ CREATE INDEX IF NOT EXISTS nodes_node_id_idx ON nodes ("node_id");
 CREATE TABLE IF NOT EXISTS blacklisted_nodes (
 	"id" INTEGER PRIMARY KEY,
 	"node_id" VARCHAR(255) NOT NULL,
-	"multiaddrs" TEXT NOT NULL,
 	"reason" TEXT NOT NULL,
 	"timestamp" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
