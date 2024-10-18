@@ -119,17 +119,18 @@ INSERT INTO currencies ("currency", "symbol") VALUES ('Dirham', 'AED');
 		createResourcesTableSql := `
 CREATE TABLE IF NOT EXISTS resources (
 	"id" INTEGER PRIMARY KEY,
-	"resource" VARCHAR(255) NOT NULL
+	"name" VARCHAR(255) NOT NULL,
+	"active" BOOLEAN DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_id_idx ON resources ("id");
-CREATE INDEX IF NOT EXISTS resources_resource_idx ON resources ("resource");
+CREATE UNIQUE INDEX IF NOT EXISTS resources_name_idx ON resources ("name");
 
-INSERT INTO resources ("resource") VALUES ('Data');
-INSERT INTO resources ("resource") VALUES ('CPU');
-INSERT INTO resources ("resource") VALUES ('Memory');
-INSERT INTO resources ("resource") VALUES ('Disk space');
-INSERT INTO resources ("resource") VALUES ('Ingress');
-INSERT INTO resources ("resource") VALUES ('Egress');
+INSERT INTO resources ("name") VALUES ('Data');
+INSERT INTO resources ("name") VALUES ('CPU');
+INSERT INTO resources ("name") VALUES ('Memory');
+INSERT INTO resources ("name") VALUES ('Disk space');
+INSERT INTO resources ("name") VALUES ('Ingress');
+INSERT INTO resources ("name") VALUES ('Egress');
 `
 		_, err = db.ExecContext(context.Background(), createResourcesTableSql)
 		if err != nil {
@@ -141,7 +142,8 @@ INSERT INTO resources ("resource") VALUES ('Egress');
 		createServiceTypesTableSql := `
 CREATE TABLE IF NOT EXISTS service_types (
 	"id" INTEGER PRIMARY KEY,
-	"service_type" VARCHAR(255) NOT NULL
+	"service_type" VARCHAR(255) NOT NULL,
+	"active" BOOLEAN DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS service_types_id_idx ON service_types ("id");
 CREATE INDEX IF NOT EXISTS service_types_service_type_idx ON service_types ("service_type");
@@ -286,9 +288,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
 		createWhitelistedReposTableSql := `
 CREATE TABLE IF NOT EXISTS whitelisted_repos (
 	"id" INTEGER PRIMARY KEY,
-	"service_type_id" INTEGER NOT NULL,
-	"repo"  VARCHAR(1000) NOT NULL,
-	FOREIGN KEY("service_type_id") REFERENCES service_types("id")
+	"repo"  VARCHAR(1000) NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos ("id");
 `

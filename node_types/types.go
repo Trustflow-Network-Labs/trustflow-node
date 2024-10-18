@@ -40,3 +40,19 @@ type Price struct {
 	PriceUnitNormalizator NullFloat64 `json:"price_unit_normalizator"`
 	PriceInterval         NullFloat64 `json:"price_interval"`
 }
+
+// Declare resource type
+type Resource struct {
+	Id     NullInt32  `json:"id"`
+	Name   NullString `json:"name"`
+	Active NullBool   `json:"active"`
+}
+
+// Declare resource utilization type
+type ResourceUtilization struct {
+	Id          NullInt32   `json:"id"`
+	JobId       NullInt32   `json:"job_id"`
+	ResourceId  NullInt32   `json:"resource_id"`
+	Utilization NullFloat64 `json:"utilization"`
+	Timestamp   NullString  `json:"timestamp"`
+}
