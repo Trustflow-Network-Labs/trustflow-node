@@ -227,7 +227,7 @@ func SetResourceInactive(name string) {
 	// Set resource inactive
 	utils.Log("debug", fmt.Sprintf("setting resource %s inactive", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "update resources set acive = false where name = ?;", name)
+	_, err = db.ExecContext(context.Background(), "update resources set active = false where name = ?;", name)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")
@@ -263,7 +263,7 @@ func SetResourceActive(name string) {
 	// Set resource active
 	utils.Log("debug", fmt.Sprintf("setting resource %s active", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "update resources set acive = true where name = ?;", name)
+	_, err = db.ExecContext(context.Background(), "update resources set active = true where name = ?;", name)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")

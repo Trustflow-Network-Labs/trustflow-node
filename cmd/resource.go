@@ -42,11 +42,11 @@ var setResourceInactiveCmd = &cobra.Command{
 var setResourceActiveCmd = &cobra.Command{
 	Use:     "set-resource-active",
 	Aliases: []string{"activate-resource"},
-	Short:   "Set resource inactive",
-	Long:    "Setting resource to inactive will prevent setting data/services pricing for that resource",
+	Short:   "Set resource active",
+	Long:    "Setting resource to active will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.SetResourceInactive(name)
+		cmd_helpers.SetResourceActive(name)
 	},
 }
 
