@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/tfnode"
@@ -229,7 +230,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			if peer.ID == h.ID() {
 				continue // No self connection
 			}
-			err, blacklisted := tfnode.NodeBlacklisted(peer.ID.String())
+			err, blacklisted := cmd_helpers.NodeBlacklisted(peer.ID.String())
 			if err != nil {
 				msg := err.Error()
 				utils.Log("error", msg, "p2p")
@@ -482,7 +483,7 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 			utils.Log("error", err.Error(), "p2p")
 		}
 
-		err, blacklisted := tfnode.NodeBlacklisted(m.ReceivedFrom.String())
+		err, blacklisted := cmd_helpers.NodeBlacklisted(m.ReceivedFrom.String())
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "p2p")

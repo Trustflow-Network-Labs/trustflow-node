@@ -1,4 +1,4 @@
-package utils
+package node_types
 
 import (
 	"database/sql"
