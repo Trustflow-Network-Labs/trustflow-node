@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +14,7 @@ var addCurrencyCmd = &cobra.Command{
 	Long:    "Adding new currency will allow setting data/services pricing in that currency",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		addCurrency()
+		cmd_helpers.AddCurrency(currency, symbol)
 	},
 }
 
@@ -24,7 +25,7 @@ var removeCurrencyCmd = &cobra.Command{
 	Long:    "Removing a currency will prevent setting data/services pricing in that currency. Currency can not be removed if there is an price set in that currency",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		removeCurrency()
+		cmd_helpers.RemoveCurrency(symbol)
 	},
 }
 
@@ -38,7 +39,3 @@ func init() {
 	removeCurrencyCmd.MarkFlagRequired("symbol")
 	rootCmd.AddCommand(removeCurrencyCmd)
 }
-
-func addCurrency() {}
-
-func removeCurrency() {}

@@ -3,7 +3,9 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/adgsm/trustflow-node/utils"
 	_ "modernc.org/sqlite"
@@ -22,6 +24,12 @@ func CreateConnection() (*sql.DB, error) {
 		return nil, err
 	}
 
+	// Check if DB exists
+	var newDB bool = false
+	if _, err := os.Stat(config["database_file"]); errors.Is(err, os.ErrNotExist) {
+		newDB = true
+	}
+
 	// Init db connection
 	db, err := sql.Open("sqlite", config["database_file"])
 
@@ -31,8 +39,9 @@ func CreateConnection() (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Create DB structure if it's not existing
-	createNodesTableSql := `
+	if newDB {
+		// Create DB structure if it's not existing
+		createNodesTableSql := `
 CREATE TABLE IF NOT EXISTS nodes (
 	"id" INTEGER PRIMARY KEY,
 	"node_id" VARCHAR(255) NOT NULL,
@@ -42,14 +51,14 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE UNIQUE INDEX IF NOT EXISTS nodes_id_idx ON nodes ("id");
 CREATE INDEX IF NOT EXISTS nodes_node_id_idx ON nodes ("node_id");
 `
-	_, err = db.ExecContext(context.Background(), createNodesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `nodes` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createNodesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `nodes` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createBlacklistedNodesTableSql := `
+		createBlacklistedNodesTableSql := `
 CREATE TABLE IF NOT EXISTS blacklisted_nodes (
 	"id" INTEGER PRIMARY KEY,
 	"node_id" VARCHAR(255) NOT NULL,
@@ -59,14 +68,14 @@ CREATE TABLE IF NOT EXISTS blacklisted_nodes (
 CREATE UNIQUE INDEX IF NOT EXISTS blacklisted_nodes_id_idx ON blacklisted_nodes ("id");
 CREATE INDEX IF NOT EXISTS blacklisted_nodes_node_id_idx ON blacklisted_nodes ("node_id");
 `
-	_, err = db.ExecContext(context.Background(), createBlacklistedNodesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `blacklisted_nodes` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createBlacklistedNodesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `blacklisted_nodes` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createKeystoreTableSql := `
+		createKeystoreTableSql := `
 CREATE TABLE IF NOT EXISTS keystore (
 	"id" INTEGER PRIMARY KEY,
 	"identifier" VARCHAR(255) NOT NULL,
@@ -77,14 +86,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS keystore_id_idx ON keystore ("id");
 CREATE INDEX IF NOT EXISTS keystore_identifier_idx ON keystore ("identifier");
 CREATE INDEX IF NOT EXISTS keystore_algorithm_idx ON keystore ("algorithm");
 `
-	_, err = db.ExecContext(context.Background(), createKeystoreTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `keystore` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createKeystoreTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `keystore` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createCurrenciesTableSql := `
+		createCurrenciesTableSql := `
 CREATE TABLE IF NOT EXISTS currencies (
 	"id" INTEGER PRIMARY KEY,
 	"currency" VARCHAR(255) NOT NULL,
@@ -100,14 +109,14 @@ INSERT INTO currencies ("currency", "symbol") VALUES ('US Dollar', 'USD');
 INSERT INTO currencies ("currency", "symbol") VALUES ('Euro', 'EUR');
 INSERT INTO currencies ("currency", "symbol") VALUES ('Dirham', 'AED');
 `
-	_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `currencies` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `currencies` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createResourcesTableSql := `
+		createResourcesTableSql := `
 CREATE TABLE IF NOT EXISTS resources (
 	"id" INTEGER PRIMARY KEY,
 	"resource" VARCHAR(255) NOT NULL
@@ -122,14 +131,14 @@ INSERT INTO resources ("resource") VALUES ('Disk space');
 INSERT INTO resources ("resource") VALUES ('Ingress');
 INSERT INTO resources ("resource") VALUES ('Egress');
 `
-	_, err = db.ExecContext(context.Background(), createResourcesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `resources` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createResourcesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `resources` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createServiceTypesTableSql := `
+		createServiceTypesTableSql := `
 CREATE TABLE IF NOT EXISTS service_types (
 	"id" INTEGER PRIMARY KEY,
 	"service_type" VARCHAR(255) NOT NULL
@@ -140,14 +149,14 @@ CREATE INDEX IF NOT EXISTS service_types_service_type_idx ON service_types ("ser
 INSERT INTO service_types ("service_type") VALUES ('Data');
 INSERT INTO service_types ("service_type") VALUES ('Docker execution environment');
 `
-	_, err = db.ExecContext(context.Background(), createServiceTypesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `service_types` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createServiceTypesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `service_types` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createServicesTable := `
+		createServicesTable := `
 CREATE TABLE IF NOT EXISTS services (
 	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
@@ -160,14 +169,14 @@ CREATE TABLE IF NOT EXISTS services (
 CREATE UNIQUE INDEX IF NOT EXISTS services_id_idx ON services ("id");
 CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
 `
-	_, err = db.ExecContext(context.Background(), createServicesTable)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `services` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createServicesTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `services` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createPricesTableSql := `
+		createPricesTableSql := `
 CREATE TABLE IF NOT EXISTS prices (
 	"id" INTEGER PRIMARY KEY,
 	"service_id" INTEGER NOT NULL,
@@ -182,14 +191,14 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 `
-	_, err = db.ExecContext(context.Background(), createPricesTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `prices` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createPricesTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `prices` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createJobsTable := `
+		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
 	"service_id" INTEGER NOT NULL,
@@ -200,14 +209,14 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 `
-	_, err = db.ExecContext(context.Background(), createJobsTable)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createJobsTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createJobInputsTableSql := `
+		createJobInputsTableSql := `
 CREATE TABLE IF NOT EXISTS job_inputs (
 	"id" INTEGER PRIMARY KEY,
 	"job_id" INTEGER NOT NULL,
@@ -216,14 +225,14 @@ CREATE TABLE IF NOT EXISTS job_inputs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
 `
-	_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createResourcesUtilizationsTableSql := `
+		createResourcesUtilizationsTableSql := `
 CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"id" INTEGER PRIMARY KEY,
 	"job_id" INTEGER NOT NULL,
@@ -235,28 +244,28 @@ CREATE TABLE IF NOT EXISTS resources_utilizations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_utilizations ("id");
 `
-	_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createOrchestrationsTableSql := `
+		createOrchestrationsTableSql := `
 CREATE TABLE IF NOT EXISTS orchestrations (
 	"id" INTEGER PRIMARY KEY,
 	"job_ids" TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id");
 `
-	_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createExecutionsTable := `
+		createExecutionsTable := `
 CREATE TABLE IF NOT EXISTS executions (
 	"id" INTEGER PRIMARY KEY,
 	"orchestration_id" INTEGER NOT NULL,
@@ -267,14 +276,14 @@ CREATE TABLE IF NOT EXISTS executions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
 `
-	_, err = db.ExecContext(context.Background(), createExecutionsTable)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
-	}
+		_, err = db.ExecContext(context.Background(), createExecutionsTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 
-	createWhitelistedReposTableSql := `
+		createWhitelistedReposTableSql := `
 CREATE TABLE IF NOT EXISTS whitelisted_repos (
 	"id" INTEGER PRIMARY KEY,
 	"service_type_id" INTEGER NOT NULL,
@@ -283,11 +292,12 @@ CREATE TABLE IF NOT EXISTS whitelisted_repos (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos ("id");
 `
-	_, err = db.ExecContext(context.Background(), createWhitelistedReposTableSql)
-	if err != nil {
-		message := fmt.Sprintf("Can not create `whitelisted_repos` table. (%s)", err.Error())
-		utils.Log("error", message, "database")
-		return nil, err
+		_, err = db.ExecContext(context.Background(), createWhitelistedReposTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `whitelisted_repos` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 	}
 
 	return db, nil

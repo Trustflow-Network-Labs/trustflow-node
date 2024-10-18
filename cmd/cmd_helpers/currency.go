@@ -110,7 +110,7 @@ func AddCurrency(currency string, symbol string) {
 }
 
 // Remove currency
-func RemoveNodeCurrency(symbol string) {
+func RemoveCurrency(symbol string) {
 	err, existing := CurrencyExists(symbol)
 	if err != nil {
 		msg := err.Error()
