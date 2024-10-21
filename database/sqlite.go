@@ -142,14 +142,14 @@ INSERT INTO resources ("name") VALUES ('Egress');
 		createServiceTypesTableSql := `
 CREATE TABLE IF NOT EXISTS service_types (
 	"id" INTEGER PRIMARY KEY,
-	"service_type" VARCHAR(255) NOT NULL,
+	"name" VARCHAR(255) NOT NULL,
 	"active" BOOLEAN DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS service_types_id_idx ON service_types ("id");
-CREATE INDEX IF NOT EXISTS service_types_service_type_idx ON service_types ("service_type");
+CREATE INDEX IF NOT EXISTS service_types_name_idx ON service_types ("name");
 
-INSERT INTO service_types ("service_type") VALUES ('Data');
-INSERT INTO service_types ("service_type") VALUES ('Docker execution environment');
+INSERT INTO service_types ("name") VALUES ('Data');
+INSERT INTO service_types ("name") VALUES ('Docker execution environment');
 `
 		_, err = db.ExecContext(context.Background(), createServiceTypesTableSql)
 		if err != nil {

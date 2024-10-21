@@ -56,3 +56,19 @@ type ResourceUtilization struct {
 	Utilization NullFloat64 `json:"utilization"`
 	Timestamp   NullString  `json:"timestamp"`
 }
+
+// Declare service_type type
+type ServiceType struct {
+	Id     NullInt32  `json:"id"`
+	Name   NullString `json:"name"`
+	Active NullBool   `json:"active"`
+}
+
+// Declare service type
+type Service struct {
+	Id            NullInt32  `json:"id"`
+	Name          NullString `json:"name"`
+	Description   NullString `json:"description"`
+	NodeId        NullInt32  `json:"node_id"`
+	ServiceTypeId NullInt32  `json:"service_type_id"`
+}
