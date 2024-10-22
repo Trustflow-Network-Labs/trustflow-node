@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var serviceName string
+var serviceTypeName string
 var addServiceTypeCmd = &cobra.Command{
 	Use:     "add-service-type",
 	Aliases: []string{"service-type-add"},
@@ -13,7 +13,7 @@ var addServiceTypeCmd = &cobra.Command{
 	Long:    "Adding new service type will allow setting data/services pricing for that service type",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.AddServiceType(serviceName)
+		cmd_helpers.AddServiceType(serviceTypeName)
 	},
 }
 
@@ -21,10 +21,10 @@ var removeServiceTypeCmd = &cobra.Command{
 	Use:     "remove-service-type",
 	Aliases: []string{"service-type-remove"},
 	Short:   "Remove a service type",
-	Long:    "Removing a service type will prevent setting data/services pricing for that service type. ServiceType can not be removed if there is an price set for that service type",
+	Long:    "Removing a service type will prevent setting data/services pricing for that service type. Service type can not be removed if there is an price set for that service type",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.RemoveServiceType(serviceName)
+		cmd_helpers.RemoveServiceType(serviceTypeName)
 	},
 }
 
@@ -35,7 +35,7 @@ var setServiceTypeInactiveCmd = &cobra.Command{
 	Long:    "Setting service type to active will allow setting data/services pricing for that service type",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.SetServiceTypeInactive(serviceName)
+		cmd_helpers.SetServiceTypeInactive(serviceTypeName)
 	},
 }
 
@@ -46,24 +46,24 @@ var setServiceTypeActiveCmd = &cobra.Command{
 	Long:    "Setting service type to active will allow setting data/services pricing for that service type",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.SetServiceTypeActive(serviceName)
+		cmd_helpers.SetServiceTypeActive(serviceTypeName)
 	},
 }
 
 func init() {
-	addServiceTypeCmd.Flags().StringVarP(&serviceName, "type", "t", "", "Service type to be added")
+	addServiceTypeCmd.Flags().StringVarP(&serviceTypeName, "type", "t", "", "Service type to be added")
 	addServiceTypeCmd.MarkFlagRequired("type")
 	rootCmd.AddCommand(addServiceTypeCmd)
 
-	removeServiceTypeCmd.Flags().StringVarP(&serviceName, "type", "t", "", "Service type to be removed")
+	removeServiceTypeCmd.Flags().StringVarP(&serviceTypeName, "type", "t", "", "Service type to be removed")
 	removeServiceTypeCmd.MarkFlagRequired("type")
 	rootCmd.AddCommand(removeServiceTypeCmd)
 
-	setServiceTypeInactiveCmd.Flags().StringVarP(&serviceName, "type", "t", "", "Service type to be set inactive")
+	setServiceTypeInactiveCmd.Flags().StringVarP(&serviceTypeName, "type", "t", "", "Service type to be set inactive")
 	setServiceTypeInactiveCmd.MarkFlagRequired("type")
 	rootCmd.AddCommand(setServiceTypeInactiveCmd)
 
-	setServiceTypeActiveCmd.Flags().StringVarP(&serviceName, "type", "t", "", "Service type to be set active")
+	setServiceTypeActiveCmd.Flags().StringVarP(&serviceTypeName, "type", "t", "", "Service type to be set active")
 	setServiceTypeActiveCmd.MarkFlagRequired("type")
 	rootCmd.AddCommand(setServiceTypeActiveCmd)
 }

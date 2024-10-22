@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS services (
 	"description" TEXT DEFAULT NULL,
 	"node_id" INTEGER NOT NULL,
 	"service_type_id" INTEGER NOT NULL,
+	"active" BOOLEAN DEFAULT TRUE,
 	FOREIGN KEY("node_id") REFERENCES nodes("id"),
 	FOREIGN KEY("service_type_id") REFERENCES service_types("id")
 );
