@@ -38,7 +38,7 @@ func GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, er
 	}
 
 	// Search for jobs
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, status, datetime(started), datetime(ended) from jobs where service_id = ? limit ? offset ?;",
+	rows, err := db.QueryContext(context.Background(), "select id, ordering_node_id, service_id, status, datetime(started), datetime(ended) from jobs where service_id = ? limit ? offset ?;",
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()

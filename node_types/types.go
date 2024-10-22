@@ -76,9 +76,10 @@ type Service struct {
 
 // Declare job type
 type Job struct {
-	Id        NullInt32  `json:"id"`
-	ServiceId NullInt32  `json:"service_id"`
-	Status    NullString `json:"status"`
-	Started   NullTime   `json:"started"`
-	Ended     NullTime   `json:"ended"`
+	Id             NullInt32  `json:"id"`
+	OrderingNodeId NullInt32  `json:"ordering_node_id"`
+	ServiceId      NullInt32  `json:"service_id"`
+	Status         NullString `json:"status"`
+	Started        NullTime   `json:"started"`
+	Ended          NullTime   `json:"ended"`
 }

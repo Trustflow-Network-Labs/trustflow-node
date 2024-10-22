@@ -204,10 +204,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
+	"ordering_node_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"status"  VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT NULL,
 	"ended" TEXT DEFAULT NULL,
+	FOREIGN KEY("ordering_node_id") REFERENCES nodes("id"),
 	FOREIGN KEY("service_id") REFERENCES services("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
@@ -215,22 +217,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 		_, err = db.ExecContext(context.Background(), createJobsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
-			return nil, err
-		}
-
-		createJobInputsTableSql := `
-CREATE TABLE IF NOT EXISTS job_inputs (
-	"id" INTEGER PRIMARY KEY,
-	"job_id" INTEGER NOT NULL,
-	"input_job_id" DEFAULT NULL,
-	FOREIGN KEY("job_id") REFERENCES jobs("id")
-);
-CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
-`
-		_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
 			utils.Log("error", message, "database")
 			return nil, err
 		}
@@ -250,6 +236,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 		_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
+
+		createJobInputsTableSql := `
+CREATE TABLE IF NOT EXISTS job_inputs (
+	"id" INTEGER PRIMARY KEY,
+	"job_id" INTEGER NOT NULL,
+	"input_job_id" DEFAULT NULL,
+	FOREIGN KEY("job_id") REFERENCES jobs("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
+`
+		_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
 			utils.Log("error", message, "database")
 			return nil, err
 		}
