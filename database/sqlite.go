@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
 	"ordering_node_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
-	"status"  VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
+	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT NULL,
 	"ended" TEXT DEFAULT NULL,
 	FOREIGN KEY("ordering_node_id") REFERENCES nodes("id"),
@@ -243,9 +243,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 		createJobInputsTableSql := `
 CREATE TABLE IF NOT EXISTS job_inputs (
 	"id" INTEGER PRIMARY KEY,
-	"job_id" INTEGER NOT NULL,
-	"input_job_id" DEFAULT NULL,
-	FOREIGN KEY("job_id") REFERENCES jobs("id")
+	"job_execution_node_id" INTEGER NOT NULL,
+	"execution_job_id" INTEGER NOT NULL,
+	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'INPUTS READY',
+	"constraints" TEXT DEFAULT NULL,
+	"job_input_node_id" INTEGER DEFAULT NULL,
+	"input_job_id" INTEGER DEFAULT NULL,
+	FOREIGN KEY("job_execution_node_id") REFERENCES nodes("id"),
+	FOREIGN KEY("job_input_node_id") REFERENCES nodes("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
 `
@@ -259,7 +264,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
 		createOrchestrationsTableSql := `
 CREATE TABLE IF NOT EXISTS orchestrations (
 	"id" INTEGER PRIMARY KEY,
-	"job_ids" TEXT NOT NULL
+	"execution_jobs" TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id");
 `
@@ -274,7 +279,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id")
 CREATE TABLE IF NOT EXISTS executions (
 	"id" INTEGER PRIMARY KEY,
 	"orchestration_id" INTEGER NOT NULL,
-	"status"  VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
+	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT NULL,
 	"ended" TEXT DEFAULT NULL,
 	FOREIGN KEY("orchestration_id") REFERENCES orchestrations("id")
