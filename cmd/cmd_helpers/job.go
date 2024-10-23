@@ -3,6 +3,7 @@ package cmd_helpers
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
@@ -58,4 +59,27 @@ func GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, er
 	}
 
 	return jobs, nil
+}
+
+// Create new job
+func CreateJob(orderingNodeId int32, serviceId int32) {
+	// Create a database connection
+	db, err := database.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "services")
+		return
+	}
+	defer db.Close()
+
+	// Create new job
+	utils.Log("debug", fmt.Sprintf("create job from ordering node id %d using service id %d", orderingNodeId, serviceId), "services")
+
+	_, err = db.ExecContext(context.Background(), "insert into jobs (ordering_node_id, service_id) values (?, ?);",
+		orderingNodeId, serviceId)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "services")
+		return
+	}
 }
