@@ -139,35 +139,15 @@ INSERT INTO resources ("name") VALUES ('Egress');
 			return nil, err
 		}
 
-		createServiceTypesTableSql := `
-CREATE TABLE IF NOT EXISTS service_types (
-	"id" INTEGER PRIMARY KEY,
-	"name" VARCHAR(255) NOT NULL,
-	"active" BOOLEAN DEFAULT TRUE
-);
-CREATE UNIQUE INDEX IF NOT EXISTS service_types_id_idx ON service_types ("id");
-CREATE INDEX IF NOT EXISTS service_types_name_idx ON service_types ("name");
-
-INSERT INTO service_types ("name") VALUES ('Data');
-INSERT INTO service_types ("name") VALUES ('Docker execution environment');
-`
-		_, err = db.ExecContext(context.Background(), createServiceTypesTableSql)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `service_types` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
-			return nil, err
-		}
-
 		createServicesTable := `
 CREATE TABLE IF NOT EXISTS services (
 	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT NULL,
 	"node_id" INTEGER NOT NULL,
-	"service_type_id" INTEGER NOT NULL,
+	"service_type" VARCHAR(10) CHECK( "status" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'DOCKER EXECUTION ENVIRONMENT') ) NOT NULL DEFAULT 'DOCKER EXECUTION ENVIRONMENT',
 	"active" BOOLEAN DEFAULT TRUE,
-	FOREIGN KEY("node_id") REFERENCES nodes("id"),
-	FOREIGN KEY("service_type_id") REFERENCES service_types("id")
+	FOREIGN KEY("node_id") REFERENCES nodes("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS services_id_idx ON services ("id");
 CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
