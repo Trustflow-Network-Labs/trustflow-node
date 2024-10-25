@@ -63,7 +63,9 @@ type Service struct {
 	Name        NullString `json:"name"`
 	Description NullString `json:"description"`
 	NodeId      NullInt32  `json:"node_id"`
-	ServiceType NullString `json:"service_type"`
+	Type        NullString `json:"type"`
+	Patgh       NullString `json:"path"`
+	Repo        NullString `json:"repo"`
 	Active      NullBool   `json:"active"`
 }
 

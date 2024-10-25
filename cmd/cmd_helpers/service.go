@@ -60,7 +60,7 @@ func GetService(id int32) (node_types.Service, error) {
 	defer db.Close()
 
 	// Get service
-	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, service_type, active from services where id = ?;", id)
+	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, type, active from services where id = ?;", id)
 
 	err = row.Scan(&service)
 	if err != nil {
@@ -73,7 +73,7 @@ func GetService(id int32) (node_types.Service, error) {
 }
 
 // Add a service
-func AddService(name string, description string, node_id int32, service_type string, active bool) {
+func AddService(name string, description string, node_id int32, serviceType string, active bool) {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -86,8 +86,8 @@ func AddService(name string, description string, node_id int32, service_type str
 	// Add service
 	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, active) values (?, ?, ?, ?, ?);",
-		name, description, node_id, service_type, active)
+	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, type, active) values (?, ?, ?, ?, ?);",
+		name, description, node_id, serviceType, active)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")

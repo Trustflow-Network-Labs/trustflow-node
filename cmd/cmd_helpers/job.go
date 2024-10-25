@@ -170,25 +170,12 @@ func RunJob(jobId int32) error {
 
 	switch status {
 	case "IDLE":
-		// Check underlaying service
-		utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId.Int32), "jobs")
-
-		service, err := GetService(job.ServiceId.Int32)
+		// TODO, set job status to RUNNING
+		err := startJob(job)
 		if err != nil {
-			msg := err.Error()
-			utils.Log("error", msg, "jobs")
-			return err
+			// TODO, set job status to ERRORED
 		}
-
-		// Check if service is active
-		if !service.Active.Bool {
-			msg := fmt.Sprintf("Service id %d is inactive", service.Id.Int32)
-			utils.Log("error", msg, "jobs")
-			return err
-		}
-
-		// Run a job
-		utils.Log("debug", fmt.Sprintf("start running job id %d", jobId), "jobs")
+		return err
 	case "RUNNING":
 		msg := fmt.Sprintf("Job id %d is %s", job.Id.Int32, status)
 		utils.Log("error", msg, "jobs")
@@ -210,6 +197,50 @@ func RunJob(jobId int32) error {
 		utils.Log("error", msg, "jobs")
 		return err
 	}
+}
 
+func startJob(job node_types.Job) error {
+	// Check underlaying service
+	utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId.Int32), "jobs")
+
+	service, err := GetService(job.ServiceId.Int32)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	// Check if service is active
+	if !service.Active.Bool {
+		msg := fmt.Sprintf("Service id %d is inactive", service.Id.Int32)
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	// Determine service type
+	serviceType := service.Type.String
+
+	switch serviceType {
+	case "DATA":
+		err := streamData(service, job.OrderingNodeId.Int32)
+		if err != nil {
+
+		}
+	case "DOCKER EXECUTION ENVIRONMENT":
+	case "WASM EXECUTION ENVIRONMENT":
+	default:
+		msg := fmt.Sprintf("Unknown service type %s", serviceType)
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	// Run a job
+	jobId := job.Id.Int32
+	utils.Log("debug", fmt.Sprintf("start running job id %d", jobId), "jobs")
+
+	return nil
+}
+
+func streamData(service node_types.Service, orderingNodeId int32) error {
 	return nil
 }
