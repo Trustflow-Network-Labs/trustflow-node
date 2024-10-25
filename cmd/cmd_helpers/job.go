@@ -222,7 +222,7 @@ func startJob(job node_types.Job) error {
 
 	switch serviceType {
 	case "DATA":
-		err := streamData(service, job.OrderingNodeId.Int32)
+		err := StreamData(job)
 		if err != nil {
 
 		}
@@ -241,6 +241,6 @@ func startJob(job node_types.Job) error {
 	return nil
 }
 
-func streamData(service node_types.Service, orderingNodeId int32) error {
+func StreamData(job node_types.Job) error {
 	return nil
 }
