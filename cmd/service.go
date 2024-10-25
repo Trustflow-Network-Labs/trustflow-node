@@ -8,7 +8,7 @@ import (
 var serviceName string
 var serviceDescription string
 var serviceNodeId int32
-var serviceTypeId int32
+var serviceType string
 var serviceActive bool
 var serviceId int32
 var addServiceCmd = &cobra.Command{
@@ -18,7 +18,7 @@ var addServiceCmd = &cobra.Command{
 	Long:    "Adding new service will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.AddService(serviceName, serviceDescription, serviceNodeId, serviceTypeId, serviceActive)
+		cmd_helpers.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, serviceActive)
 	},
 }
 
@@ -61,7 +61,7 @@ func init() {
 	addServiceCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to be added")
 	addServiceCmd.Flags().Int32VarP(&serviceNodeId, "node", "i", 0, "Service node ID")
 	addServiceCmd.MarkFlagRequired("node")
-	addServiceCmd.Flags().Int32VarP(&serviceTypeId, "type", "t", 0, "Service type ID")
+	addServiceCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type")
 	addServiceCmd.MarkFlagRequired("type")
 	addServiceCmd.Flags().BoolVarP(&serviceActive, "active", "a", true, "Is service active?")
 	rootCmd.AddCommand(addServiceCmd)

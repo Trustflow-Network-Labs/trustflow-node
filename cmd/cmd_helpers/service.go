@@ -60,7 +60,7 @@ func GetService(id int32) (node_types.Service, error) {
 	defer db.Close()
 
 	// Get service
-	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, service_type_id, active from services where id = ?;", id)
+	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, service_type, active from services where id = ?;", id)
 
 	err = row.Scan(&service)
 	if err != nil {
@@ -72,59 +72,8 @@ func GetService(id int32) (node_types.Service, error) {
 	return service, nil
 }
 
-// Get services by service type ID
-func GetServicesByServiceTypeId(serviceTypeId int32, params ...uint32) ([]node_types.Service, error) {
-	var service node_types.Service
-	var services []node_types.Service
-	if serviceTypeId <= 0 {
-		msg := "invalid service type ID"
-		utils.Log("error", msg, "services")
-		return services, errors.New(msg)
-	}
-
-	// Create a database connection
-	db, err := database.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		utils.Log("error", msg, "services")
-		return services, err
-	}
-	defer db.Close()
-
-	var offset uint32 = 0
-	var limit uint32 = 10
-	if len(params) == 1 {
-		offset = params[0]
-	} else if len(params) >= 2 {
-		offset = params[0]
-		limit = params[1]
-	}
-
-	// Search for services
-	rows, err := db.QueryContext(context.Background(), "select id, name, description, node_id, service_type_id, active from services where service_type_id = ? limit ? offset ?;",
-		serviceTypeId, limit, offset)
-	if err != nil {
-		msg := err.Error()
-		utils.Log("error", msg, "services")
-		return services, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		err = rows.Scan(&service)
-		if err != nil {
-			msg := err.Error()
-			utils.Log("error", msg, "services")
-			return services, err
-		}
-		services = append(services, service)
-	}
-
-	return services, nil
-}
-
 // Add a service
-func AddService(name string, description string, node_id int32, service_type_id int32, active bool) {
+func AddService(name string, description string, node_id int32, service_type string, active bool) {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -137,8 +86,8 @@ func AddService(name string, description string, node_id int32, service_type_id 
 	// Add service
 	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type_id, active) values (?, ?, ?, ?, ?);",
-		name, description, node_id, service_type_id, active)
+	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, active) values (?, ?, ?, ?, ?);",
+		name, description, node_id, service_type, active)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
