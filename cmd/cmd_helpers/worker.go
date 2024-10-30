@@ -1,45 +1,38 @@
-package worker
+package cmd_helpers
 
 import (
 	"context"
 	"fmt"
 	"sync"
 
-	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
 	"github.com/adgsm/trustflow-node/node_types"
 )
 
-// Job processor type
-type JobProcessor func(node_types.Job) error
-
-func processJob(job node_types.Job, processor JobProcessor) error {
-	return processor(job)
-}
-
 // Worker represents a managed goroutine
 type Worker struct {
-	ID        int
+	ID        int32
 	ctx       context.Context
 	cancel    context.CancelFunc
 	finished  chan struct{}
 	isRunning bool
+	job       node_types.Job
 	mu        sync.RWMutex
 }
 
 // WorkerManager handles multiple workers
 type WorkerManager struct {
-	workers map[int]*Worker
+	workers map[int32]*Worker
 	mu      sync.RWMutex
 }
 
 func NewWorkerManager() *WorkerManager {
 	return &WorkerManager{
-		workers: make(map[int]*Worker),
+		workers: make(map[int32]*Worker),
 	}
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(id int, job node_types.Job) error {
+func (wm *WorkerManager) StartWorker(id int32, job node_types.Job) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -53,15 +46,20 @@ func (wm *WorkerManager) StartWorker(id int, job node_types.Job) error {
 		ctx:      ctx,
 		cancel:   cancel,
 		finished: make(chan struct{}),
+		job:      job,
 	}
 
 	wm.workers[id] = worker
-	worker.Start(job)
+	err := worker.Start()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // StopWorker stops a specific worker
-func (wm *WorkerManager) StopWorker(id int) error {
+func (wm *WorkerManager) StopWorker(id int32) error {
 	wm.mu.RLock()
 	worker, exists := wm.workers[id]
 	wm.mu.RUnlock()
@@ -80,21 +78,23 @@ func (wm *WorkerManager) StopWorker(id int) error {
 }
 
 // ListWorkers returns IDs of all active workers
-func (wm *WorkerManager) ListWorkers() []int {
+func (wm *WorkerManager) ListWorkers() []int32 {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
 
-	ids := make([]int, 0, len(wm.workers))
+	ids := make([]int32, 0, len(wm.workers))
 	for id := range wm.workers {
 		ids = append(ids, id)
 	}
 	return ids
 }
 
-func (w *Worker) Start(job node_types.Job) {
+func (w *Worker) Start() error {
 	w.mu.Lock()
 	w.isRunning = true
 	w.mu.Unlock()
+
+	var e error = nil
 
 	go func() {
 		defer close(w.finished)
@@ -109,13 +109,18 @@ func (w *Worker) Start(job node_types.Job) {
 				return
 			default:
 				fmt.Printf("Worker %d: Working...\n", w.ID)
-				err := processJob(job, cmd_helpers.StreamData)
+				err := StartJob(w.job)
 				if err != nil {
-					// TODO
+					e = err
 				}
+				w.cancel()
+				<-w.finished // Wait for worker to finish
+				fmt.Printf("Worker %d: finished completely\n", w.ID)
 			}
 		}
 	}()
+
+	return e
 }
 
 func (w *Worker) Stop() {

@@ -171,11 +171,23 @@ func RunJob(jobId int32) error {
 	switch status {
 	case "IDLE":
 		// TODO, set job status to RUNNING
-		err := startJob(job)
+		manager := NewWorkerManager()
+		err := manager.StartWorker(jobId, job)
 		if err != nil {
-			// TODO, set job status to ERRORED
+			// Stop worker
+			serr := manager.StopWorker(jobId)
+			if serr != nil {
+				msg := serr.Error()
+				utils.Log("error", msg, "jobs")
+				return err
+			}
+
+			// Log error
+			msg := err.Error()
+			utils.Log("error", msg, "jobs")
+			return err
 		}
-		return err
+		return nil
 	case "RUNNING":
 		msg := fmt.Sprintf("Job id %d is %s", job.Id.Int32, status)
 		utils.Log("error", msg, "jobs")
@@ -199,7 +211,7 @@ func RunJob(jobId int32) error {
 	}
 }
 
-func startJob(job node_types.Job) error {
+func StartJob(job node_types.Job) error {
 	// Check underlaying service
 	utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId.Int32), "jobs")
 
@@ -224,7 +236,9 @@ func startJob(job node_types.Job) error {
 	case "DATA":
 		err := StreamData(job)
 		if err != nil {
-
+			msg := err.Error()
+			utils.Log("error", msg, "jobs")
+			return err
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
 	case "WASM EXECUTION ENVIRONMENT":
@@ -242,5 +256,6 @@ func startJob(job node_types.Job) error {
 }
 
 func StreamData(job node_types.Job) error {
+	// TODO
 	return nil
 }
