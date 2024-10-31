@@ -1,4 +1,4 @@
-package cmd_helpers
+package blacklist_node
 
 import (
 	"context"

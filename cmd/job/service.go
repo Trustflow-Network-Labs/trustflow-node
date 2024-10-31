@@ -1,10 +1,11 @@
-package cmd_helpers
+package job
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/adgsm/trustflow-node/cmd/price"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
@@ -134,7 +135,7 @@ func RemoveService(id int32) {
 	}
 
 	// Check if there are existing prices defined using this service
-	prices, err := GetPricesByServiceId(id)
+	prices, err := price.GetPricesByServiceId(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -183,7 +184,7 @@ func SetServiceInactive(id int32) {
 	}
 
 	// Check if there are existing prices defined using this service
-	prices, err := GetPricesByServiceId(id)
+	prices, err := price.GetPricesByServiceId(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")

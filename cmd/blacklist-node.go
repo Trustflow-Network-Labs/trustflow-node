@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
+	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +14,7 @@ var blackListNodeCmd = &cobra.Command{
 	Long:    "Blacklisting a node prevent any communication with that node",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.BlacklistNode(nodeId, reason)
+		blacklist_node.BlacklistNode(nodeId, reason)
 	},
 }
 
@@ -25,7 +25,7 @@ var removeNodeFromBlacklistCmd = &cobra.Command{
 	Long:    "Removing a node from blacklist makes communication with that node possible again",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.RemoveNodeFromBlacklist(nodeId)
+		blacklist_node.RemoveNodeFromBlacklist(nodeId)
 	},
 }
 

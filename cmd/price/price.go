@@ -1,4 +1,4 @@
-package cmd_helpers
+package price
 
 import (
 	"context"

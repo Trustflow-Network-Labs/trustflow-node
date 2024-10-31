@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
+	"github.com/adgsm/trustflow-node/cmd/resource"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +13,7 @@ var addResourceCmd = &cobra.Command{
 	Long:    "Adding new resource will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.AddResource(name)
+		resource.AddResource(name)
 	},
 }
 
@@ -24,7 +24,7 @@ var removeResourceCmd = &cobra.Command{
 	Long:    "Removing a resource will prevent setting data/services pricing for that resource. Resource can not be removed if there is an price set for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.RemoveResource(name)
+		resource.RemoveResource(name)
 	},
 }
 
@@ -35,7 +35,7 @@ var setResourceInactiveCmd = &cobra.Command{
 	Long:    "Setting resource to active will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.SetResourceInactive(name)
+		resource.SetResourceInactive(name)
 	},
 }
 
@@ -46,7 +46,7 @@ var setResourceActiveCmd = &cobra.Command{
 	Long:    "Setting resource to active will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd_helpers.SetResourceActive(name)
+		resource.SetResourceActive(name)
 	},
 }
 

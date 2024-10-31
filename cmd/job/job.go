@@ -1,4 +1,4 @@
-package cmd_helpers
+package job
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/p2p"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -256,6 +257,15 @@ func StartJob(job node_types.Job) error {
 }
 
 func StreamData(job node_types.Job) error {
-	// TODO
+	// Check if node is running
+	if running, _ := p2p.IsHostRunning(); !running {
+		msg := "node is not running"
+		err := errors.New(msg)
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	// TODO, connect remote node, propose stream and start streaming
+
 	return nil
 }

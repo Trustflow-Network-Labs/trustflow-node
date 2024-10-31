@@ -1,10 +1,12 @@
-package cmd_helpers
+package resource
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/adgsm/trustflow-node/cmd/price"
+	resource_utilization "github.com/adgsm/trustflow-node/cmd/resource-utilization"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
@@ -141,7 +143,7 @@ func RemoveResource(name string) {
 		return
 	}
 
-	utilizations, err := GetUtilizationsByResourceId(resource.Id.Int32)
+	utilizations, err := resource_utilization.GetUtilizationsByResourceId(resource.Id.Int32)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")
@@ -155,7 +157,7 @@ func RemoveResource(name string) {
 	}
 
 	// Check if there are existing prices defined using this resource
-	prices, err := GetPricesByResourceId(resource.Id.Int32)
+	prices, err := price.GetPricesByResourceId(resource.Id.Int32)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")
@@ -211,7 +213,7 @@ func SetResourceInactive(name string) {
 		return
 	}
 
-	prices, err := GetPricesByResourceId(resource.Id.Int32)
+	prices, err := price.GetPricesByResourceId(resource.Id.Int32)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")

@@ -1,4 +1,4 @@
-package cmd_helpers
+package resource_utilization
 
 import (
 	"context"

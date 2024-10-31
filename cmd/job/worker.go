@@ -1,4 +1,4 @@
-package cmd_helpers
+package job
 
 import (
 	"context"
@@ -113,9 +113,7 @@ func (w *Worker) Start() error {
 				if err != nil {
 					e = err
 				}
-				w.cancel()
-				<-w.finished // Wait for worker to finish
-				fmt.Printf("Worker %d: finished completely\n", w.ID)
+				w.Stop()
 			}
 		}
 	}()

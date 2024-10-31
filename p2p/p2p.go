@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/adgsm/trustflow-node/cmd/cmd_helpers"
+	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/tfnode"
@@ -40,6 +41,14 @@ var (
 
 // provide configs file path
 var configsPath string = "p2p/configs"
+
+var h host.Host
+
+// IsHostRunning checks if the provided host is actively running
+func IsHostRunning() (bool, host.Host) {
+	// Check if the host is listening on any network addresses
+	return len(h.Network().ListenAddresses()) > 0, h
+}
 
 func Start(port uint16) {
 	// Read configs
@@ -77,7 +86,7 @@ func Start(port uint16) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	h, err := libp2p.New(
+	h, err = libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
 		// Multiple listen addresses
@@ -182,12 +191,30 @@ func Start(port uint16) {
 	receivedMessage(ctx, sub)
 }
 
-func initDHT(ctx context.Context, h host.Host) *dht.IpfsDHT {
+func Stop() error {
+	running, h := IsHostRunning()
+	if !running {
+		message := "host is not running"
+		err := errors.New(message)
+		utils.Log("warn", message, "p2p")
+		return err
+	}
+
+	err := h.Close()
+	if err != nil {
+		utils.Log("warn", err.Error(), "p2p")
+		return err
+	}
+
+	return nil
+}
+
+func initDHT(ctx context.Context, hst host.Host) *dht.IpfsDHT {
 	// Start a DHT, for use in peer discovery. We can't just make a new DHT
 	// client because we want each peer to maintain its own local copy of the
 	// DHT, so that the bootstrapping node of the DHT can go down without
 	// inhibiting future peer discovery.
-	kademliaDHT, err := dht.New(ctx, h)
+	kademliaDHT, err := dht.New(ctx, hst)
 	if err != nil {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -202,7 +229,7 @@ func initDHT(ctx context.Context, h host.Host) *dht.IpfsDHT {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := h.Connect(ctx, *peerinfo); err != nil {
+			if err := hst.Connect(ctx, *peerinfo); err != nil {
 				utils.Log("warn", err.Error(), "p2p")
 			}
 		}()
@@ -212,7 +239,7 @@ func initDHT(ctx context.Context, h host.Host) *dht.IpfsDHT {
 	return kademliaDHT
 }
 
-func discoverPeers(ctx context.Context, h host.Host) {
+func discoverPeers(ctx context.Context, hst host.Host) {
 	kademliaDHT := initDHT(ctx, h)
 	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
 	dutil.Advertise(ctx, routingDiscovery, *topicNameFlag)
@@ -227,10 +254,10 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			panic(fmt.Sprintf("%v", err))
 		}
 		for peer := range peerChan {
-			if peer.ID == h.ID() {
+			if peer.ID == hst.ID() {
 				continue // No self connection
 			}
-			err, blacklisted := cmd_helpers.NodeBlacklisted(peer.ID.String())
+			err, blacklisted := blacklist_node.NodeBlacklisted(peer.ID.String())
 			if err != nil {
 				msg := err.Error()
 				utils.Log("error", msg, "p2p")
@@ -242,7 +269,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 				continue // Do not connect blacklisted nodes
 			}
 
-			err = h.Connect(ctx, peer)
+			err = hst.Connect(ctx, peer)
 			if err != nil {
 				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "p2p")
 				utils.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "p2p")
@@ -250,11 +277,11 @@ func discoverPeers(ctx context.Context, h host.Host) {
 				if err != nil {
 					utils.Log("warn", fmt.Sprintf("Failed deleting node %s, error: %s", peer.ID, err), "p2p")
 				}
-				h.Network().ClosePeer(peer.ID)
-				h.Network().Peerstore().RemovePeer(peer.ID)
+				hst.Network().ClosePeer(peer.ID)
+				hst.Network().Peerstore().RemovePeer(peer.ID)
 				kademliaDHT.RoutingTable().RemovePeer(peer.ID)
-				h.Peerstore().ClearAddrs(peer.ID)
-				h.Peerstore().RemovePeer(peer.ID)
+				hst.Peerstore().ClearAddrs(peer.ID)
+				hst.Peerstore().RemovePeer(peer.ID)
 				utils.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
 			} else {
 				utils.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
@@ -284,7 +311,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 						panic(err)
 					}
 				}
-				s, err := h.NewStream(ctx, peer.ID, protocolID)
+				s, err := hst.NewStream(ctx, peer.ID, protocolID)
 				if err != nil {
 					utils.Log("warn", err.Error(), "p2p")
 					s.Reset()
@@ -483,7 +510,7 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 			utils.Log("error", err.Error(), "p2p")
 		}
 
-		err, blacklisted := cmd_helpers.NodeBlacklisted(m.ReceivedFrom.String())
+		err, blacklisted := blacklist_node.NodeBlacklisted(m.ReceivedFrom.String())
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "p2p")

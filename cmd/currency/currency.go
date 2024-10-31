@@ -1,10 +1,11 @@
-package cmd_helpers
+package currency
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/adgsm/trustflow-node/cmd/price"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
@@ -142,7 +143,7 @@ func RemoveCurrency(symbol string) {
 		return
 	}
 
-	prices, err := GetPricesByCurrencyId(currency.Id.Int32)
+	prices, err := price.GetPricesByCurrencyId(currency.Id.Int32)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "currencies")
