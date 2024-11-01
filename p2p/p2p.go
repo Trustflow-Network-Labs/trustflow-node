@@ -31,6 +31,7 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	"github.com/multiformats/go-multiaddr"
 )
 
 var (
@@ -43,11 +44,24 @@ var (
 var configsPath string = "p2p/configs"
 
 var h host.Host
+var ctx context.Context
 
 // IsHostRunning checks if the provided host is actively running
-func IsHostRunning() (bool, host.Host) {
+func IsHostRunning() bool {
+	_, hst := GetHostContext()
 	// Check if the host is listening on any network addresses
-	return len(h.Network().ListenAddresses()) > 0, h
+	return len(hst.Network().ListenAddresses()) > 0
+}
+
+// Get host context
+func GetHostContext() (context.Context, host.Host) {
+	return ctx, h
+}
+
+// Set host context
+func SetHostContext(c context.Context, hst host.Host) {
+	ctx = c
+	h = hst
 }
 
 func Start(port uint16) {
@@ -77,7 +91,7 @@ func Start(port uint16) {
 	protocolID = protocol.ID(config["protocol_id"])
 
 	flag.Parse()
-	ctx := context.Background()
+	cntx := context.Background()
 
 	// Create or get previously created node key
 	priv, _, err := tfnode.GetNodeKey()
@@ -86,7 +100,7 @@ func Start(port uint16) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	h, err = libp2p.New(
+	hst, err := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
 		// Multiple listen addresses
@@ -105,8 +119,8 @@ func Start(port uint16) {
 		// Attempt to open ports using uPNP for NATed hosts.
 		libp2p.NATPortMap(),
 		// Let this host use the DHT to find other hosts
-		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-			idht, err = dht.New(ctx, h)
+		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
+			idht, err = dht.New(cntx, hst)
 			return idht, err
 		}),
 		// If you want to help other peers to figure out if they are behind
@@ -122,20 +136,22 @@ func Start(port uint16) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
+	SetHostContext(context.Background(), hst)
+
 	var multiaddrs []string
-	message := fmt.Sprintf("Node ID is %s", h.ID())
+	message := fmt.Sprintf("Node ID is %s", hst.ID())
 	utils.Log("info", message, "p2p")
-	for _, ma := range h.Addrs() {
+	for _, ma := range hst.Addrs() {
 		message := fmt.Sprintf("Multiaddr is %s", ma.String())
 		utils.Log("info", message, "p2p")
 		multiaddrs = append(multiaddrs, ma.String())
 	}
 
 	// Check if node is already existing in the DB
-	_, err = tfnode.FindNode(h.ID().String())
+	_, err = tfnode.FindNode(hst.ID().String())
 	if err != nil {
 		// Add node
-		err = tfnode.AddNode(h.ID().String(), strings.Join(multiaddrs, ","), true)
+		err = tfnode.AddNode(hst.ID().String(), strings.Join(multiaddrs, ","), true)
 		if err != nil {
 			utils.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
@@ -147,14 +163,14 @@ func Start(port uint16) {
 			utils.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
-		err = keystore.AddKey(h.ID().String(), fmt.Sprintf("%s: secp256r1", priv.Type().String()), key)
+		err = keystore.AddKey(hst.ID().String(), fmt.Sprintf("%s: secp256r1", priv.Type().String()), key)
 		if err != nil {
 			utils.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 	} else {
 		// Update node
-		err = tfnode.UpdateNode(h.ID().String(), strings.Join(multiaddrs, ","), true)
+		err = tfnode.UpdateNode(hst.ID().String(), strings.Join(multiaddrs, ","), true)
 		if err != nil {
 			utils.Log("panic", err.Error(), "p2p")
 			panic(err)
@@ -164,14 +180,14 @@ func Start(port uint16) {
 	// Setup a stream handler.
 	// This gets called every time a peer connects and opens a stream to this node.
 	h.SetStreamHandler(protocolID, func(s network.Stream) {
-		message := fmt.Sprintf("Stream [protocol: %s] %s has been openned on node %s from node %s", protocolID, s.ID(), h.ID(), s.Conn().RemotePeer().String())
+		message := fmt.Sprintf("Stream [protocol: %s] %s has been openned on node %s from node %s", protocolID, s.ID(), hst.ID(), s.Conn().RemotePeer().String())
 		utils.Log("info", message, "p2p")
 		go streamProposalResponse(s)
 	})
 
-	go discoverPeers(ctx, h)
+	go discoverPeers(cntx, hst)
 
-	ps, err := pubsub.NewGossipSub(ctx, h)
+	ps, err := pubsub.NewGossipSub(cntx, hst)
 	if err != nil {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -181,18 +197,18 @@ func Start(port uint16) {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
-	go broadcastMessage(ctx, topic)
+	go broadcastMessage(cntx, topic)
 
 	sub, err := topic.Subscribe()
 	if err != nil {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
-	receivedMessage(ctx, sub)
+	receivedMessage(cntx, sub)
 }
 
 func Stop() error {
-	running, h := IsHostRunning()
+	running := IsHostRunning()
 	if !running {
 		message := "host is not running"
 		err := errors.New(message)
@@ -200,7 +216,9 @@ func Stop() error {
 		return err
 	}
 
-	err := h.Close()
+	_, hst := GetHostContext()
+
+	err := hst.Close()
 	if err != nil {
 		utils.Log("warn", err.Error(), "p2p")
 		return err
@@ -209,17 +227,17 @@ func Stop() error {
 	return nil
 }
 
-func initDHT(ctx context.Context, hst host.Host) *dht.IpfsDHT {
+func initDHT(cntx context.Context, hst host.Host) *dht.IpfsDHT {
 	// Start a DHT, for use in peer discovery. We can't just make a new DHT
 	// client because we want each peer to maintain its own local copy of the
 	// DHT, so that the bootstrapping node of the DHT can go down without
 	// inhibiting future peer discovery.
-	kademliaDHT, err := dht.New(ctx, hst)
+	kademliaDHT, err := dht.New(cntx, hst)
 	if err != nil {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
-	if err = kademliaDHT.Bootstrap(ctx); err != nil {
+	if err = kademliaDHT.Bootstrap(cntx); err != nil {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
@@ -229,7 +247,7 @@ func initDHT(ctx context.Context, hst host.Host) *dht.IpfsDHT {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := hst.Connect(ctx, *peerinfo); err != nil {
+			if err := hst.Connect(cntx, *peerinfo); err != nil {
 				utils.Log("warn", err.Error(), "p2p")
 			}
 		}()
@@ -239,95 +257,125 @@ func initDHT(ctx context.Context, hst host.Host) *dht.IpfsDHT {
 	return kademliaDHT
 }
 
-func discoverPeers(ctx context.Context, hst host.Host) {
-	kademliaDHT := initDHT(ctx, h)
+func discoverPeers(cntx context.Context, hst host.Host) {
+	kademliaDHT := initDHT(cntx, hst)
 	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
-	dutil.Advertise(ctx, routingDiscovery, *topicNameFlag)
+	dutil.Advertise(cntx, routingDiscovery, *topicNameFlag)
 
 	// Look for others who have announced and attempt to connect to them
 	anyConnected := false
 	for !anyConnected {
 		utils.Log("debug", "Searching for peers...", "p2p")
-		peerChan, err := routingDiscovery.FindPeers(ctx, *topicNameFlag)
+		peerChan, err := routingDiscovery.FindPeers(cntx, *topicNameFlag)
 		if err != nil {
 			utils.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 		for peer := range peerChan {
-			if peer.ID == hst.ID() {
-				continue // No self connection
-			}
-			err, blacklisted := blacklist_node.NodeBlacklisted(peer.ID.String())
+			skip, err := ConnectNode(peer)
 			if err != nil {
 				msg := err.Error()
 				utils.Log("error", msg, "p2p")
 				panic(err)
 			}
-			if blacklisted {
-				msg := fmt.Sprintf("Node %s is blacklisted", peer.ID.String())
-				utils.Log("warn", msg, "p2p")
-				continue // Do not connect blacklisted nodes
+			if skip {
+				msg := "Skipping node"
+				utils.Log("info", msg, "p2p")
+				continue
 			}
 
-			err = hst.Connect(ctx, peer)
+			s, err := hst.NewStream(cntx, peer.ID, protocolID)
 			if err != nil {
-				utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "p2p")
-				utils.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "p2p")
-				err = tfnode.DeleteNode(peer.ID.String())
-				if err != nil {
-					utils.Log("warn", fmt.Sprintf("Failed deleting node %s, error: %s", peer.ID, err), "p2p")
-				}
-				hst.Network().ClosePeer(peer.ID)
-				hst.Network().Peerstore().RemovePeer(peer.ID)
-				kademliaDHT.RoutingTable().RemovePeer(peer.ID)
-				hst.Peerstore().ClearAddrs(peer.ID)
-				hst.Peerstore().RemovePeer(peer.ID)
-				utils.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
+				utils.Log("warn", err.Error(), "p2p")
+				s.Reset()
 			} else {
-				utils.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
-				anyConnected = true
-				// Determine multiaddrs
-				var multiaddrs []string
-				for _, ma := range peer.Addrs {
-					utils.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
-					multiaddrs = append(multiaddrs, ma.String())
-				}
-				// Check if node is already existing in the DB
-				_, err := tfnode.FindNode(peer.ID.String())
-				if err != nil {
-					// Add new nodes to DB
-					utils.Log("debug", fmt.Sprintf("add node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
-					err = tfnode.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
-					if err != nil {
-						utils.Log("panic", err.Error(), "p2p")
-						panic(err)
-					}
-				} else {
-					// Update node
-					utils.Log("debug", fmt.Sprintf("update node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
-					err = tfnode.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
-					if err != nil {
-						utils.Log("panic", err.Error(), "p2p")
-						panic(err)
-					}
-				}
-				s, err := hst.NewStream(ctx, peer.ID, protocolID)
-				if err != nil {
-					utils.Log("warn", err.Error(), "p2p")
-					s.Reset()
-				} else {
-					var str []byte = []byte(peer.ID.String())
-					var str255 [255]byte
-					copy(str255[:], str)
-					go streamProposal(s, str255, 0, 0)
-					// TODO, read data from appropriate source
-					data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
-					go sendStream(s, &data)
-				}
+				var str []byte = []byte(peer.ID.String())
+				var str255 [255]byte
+				copy(str255[:], str)
+				go streamProposal(s, str255, 0, 0)
+				// TODO, read data from appropriate source
+				data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
+				go sendStream(s, &data)
 			}
+
 		}
 	}
 	utils.Log("debug", "Peer discovery complete", "p2p")
+}
+
+func ConnectNode(peer peer.AddrInfo) (bool, error) {
+	running := IsHostRunning()
+	if !running {
+		msg := "host is not running"
+		utils.Log("error", msg, "p2p")
+		err := errors.New(msg)
+		return false, err
+	}
+
+	cntx, hst := GetHostContext()
+
+	if peer.ID == hst.ID() {
+		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), hst.ID().String())
+		utils.Log("error", msg, "p2p")
+		err := errors.New(msg)
+		return true, err // skip node but do not panic
+	}
+	err, blacklisted := blacklist_node.NodeBlacklisted(peer.ID.String())
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "p2p")
+		return false, err
+	}
+	if blacklisted {
+		msg := fmt.Sprintf("Node %s is blacklisted", peer.ID.String())
+		utils.Log("warn", msg, "p2p")
+		err := errors.New(msg)
+		return true, err // skip node but do not panic
+	}
+
+	err = hst.Connect(cntx, peer)
+	if err != nil {
+		utils.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "p2p")
+		utils.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "p2p")
+		err = tfnode.DeleteNode(peer.ID.String())
+		if err != nil {
+			utils.Log("warn", fmt.Sprintf("Failed deleting node %s, error: %s", peer.ID, err), "p2p")
+		}
+		hst.Network().ClosePeer(peer.ID)
+		hst.Network().Peerstore().RemovePeer(peer.ID)
+		hst.Peerstore().ClearAddrs(peer.ID)
+		hst.Peerstore().RemovePeer(peer.ID)
+		utils.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
+	} else {
+		utils.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
+		// Determine multiaddrs
+		var multiaddrs []string
+		for _, ma := range peer.Addrs {
+			utils.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
+			multiaddrs = append(multiaddrs, ma.String())
+		}
+		// Check if node is already existing in the DB
+		_, err := tfnode.FindNode(peer.ID.String())
+		if err != nil {
+			// Add new nodes to DB
+			utils.Log("debug", fmt.Sprintf("add node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
+			err = tfnode.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				return true, err // skip node but do not panic
+			}
+		} else {
+			// Update node
+			utils.Log("debug", fmt.Sprintf("update node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
+			err = tfnode.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				return true, err // skip node but do not panic
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func streamProposal(s network.Stream, p [255]byte, t uint16, v uint16) {
@@ -530,4 +578,44 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 			// TODO
 		}
 	}
+}
+
+func GeneratePeerFromId(peerId string) (peer.AddrInfo, error) {
+	var p peer.AddrInfo
+	// Convert the string to a peer.ID
+	pID, err := peer.Decode(peerId)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("warn", msg, "p2p")
+		return p, err
+	}
+
+	// Get existing multiaddrs from DB
+	node, err := tfnode.FindNode(peerId)
+	if err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		return p, err
+	}
+
+	multiaddrsList := strings.Split(node.Multiaddrs.String, ",")
+
+	// Convert []string to []multiaddr.Multiaddr
+	multiaddrs := []multiaddr.Multiaddr{}
+	for _, addrStr := range multiaddrsList {
+		addr, err := multiaddr.NewMultiaddr(addrStr)
+		if err != nil {
+			utils.Log("warn", err.Error(), "p2p")
+			continue
+		}
+		multiaddrs = append(multiaddrs, addr)
+	}
+
+	// Create peer.AddrInfo from peer.ID
+	p = peer.AddrInfo{
+		ID: pID,
+		// Add any multiaddresses if known (leave blank here if unknown)
+		Addrs: multiaddrs,
+	}
+
+	return p, nil
 }

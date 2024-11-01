@@ -8,6 +8,7 @@ import (
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/p2p"
+	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -258,14 +259,54 @@ func StartJob(job node_types.Job) error {
 
 func StreamData(job node_types.Job) error {
 	// Check if node is running
-	if running, _ := p2p.IsHostRunning(); !running {
+	if running := p2p.IsHostRunning(); !running {
 		msg := "node is not running"
 		err := errors.New(msg)
 		utils.Log("error", msg, "jobs")
 		return err
 	}
 
-	// TODO, connect remote node, propose stream and start streaming
+	// Get data source path
+	service, err := GetService(job.ServiceId.Int32)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	fmt.Printf("%v", service)
+
+	// TODO, check source data is existing / in place
+
+	// Get ordering node peer ID
+	orderingNode, err := tfnode.FindNodeById(job.OrderingNodeId.Int32)
+	if err != nil {
+		utils.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	// Get peer
+	p, err := p2p.GeneratePeerFromId(orderingNode.NodeId.String)
+	if err != nil {
+		utils.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	// Connect to peer
+	skip, err := p2p.ConnectNode(p)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+	if skip {
+		msg := fmt.Sprintf("Skipping node %s (it's either blacklisted or nor reachable)", p.ID.String())
+		utils.Log("info", msg, "p2p")
+		err = errors.New(msg)
+		return err
+	}
+
+	// TODO, open and propose stream, start streaming
 
 	return nil
 }
