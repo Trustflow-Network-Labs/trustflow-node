@@ -284,26 +284,55 @@ func discoverPeers(cntx context.Context, hst host.Host) {
 				continue
 			}
 
-			s, err := hst.NewStream(cntx, peer.ID, protocolID)
+			// TODO, read data from appropriate source
+			// What would we stream to node per connection (Service Catalogue?)
+			data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
+			err = StreamData(peer, data)
 			if err != nil {
-				utils.Log("warn", err.Error(), "p2p")
-				s.Reset()
-			} else {
-				var str []byte = []byte(peer.ID.String())
-				var str255 [255]byte
-				copy(str255[:], str)
-				go streamProposal(s, str255, 0, 0)
-				// TODO, read data from appropriate source
-				data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
-				go sendStream(s, &data)
+				msg := err.Error()
+				utils.Log("error", msg, "p2p")
+				continue
 			}
-
 		}
 	}
 	utils.Log("debug", "Peer discovery complete", "p2p")
 }
 
-func ConnectNode(peer peer.AddrInfo) (bool, error) {
+func StreamData(peer peer.AddrInfo, data []byte) error {
+	skip, err := ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "p2p")
+		return err
+	}
+
+	if skip {
+		message := fmt.Sprintf("peer %s is set to skip connecting (it's either blacklisted or unreachable)", peer.ID.String())
+		err := errors.New(message)
+		utils.Log("warn", message, "p2p")
+		return err
+	}
+
+	cntx, hst := GetHostContext()
+
+	s, err := hst.NewStream(cntx, peer.ID, protocolID)
+	if err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		s.Reset()
+		return err
+	} else {
+		var str []byte = []byte(hst.ID().String())
+		var str255 [255]byte
+		copy(str255[:], str)
+		go streamProposal(s, str255, 0, 0)
+		// TODO, read data from appropriate source
+		go sendStream(s, &data)
+	}
+
+	return nil
+}
+
+func IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 	running := IsHostRunning()
 	if !running {
 		msg := "host is not running"
@@ -311,14 +340,41 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 		err := errors.New(msg)
 		return false, err
 	}
+	_, hst := GetHostContext()
+
+	connected := false
+
+	// Check for connected peers
+	connectedPeers := hst.Network().Peers()
+	for _, peerID := range connectedPeers {
+		if peerID == peer.ID {
+			connected = true
+			break
+		}
+	}
+
+	return connected, nil
+}
+
+func ConnectNode(peer peer.AddrInfo) (bool, error) {
+	connected, err := IsNodeConnected(peer)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "p2p")
+		return false, err
+	}
+	if connected {
+		msg := fmt.Sprintf("Node %s is already connected", peer.ID.String())
+		utils.Log("warn", msg, "p2p")
+		return true, nil // skip node but do not panic
+	}
 
 	cntx, hst := GetHostContext()
 
 	if peer.ID == hst.ID() {
 		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), hst.ID().String())
 		utils.Log("error", msg, "p2p")
-		err := errors.New(msg)
-		return true, err // skip node but do not panic
+		return true, nil // skip node but do not panic
 	}
 	err, blacklisted := blacklist_node.NodeBlacklisted(peer.ID.String())
 	if err != nil {
@@ -329,8 +385,7 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 	if blacklisted {
 		msg := fmt.Sprintf("Node %s is blacklisted", peer.ID.String())
 		utils.Log("warn", msg, "p2p")
-		err := errors.New(msg)
-		return true, err // skip node but do not panic
+		return true, nil // skip node but do not panic
 	}
 
 	err = hst.Connect(cntx, peer)
@@ -362,7 +417,7 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 			err = tfnode.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
 			if err != nil {
 				utils.Log("error", err.Error(), "p2p")
-				return true, err // skip node but do not panic
+				return true, nil // skip node but do not panic
 			}
 		} else {
 			// Update node
@@ -370,7 +425,7 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 			err = tfnode.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
 			if err != nil {
 				utils.Log("error", err.Error(), "p2p")
-				return true, err // skip node but do not panic
+				return true, nil // skip node but do not panic
 			}
 		}
 	}

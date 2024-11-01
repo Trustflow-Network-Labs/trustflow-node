@@ -292,21 +292,15 @@ func StreamData(job node_types.Job) error {
 		return err
 	}
 
-	// Connect to peer
-	skip, err := p2p.ConnectNode(p)
+	// Connect to peer and start streaming
+	// TODO, read data from appropriate source
+	data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
+	err = p2p.StreamData(p, data)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
 		return err
 	}
-	if skip {
-		msg := fmt.Sprintf("Skipping node %s (it's either blacklisted or nor reachable)", p.ID.String())
-		utils.Log("info", msg, "p2p")
-		err = errors.New(msg)
-		return err
-	}
-
-	// TODO, open and propose stream, start streaming
 
 	return nil
 }
