@@ -15,7 +15,7 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		if running, _ := p2p.IsHostRunning(); !running {
+		if running := p2p.IsHostRunning(); !running {
 			p2p.Start(port)
 			fmt.Printf("Started running node on port %d\n", port)
 		}
@@ -29,7 +29,7 @@ var stopNodeCmd = &cobra.Command{
 	Long:    "Stops running p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		if running, _ := p2p.IsHostRunning(); running {
+		if running := p2p.IsHostRunning(); running {
 			err := p2p.Stop()
 			if err != nil {
 				fmt.Printf("Error %s occured whilst trying to stop running node\n", err.Error())
