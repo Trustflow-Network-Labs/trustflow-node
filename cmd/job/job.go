@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
@@ -274,9 +275,34 @@ func StreamData(job node_types.Job) error {
 		return err
 	}
 
-	fmt.Printf("%v", service)
+	// Check source data is existing / in place
+	if !service.Path.Valid {
+		msg := "service path is invalid"
+		err := errors.New(msg)
+		utils.Log("error", msg, "jobs")
+		return err
+	}
 
-	// TODO, check source data is existing / in place
+	// Check if the file exists
+	_, err = os.Stat(service.Path.String)
+	if os.IsNotExist(err) {
+		msg := "file does not exist"
+		err := errors.New(msg)
+		utils.Log("error", msg, "jobs")
+		return err
+	} else if err != nil {
+		// Handle other potential errors
+		utils.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	// Open the file for reading
+	file, err := os.Open(service.Path.String)
+	if err != nil {
+		utils.Log("error", err.Error(), "jobs")
+		return err
+	}
+	defer file.Close() // Ensure the file is closed after operations
 
 	// Get ordering node peer ID
 	orderingNode, err := tfnode.FindNodeById(job.OrderingNodeId.Int32)
@@ -293,9 +319,7 @@ func StreamData(job node_types.Job) error {
 	}
 
 	// Connect to peer and start streaming
-	// TODO, read data from appropriate source
-	data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
-	err = p2p.StreamData(p, data)
+	err = p2p.StreamData(p, file)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
