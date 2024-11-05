@@ -12,7 +12,7 @@ import (
 )
 
 // provide configs file path
-var configsPath string = "database/configs"
+var configsPath string = "configs"
 
 // Create connection
 func CreateConnection() (*sql.DB, error) {

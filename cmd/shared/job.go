@@ -1,4 +1,4 @@
-package job
+package shared
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/p2p"
 	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 )
@@ -237,7 +236,7 @@ func StartJob(job node_types.Job) error {
 
 	switch serviceType {
 	case "DATA":
-		err := StreamData(job)
+		err := StreamDataJob(job)
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "jobs")
@@ -258,9 +257,9 @@ func StartJob(job node_types.Job) error {
 	return nil
 }
 
-func StreamData(job node_types.Job) error {
+func StreamDataJob(job node_types.Job) error {
 	// Check if node is running
-	if running := p2p.IsHostRunning(); !running {
+	if running := IsHostRunning(); !running {
 		msg := "node is not running"
 		err := errors.New(msg)
 		utils.Log("error", msg, "jobs")
@@ -312,14 +311,14 @@ func StreamData(job node_types.Job) error {
 	}
 
 	// Get peer
-	p, err := p2p.GeneratePeerFromId(orderingNode.NodeId.String)
+	p, err := GeneratePeerFromId(orderingNode.NodeId.String)
 	if err != nil {
 		utils.Log("error", err.Error(), "jobs")
 		return err
 	}
 
 	// Connect to peer and start streaming
-	err = p2p.StreamData(p, file)
+	err = StreamData(p, file)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")

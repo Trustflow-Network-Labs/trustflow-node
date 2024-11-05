@@ -1,4 +1,0 @@
-[p2p]
-node_port = 30609
-topic_name = trustflow.network
-protocol_id = /trustflow-network/1.0.0

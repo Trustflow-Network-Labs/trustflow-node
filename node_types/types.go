@@ -18,9 +18,9 @@ type Key struct {
 
 // Declare stream data type
 type StreamData struct {
-	Type    uint16
-	Version uint16
-	PeerId  [255]byte
+	Type   uint16
+	Id     int32
+	PeerId [255]byte
 }
 
 // Declare currency type

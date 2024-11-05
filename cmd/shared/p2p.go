@@ -1,4 +1,4 @@
-package p2p
+package shared
 
 import (
 	"bufio"
@@ -42,7 +42,7 @@ var (
 )
 
 // provide configs file path
-var configsPath string = "p2p/configs"
+var configsPath string = "configs"
 
 var h host.Host
 var ctx context.Context
@@ -403,6 +403,31 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
+func RequestData(peer peer.AddrInfo, jobId int32) error {
+	_, err := ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "p2p")
+		return err
+	}
+
+	cntx, hst := GetHostContext()
+
+	s, err := hst.NewStream(cntx, peer.ID, protocolID)
+	if err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		s.Reset()
+		return err
+	} else {
+		var str []byte = []byte(hst.ID().String())
+		var str255 [255]byte
+		copy(str255[:], str)
+		go streamProposal(s, str255, 1, jobId)
+	}
+
+	return nil
+}
+
 func StreamData[T any](peer peer.AddrInfo, data T) error {
 	_, err := ConnectNode(peer)
 	if err != nil {
@@ -423,19 +448,18 @@ func StreamData[T any](peer peer.AddrInfo, data T) error {
 		var str255 [255]byte
 		copy(str255[:], str)
 		go streamProposal(s, str255, 0, 0)
-		// TODO, read data from appropriate source
 		go sendStream(s, data)
 	}
 
 	return nil
 }
 
-func streamProposal(s network.Stream, p [255]byte, t uint16, v uint16) {
+func streamProposal(s network.Stream, p [255]byte, t uint16, id int32) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
-		Type:    t,
-		Version: v,
-		PeerId:  p,
+		Type:   t,
+		Id:     id,
+		PeerId: p,
 	}
 
 	// Send stream data
@@ -443,7 +467,7 @@ func streamProposal(s network.Stream, p [255]byte, t uint16, v uint16) {
 		utils.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
-	message := fmt.Sprintf("Sending stream proposal %d (%d) has ended in stream %s", streamData.Type, streamData.Version, s.ID())
+	message := fmt.Sprintf("Sending stream proposal %d (%d) has ended in stream %s", streamData.Type, streamData.Id, s.ID())
 	utils.Log("debug", message, "p2p")
 }
 
@@ -456,27 +480,45 @@ func streamProposalResponse(s network.Stream) {
 		s.Reset()
 	}
 
-	message := fmt.Sprintf("Received stream data type %d, version %d from %s in stream %s",
-		streamData.Type, streamData.Version, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
+	message := fmt.Sprintf("Received stream data type %d, id %d from %s in stream %s",
+		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
 	utils.Log("debug", message, "p2p")
 
-	// Check what stream is being proposed
+	// Check what the stream proposal is
 	switch streamData.Type {
 	case 0:
-		// Service Catalogue
-		// TODO, Check settings, do we have set to accept
-		// service catalogues and updates
+		// Request to receive a Service Catalogue from the remote peer
+		// TODO, Check settings, do we want to accept receiving service catalogues and updates
 		accepted := true
 		if accepted {
-			message := fmt.Sprintf("Stream data type %d, version %d in stream %s are accepted",
-				streamData.Type, streamData.Version, s.ID())
+			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are accepted",
+				streamData.Type, streamData.Id, s.ID())
 			utils.Log("debug", message, "p2p")
 
 			streamAccepted(s)
 			go receivedStream(s, streamData)
 		} else {
-			message := fmt.Sprintf("Stream data type %d, version %d in stream %s are not accepted",
-				streamData.Type, streamData.Version, s.ID())
+			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are not accepted",
+				streamData.Type, streamData.Id, s.ID())
+			utils.Log("debug", message, "p2p")
+
+			s.Reset()
+		}
+	case 1:
+		// Request to send data to the remote peer
+		// TODO, Check settings, do we want to accept sending data
+		accepted := true
+		if accepted {
+			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are accepted",
+				streamData.Type, streamData.Id, s.ID())
+			utils.Log("debug", message, "p2p")
+
+			go RunJob(streamData.Id)
+
+			s.Reset()
+		} else {
+			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are not accepted",
+				streamData.Type, streamData.Id, s.ID())
 			utils.Log("debug", message, "p2p")
 
 			s.Reset()
@@ -628,13 +670,13 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 			s.Reset()
 		}
 
-		message = fmt.Sprintf("Received %v of type %d version %d from %s", data, streamData.Type, streamData.Version, s.ID())
+		message = fmt.Sprintf("Received %v of type %d id %d from %s", data, streamData.Type, streamData.Id, s.ID())
 		utils.Log("debug", message, "p2p")
 	}
 
 	// TODO, concat the data and understand what was received
-	message := fmt.Sprintf("Received data type from %s is %d, version %d, node %s", s.ID(),
-		streamData.Type, streamData.Version, string(bytes.Trim(streamData.PeerId[:], "\x00")))
+	message := fmt.Sprintf("Received data type from %s is %d, id %d, node %s", s.ID(),
+		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")))
 	utils.Log("debug", message, "p2p")
 
 	message = fmt.Sprintf("Receiving ended %s", s.ID())

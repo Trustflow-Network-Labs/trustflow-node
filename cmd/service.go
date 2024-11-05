@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/adgsm/trustflow-node/cmd/job"
+	"github.com/adgsm/trustflow-node/cmd/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,7 @@ var addServiceCmd = &cobra.Command{
 	Long:    "Adding new service will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, serviceActive)
+		shared.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, serviceActive)
 	},
 }
 
@@ -29,7 +29,7 @@ var removeServiceCmd = &cobra.Command{
 	Long:    "Removing a service will prevent setting data/services pricing and creating jobs for that service. Service can not be removed if there is an price set or jobs created for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.RemoveService(serviceId)
+		shared.RemoveService(serviceId)
 	},
 }
 
@@ -40,7 +40,7 @@ var setServiceInactiveCmd = &cobra.Command{
 	Long:    "Setting service to inactive will prevent setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.SetServiceInactive(serviceId)
+		shared.SetServiceInactive(serviceId)
 	},
 }
 
@@ -51,7 +51,7 @@ var setServiceActiveCmd = &cobra.Command{
 	Long:    "Setting service to active will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.SetServiceActive(serviceId)
+		shared.SetServiceActive(serviceId)
 	},
 }
 

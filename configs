@@ -1,0 +1,18 @@
+[p2p]
+node_port = 30609
+topic_name = trustflow.network
+protocol_id = /trustflow-network/1.0.0
+
+[sqlite]
+database_file = ./trustflow.db
+
+[log]
+logfile = logs/log
+
+[keystore]
+keystore_passphrase = KEYSTORE_PASSPHRASE
+
+[repo]
+
+[node]
+

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/adgsm/trustflow-node/cmd/job"
+	"github.com/adgsm/trustflow-node/cmd/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,7 @@ var createJobCmd = &cobra.Command{
 	Long:    "Create a new job will add the job to the queue to be executed on a hosting machine",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.CreateJob(jobOrderingNodeId, jobServiceId)
+		shared.CreateJob(jobOrderingNodeId, jobServiceId)
 	},
 }
 
@@ -29,7 +29,7 @@ var runJobCmd = &cobra.Command{
 	Long:    "Run a job from a queue will start executing the job on a hosting machine",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		job.RunJob(jobId)
+		shared.RunJob(jobId)
 	},
 }
 

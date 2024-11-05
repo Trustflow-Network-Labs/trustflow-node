@@ -1,5 +1,0 @@
-[sqlite]
-database_file = ./trustflow.db
-
-[log]
-logfile = logs/log

@@ -25,7 +25,7 @@ func fileInfo(skip int) string {
 
 func Log(level string, message string, category string) {
 	// provide configs file path
-	configsPath := "utils/configs"
+	configsPath := "configs"
 
 	// init config
 	config := Config{
