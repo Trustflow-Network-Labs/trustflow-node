@@ -1,6 +1,6 @@
 [p2p]
 node_port = 30609
-topic_names = trustflow.network.lookup.service
+topic_name_prefix = trustflow.network.
 protocol_id = /trustflow-network/1.0.0
 
 [sqlite]

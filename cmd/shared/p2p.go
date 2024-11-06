@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,9 +36,11 @@ import (
 )
 
 var (
-	topicNameFlags []*string
-	protocolID     protocol.ID
-	idht           *dht.IpfsDHT
+	topicNames       []string = []string{"lookup.service"}
+	topicNameFlags   []*string
+	topicsSubscribed map[string]*pubsub.Topic = make(map[string]*pubsub.Topic)
+	protocolID       protocol.ID
+	idht             *dht.IpfsDHT
 )
 
 // provide configs file path
@@ -88,8 +91,9 @@ func Start(port uint16) {
 	}
 
 	// Read topics' names to subscribe
-	topicNames := strings.Split(config["topic_names"], ",")
+	topicNamePrefix := config["topic_name_prefix"]
 	for i, topicName := range topicNames {
+		topicName = topicNamePrefix + strings.TrimSpace(topicName)
 		topicNameFlag := flag.String(fmt.Sprintf("topicName_%d", i), topicName, fmt.Sprintf("topic no %d to join", i))
 		topicNameFlags = append(topicNameFlags, topicNameFlag)
 	}
@@ -221,6 +225,8 @@ func joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, topicNameFlag *
 		utils.Log("error", err.Error(), "p2p")
 		return err
 	}
+
+	topicsSubscribed[*topicNameFlag] = topic
 
 	receivedMessage(cntx, sub)
 
@@ -705,8 +711,39 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 	s.Reset()
 }
 
-func BroadcastMessage(ctx context.Context, topic *pubsub.Topic, message []byte) error {
-	if err := topic.Publish(ctx, message); err != nil {
+func BroadcastMessage[T any](message T) error {
+	cntx, _ := GetHostContext()
+
+	var m []byte
+	var err error
+	var topic *pubsub.Topic
+
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		return err
+	}
+
+	switch v := any(message).(type) {
+	case node_types.ServiceLookup:
+		m, err = json.Marshal(message)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			return err
+		}
+
+		topicKey := config["topic_name_prefix"] + "lookup.service"
+
+		topic = topicsSubscribed[topicKey]
+	default:
+		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
+		utils.Log("error", msg, "p2p")
+		err := errors.New(msg)
+		return err
+	}
+
+	if err := topic.Publish(cntx, m); err != nil {
 		utils.Log("error", err.Error(), "p2p")
 		return err
 	}
@@ -715,6 +752,13 @@ func BroadcastMessage(ctx context.Context, topic *pubsub.Topic, message []byte) 
 }
 
 func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		return
+	}
+
 	for {
 		m, err := sub.Next(ctx)
 		if err != nil {
@@ -725,20 +769,33 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "p2p")
-			return
+			continue
 		}
 		if blacklisted {
 			msg := fmt.Sprintf("Node %s is blacklisted", m.ReceivedFrom.String())
 			utils.Log("warn", msg, "p2p")
-			return // Do not comminicate with blacklisted nodes
+			continue // Do not comminicate with blacklisted nodes
 		}
 
 		message := string(m.Message.Data)
-		fmt.Println(m.ReceivedFrom, ": ", string(message))
+		fmt.Println(m.ReceivedFrom, " Data: ", message)
 
-		switch message {
-		case "":
-			// TODO
+		topic := string(*m.Topic)
+		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
+
+		switch topic {
+		case config["topic_name_prefix"] + "lookup.service":
+			var serviceLookup node_types.ServiceLookup
+			err = json.Unmarshal(m.Message.Data, &serviceLookup)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				continue
+			}
+			// TODO, use passed data to look for a service in DB
+		default:
+			msg := fmt.Sprintf("Unknown topic %s", topic)
+			utils.Log("error", msg, "p2p")
+			continue
 		}
 	}
 }
