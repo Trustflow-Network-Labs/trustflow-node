@@ -69,6 +69,15 @@ type Service struct {
 	Active      NullBool   `json:"active"`
 }
 
+// Declare remote service lookup type
+type ServiceLookup struct {
+	Name        NullString `json:"name"`
+	Description NullString `json:"description"`
+	NodeId      NullString `json:"node_id"`
+	Type        NullString `json:"type"`
+	Repo        NullString `json:"repo"`
+}
+
 // Declare job type
 type Job struct {
 	Id             NullInt32  `json:"id"`

@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -36,9 +35,9 @@ import (
 )
 
 var (
-	topicNameFlag *string
-	protocolID    protocol.ID
-	idht          *dht.IpfsDHT
+	topicNameFlags []*string
+	protocolID     protocol.ID
+	idht           *dht.IpfsDHT
 )
 
 // provide configs file path
@@ -88,8 +87,12 @@ func Start(port uint16) {
 		}
 	}
 
-	// Read topic name
-	topicNameFlag = flag.String("topicName", config["topic_name"], "name of topic to join")
+	// Read topics' names to subscribe
+	topicNames := strings.Split(config["topic_names"], ",")
+	for i, topicName := range topicNames {
+		topicNameFlag := flag.String(fmt.Sprintf("topicName_%d", i), topicName, fmt.Sprintf("topic no %d to join", i))
+		topicNameFlags = append(topicNameFlags, topicNameFlag)
+	}
 
 	// Read streaming protocol
 	protocolID = protocol.ID(config["protocol_id"])
@@ -196,19 +199,32 @@ func Start(port uint16) {
 		utils.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
+
+	for _, topicNameFlag := range topicNameFlags {
+		err = joinSubscribeTopic(cntx, ps, topicNameFlag)
+		if err != nil {
+			utils.Log("panic", err.Error(), "p2p")
+			panic(fmt.Sprintf("%v", err))
+		}
+	}
+}
+
+func joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, topicNameFlag *string) error {
 	topic, err := ps.Join(*topicNameFlag)
 	if err != nil {
-		utils.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		utils.Log("error", err.Error(), "p2p")
+		return err
 	}
-	go broadcastMessage(cntx, topic)
 
 	sub, err := topic.Subscribe()
 	if err != nil {
-		utils.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		utils.Log("error", err.Error(), "p2p")
+		return err
 	}
+
 	receivedMessage(cntx, sub)
+
+	return nil
 }
 
 func Stop() error {
@@ -264,38 +280,42 @@ func initDHT(cntx context.Context, hst host.Host) *dht.IpfsDHT {
 func discoverPeers(cntx context.Context, hst host.Host) {
 	kademliaDHT := initDHT(cntx, hst)
 	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
-	dutil.Advertise(cntx, routingDiscovery, *topicNameFlag)
+	for _, topicNameFlag := range topicNameFlags {
+		dutil.Advertise(cntx, routingDiscovery, *topicNameFlag)
+	}
 
 	// Look for others who have announced and attempt to connect to them
 	anyConnected := false
 	for !anyConnected {
 		utils.Log("debug", "Searching for peers...", "p2p")
-		peerChan, err := routingDiscovery.FindPeers(cntx, *topicNameFlag)
-		if err != nil {
-			utils.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
-		}
-		for peer := range peerChan {
-			skip, err := ConnectNode(peer)
+		for _, topicNameFlag := range topicNameFlags {
+			peerChan, err := routingDiscovery.FindPeers(cntx, *topicNameFlag)
 			if err != nil {
-				msg := err.Error()
-				utils.Log("error", msg, "p2p")
-				panic(err)
+				utils.Log("panic", err.Error(), "p2p")
+				panic(fmt.Sprintf("%v", err))
 			}
-			if skip {
-				msg := "Skipping node"
-				utils.Log("info", msg, "p2p")
-				continue
-			}
+			for peer := range peerChan {
+				skip, err := ConnectNode(peer)
+				if err != nil {
+					msg := err.Error()
+					utils.Log("error", msg, "p2p")
+					panic(err)
+				}
+				if skip {
+					msg := "Skipping node"
+					utils.Log("info", msg, "p2p")
+					continue
+				}
 
-			// TODO, read data from appropriate source
-			// What would we stream to node per connection (Service Catalogue?)
-			data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
-			err = StreamData(peer, &data)
-			if err != nil {
-				msg := err.Error()
-				utils.Log("error", msg, "p2p")
-				continue
+				// TODO, read data from appropriate source
+				// What would we stream to node per connection (Service Catalogue?)
+				data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
+				err = StreamData(peer, &data)
+				if err != nil {
+					msg := err.Error()
+					utils.Log("error", msg, "p2p")
+					continue
+				}
 			}
 		}
 	}
@@ -685,17 +705,13 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 	s.Reset()
 }
 
-func broadcastMessage(ctx context.Context, topic *pubsub.Topic) {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		s, err := reader.ReadString('\n')
-		if err != nil {
-			utils.Log("error", err.Error(), "p2p")
-		}
-		if err := topic.Publish(ctx, []byte(s)); err != nil {
-			utils.Log("error", err.Error(), "p2p")
-		}
+func BroadcastMessage(ctx context.Context, topic *pubsub.Topic, message []byte) error {
+	if err := topic.Publish(ctx, message); err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		return err
 	}
+
+	return nil
 }
 
 func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {

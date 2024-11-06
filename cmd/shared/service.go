@@ -242,3 +242,7 @@ func SetServiceActive(id int32) {
 		return
 	}
 }
+
+func LookupRemoteService(service node_types.ServiceLookup) {
+
+}
