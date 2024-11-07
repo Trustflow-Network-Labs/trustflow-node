@@ -71,11 +71,11 @@ type Service struct {
 
 // Declare remote service lookup type
 type ServiceLookup struct {
-	Name        NullString `json:"name"`
-	Description NullString `json:"description"`
-	NodeId      NullString `json:"node_id"`
-	Type        NullString `json:"type"`
-	Repo        NullString `json:"repo"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	NodeId      string `json:"node_id"`
+	Type        string `json:"type"`
+	Repo        string `json:"repo"`
 }
 
 // Declare job type

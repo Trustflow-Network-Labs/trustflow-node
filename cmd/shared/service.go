@@ -243,6 +243,13 @@ func SetServiceActive(id int32) {
 	}
 }
 
-func LookupRemoteService(serviceLookup node_types.ServiceLookup) {
+func LookupRemoteService(serviceName string, serviceDescription string, serviceNodeIdentityId string, serviceType string, serviceRepo string) {
+	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
+		Name:        serviceName,
+		Description: serviceDescription,
+		NodeId:      serviceNodeIdentityId,
+		Type:        serviceType,
+		Repo:        serviceRepo,
+	}
 	BroadcastMessage(serviceLookup)
 }
