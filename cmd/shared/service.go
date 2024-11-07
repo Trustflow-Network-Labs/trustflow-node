@@ -253,3 +253,9 @@ func LookupRemoteService(serviceName string, serviceDescription string, serviceN
 	}
 	BroadcastMessage(serviceLookup)
 }
+
+func SearchServices(serviceLookup node_types.ServiceLookup) ([]node_types.ServiceOffer, error) {
+	var services []node_types.ServiceOffer
+
+	return services, nil
+}

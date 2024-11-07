@@ -791,7 +791,14 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 				utils.Log("error", err.Error(), "p2p")
 				continue
 			}
-			// TODO, use passed data to look for a service in DB
+			// Use received message to search for a service in the DB
+			services, err := SearchServices(serviceLookup)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				continue
+			}
+			// TODO, send stream proposal containing offered services with prices
+			fmt.Printf("Services:\n %v", services)
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
 			utils.Log("error", msg, "p2p")

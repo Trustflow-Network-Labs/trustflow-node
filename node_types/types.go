@@ -78,6 +78,28 @@ type ServiceLookup struct {
 	Repo        string `json:"repo"`
 }
 
+// Declare service price model type
+type ServiceResourcesWithPricing struct {
+	ResourceName          NullString  `json:"resource_name"`
+	Price                 NullFloat64 `json:"price"`
+	PriceUnitNormalizator NullFloat64 `json:"price_unit_normalizator"`
+	PriceInterval         NullFloat64 `json:"price_interval"`
+	Currency              NullString  `json:"currency"`
+}
+
+// Declare service offer type
+type ServiceOffer struct {
+	Id                NullInt32                     `json:"id"`
+	Name              NullString                    `json:"name"`
+	Description       NullString                    `json:"description"`
+	NodeId            NullString                    `json:"node_id"`
+	Type              NullString                    `json:"type"`
+	Path              NullString                    `json:"path"`
+	Repo              NullString                    `json:"repo"`
+	Active            NullBool                      `json:"active"`
+	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
+}
+
 // Declare job type
 type Job struct {
 	Id             NullInt32  `json:"id"`
