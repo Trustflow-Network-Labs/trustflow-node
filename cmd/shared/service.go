@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/adgsm/trustflow-node/cmd/price"
 	"github.com/adgsm/trustflow-node/database"
@@ -74,7 +75,7 @@ func GetService(id int32) (node_types.Service, error) {
 }
 
 // Add a service
-func AddService(name string, description string, node_id int32, serviceType string, active bool) {
+func AddService(name string, description string, node_id int32, serviceType string, servicePath string, serviceRepo string, active bool) {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -87,8 +88,8 @@ func AddService(name string, description string, node_id int32, serviceType stri
 	// Add service
 	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, type, active) values (?, ?, ?, ?, ?);",
-		name, description, node_id, serviceType, active)
+	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
+		name, description, node_id, serviceType, servicePath, serviceRepo, active)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -254,8 +255,155 @@ func LookupRemoteService(serviceName string, serviceDescription string, serviceN
 	BroadcastMessage(serviceLookup)
 }
 
-func SearchServices(serviceLookup node_types.ServiceLookup) ([]node_types.ServiceOffer, error) {
+func SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
 	var services []node_types.ServiceOffer
+
+	var offset uint32 = 0
+	var limit uint32 = 10
+	if len(params) == 1 {
+		offset = params[0]
+	} else if len(params) >= 2 {
+		offset = params[0]
+		limit = params[1]
+	}
+
+	sql := `SELECT s.id, s.name, s.description, n.node_id, s.type, s.path, s.repo, s.active
+		FROM services s INNER JOIN nodes n ON s.node_id = n.id
+		WHERE 1`
+
+	// Parse service names (comma delimited) to search for
+	serviceNames := strings.Split(searchService.Name, ",")
+	for i, serviceName := range serviceNames {
+		serviceName = strings.TrimSpace(serviceName)
+		// Skip if empty string
+		if serviceName == "" {
+			continue
+		}
+		// Query for each name provided
+		if i == 0 {
+			sql = sql + fmt.Sprintf(" AND (LOWER(s.name) LIKE LOWER('%s')", "%"+serviceName+"%")
+		} else {
+			sql = sql + fmt.Sprintf(" OR LOWER(s.name) LIKE LOWER('%s')", "%"+serviceName+"%")
+		}
+		if i >= len(serviceNames)-1 {
+			sql = sql + ")"
+		}
+	}
+
+	// Parse service descriptions (comma delimited) to search for
+	serviceDescriptions := strings.Split(searchService.Description, ",")
+	for i, serviceDescription := range serviceDescriptions {
+		serviceDescription = strings.TrimSpace(serviceDescription)
+		// Skip if empty string
+		if serviceDescription == "" {
+			continue
+		}
+		// Query for each description provided
+		if i == 0 {
+			sql = sql + fmt.Sprintf(" AND (LOWER(s.description) LIKE LOWER('%s')", "%"+serviceDescription+"%")
+		} else {
+			sql = sql + fmt.Sprintf(" OR LOWER(s.description) LIKE LOWER('%s')", "%"+serviceDescription+"%")
+		}
+		if i >= len(serviceDescriptions)-1 {
+			sql = sql + ")"
+		}
+	}
+
+	// Parse service identity nodes (comma delimited) to search for
+	serviceNodeIdentityIds := strings.Split(searchService.NodeId, ",")
+	for i, serviceNodeIdentityId := range serviceNodeIdentityIds {
+		serviceNodeIdentityId = strings.TrimSpace(serviceNodeIdentityId)
+		// Skip if empty string
+		if serviceNodeIdentityId == "" {
+			continue
+		}
+		// Query for each node ID provided
+		if i == 0 {
+			sql = sql + fmt.Sprintf(" AND (n.id = '%s'", serviceNodeIdentityId)
+		} else {
+			sql = sql + fmt.Sprintf(" OR n.id = '%s'", serviceNodeIdentityId)
+		}
+		if i >= len(serviceNodeIdentityIds)-1 {
+			sql = sql + ")"
+		}
+	}
+
+	// Parse service types (comma delimited) to search for
+	serviceTypes := strings.Split(searchService.Type, ",")
+	for i, serviceType := range serviceTypes {
+		serviceType = strings.TrimSpace(serviceType)
+		// Skip if empty string
+		if serviceType == "" {
+			continue
+		}
+		// Query for each type provided
+		if i == 0 {
+			sql = sql + fmt.Sprintf(" AND (s.type = '%s'", serviceType)
+		} else {
+			sql = sql + fmt.Sprintf(" OR s.type = '%s'", serviceType)
+		}
+		if i >= len(serviceTypes)-1 {
+			sql = sql + ")"
+		}
+	}
+
+	// Parse repos (comma delimited) to search for
+	serviceRepos := strings.Split(searchService.Repo, ",")
+	for i, serviceRepo := range serviceRepos {
+		serviceRepo = strings.TrimSpace(serviceRepo)
+		// Skip if empty string
+		if serviceRepo == "" {
+			continue
+		}
+		// Query for each repo provided
+		if i == 0 {
+			sql = sql + fmt.Sprintf(" AND (LOWER(s.repo) LIKE LOWER('%s')", "%"+serviceRepo+"%")
+		} else {
+			sql = sql + fmt.Sprintf(" OR LOWER(s.repo) LIKE LOWER('%s')", "%"+serviceRepo+"%")
+		}
+		if i >= len(serviceRepos)-1 {
+			sql = sql + ")"
+		}
+	}
+
+	// Filter service per provided active flag
+	sql = sql + fmt.Sprintf(" AND s.active = %t", searchService.Active)
+
+	// Add trailing semicolumn
+	sql = sql + fmt.Sprintf(" limit %d offset %d;", limit, offset)
+
+	utils.Log("debug", sql, "services")
+
+	// Create a database connection
+	db, err := database.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "services")
+		return nil, err
+	}
+	defer db.Close()
+
+	// Search for services
+	rows, err := db.QueryContext(context.Background(), sql)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "services")
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var serviceOffer node_types.ServiceOffer
+		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &serviceOffer.NodeId,
+			&serviceOffer.Type, &serviceOffer.Path, &serviceOffer.Repo, &serviceOffer.Active)
+		if err != nil {
+			msg := err.Error()
+			utils.Log("error", msg, "services")
+			return nil, err
+		}
+		// TODO, service resource prices ßto be added
+		services = append(services, serviceOffer)
+	}
 
 	return services, nil
 }

@@ -791,8 +791,17 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 				utils.Log("error", err.Error(), "p2p")
 				continue
 			}
-			// Use received message to search for a service in the DB
-			services, err := SearchServices(serviceLookup)
+			// Use received message to search for local services from the DB
+			var searchService node_types.SearchService = node_types.SearchService{
+				Name:        serviceLookup.Name,
+				Description: serviceLookup.Description,
+				NodeId:      serviceLookup.NodeId,
+				Type:        serviceLookup.Type,
+				Repo:        serviceLookup.Repo,
+				Active:      true,
+			}
+			// TODO, search with pagination
+			services, err := SearchServices(searchService)
 			if err != nil {
 				utils.Log("error", err.Error(), "p2p")
 				continue

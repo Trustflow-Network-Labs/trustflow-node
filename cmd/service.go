@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/adgsm/trustflow-node/cmd/shared"
+	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/spf13/cobra"
 )
 
@@ -10,6 +13,7 @@ var serviceDescription string
 var serviceNodeId int32
 var serviceNodeIdentityId string
 var serviceType string
+var servicePath string
 var serviceRepo string
 var serviceActive bool
 var serviceId int32
@@ -21,7 +25,7 @@ var addServiceCmd = &cobra.Command{
 	Long:    "Adding new service will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		shared.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, serviceActive)
+		shared.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, servicePath, serviceRepo, serviceActive)
 	},
 }
 
@@ -58,11 +62,38 @@ var setServiceActiveCmd = &cobra.Command{
 	},
 }
 
+var searchServicesCmd = &cobra.Command{
+	Use:     "list-services",
+	Aliases: []string{"search-local-services"},
+	Short:   "Search / list local services",
+	Long:    "Search and filter local services",
+	Args:    cobra.ExactArgs(0),
+	Run: func(cmd *cobra.Command, args []string) {
+		var searchService node_types.SearchService
+		searchService.Name = serviceName
+		searchService.Description = serviceDescription
+		searchService.NodeId = serviceNodeIdentityId
+		searchService.Type = serviceType
+		searchService.Repo = serviceRepo
+		searchService.Active = serviceActive
+		services, err := shared.SearchServices(searchService)
+		if err != nil {
+			panic(err)
+		}
+		// TODO, make CLI output more readable
+		for _, service := range services {
+			fmt.Printf("Name: %s\n", service.Name.String)
+			fmt.Printf("Description: %s\n", service.Description.String)
+			fmt.Printf("Node: %s\n", service.NodeId.String)
+		}
+	},
+}
+
 var serviceLookupCmd = &cobra.Command{
 	Use:     "service-lookup",
-	Aliases: []string{"search-remote-service"},
+	Aliases: []string{"search-remote-services"},
 	Short:   "Send a search query looking for a remote service",
-	Long:    "Service looupp will broadcast a search query for a remote service",
+	Long:    "Service lookup will broadcast a search query for a remote service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		shared.LookupRemoteService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, serviceRepo)
@@ -77,6 +108,9 @@ func init() {
 	addServiceCmd.MarkFlagRequired("node")
 	addServiceCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type")
 	addServiceCmd.MarkFlagRequired("type")
+	addServiceCmd.Flags().StringVarP(&servicePath, "path", "p", "", "Service path")
+	addServiceCmd.MarkFlagRequired("path")
+	addServiceCmd.Flags().StringVarP(&serviceRepo, "repo", "r", "", "Service repo")
 	addServiceCmd.Flags().BoolVarP(&serviceActive, "active", "a", true, "Is service active?")
 	rootCmd.AddCommand(addServiceCmd)
 
@@ -91,6 +125,15 @@ func init() {
 	setServiceActiveCmd.Flags().Int32VarP(&serviceId, "id", "i", 0, "Service id to be set active")
 	setServiceActiveCmd.MarkFlagRequired("id")
 	rootCmd.AddCommand(setServiceActiveCmd)
+
+	searchServicesCmd.Flags().StringVarP(&serviceName, "name", "n", "", "Service name to lookup for (any word/sentence match, comma delimited)")
+	searchServicesCmd.MarkFlagRequired("name")
+	searchServicesCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to lookup for (any word/sentence match, comma delimited)")
+	searchServicesCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "i", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
+	searchServicesCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type to be lookup for (any listed type match /DATA, DOCKER EXECUTION ENVIRONMENT, WASM EXECUTION ENVIRONMENT/, comma delimited)")
+	searchServicesCmd.Flags().StringVarP(&serviceRepo, "repo", "r", "", "Service repo (git repo) to lookup for (any repo address match, comma delimited)")
+	searchServicesCmd.Flags().BoolVarP(&serviceActive, "active", "a", true, "Search for active or inactive services")
+	rootCmd.AddCommand(searchServicesCmd)
 
 	serviceLookupCmd.Flags().StringVarP(&serviceName, "name", "n", "", "Service name to lookup for (any word/sentence match, comma delimited)")
 	serviceLookupCmd.MarkFlagRequired("name")

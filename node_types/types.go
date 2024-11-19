@@ -69,6 +69,16 @@ type Service struct {
 	Active      NullBool   `json:"active"`
 }
 
+// Declare search local service type
+type SearchService struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	NodeId      string `json:"node_id"`
+	Type        string `json:"type"`
+	Repo        string `json:"repo"`
+	Active      bool   `json:"active"`
+}
+
 // Declare remote service lookup type
 type ServiceLookup struct {
 	Name        string `json:"name"`
