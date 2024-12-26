@@ -401,7 +401,7 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 			utils.Log("error", msg, "services")
 			return nil, err
 		}
-		// TODO, service resource prices ßto be added
+		// TODO, service resource prices to be added
 		services = append(services, serviceOffer)
 	}
 
