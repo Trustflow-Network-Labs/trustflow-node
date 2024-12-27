@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/adgsm/trustflow-node/cmd/price"
@@ -258,8 +259,24 @@ func LookupRemoteService(serviceName string, serviceDescription string, serviceN
 func SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
 	var services []node_types.ServiceOffer
 
+	// Read configs
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		panic(err)
+	}
+
 	var offset uint32 = 0
 	var limit uint32 = 10
+	l := config["search_services_limit"]
+	l64, err := strconv.ParseUint(l, 10, 32)
+	if err != nil {
+		limit = 10
+	} else {
+		limit = uint32(l64)
+	}
+
 	if len(params) == 1 {
 		offset = params[0]
 	} else if len(params) >= 2 {

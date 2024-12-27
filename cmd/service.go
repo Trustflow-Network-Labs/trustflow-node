@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/adgsm/trustflow-node/cmd/shared"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +19,9 @@ var servicePath string
 var serviceRepo string
 var serviceActive bool
 var serviceId int32
+
+// provide configs file path
+var configsPath string = "configs"
 
 var addServiceCmd = &cobra.Command{
 	Use:     "add-service",
@@ -69,6 +74,14 @@ var searchServicesCmd = &cobra.Command{
 	Long:    "Search and filter local services",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		// Read configs
+		config, err := utils.ReadConfigs(configsPath)
+		if err != nil {
+			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+			utils.Log("error", message, "p2p")
+			panic(err)
+		}
+
 		var searchService node_types.SearchService
 		searchService.Name = serviceName
 		searchService.Description = serviceDescription
@@ -77,13 +90,21 @@ var searchServicesCmd = &cobra.Command{
 		searchService.Repo = serviceRepo
 		searchService.Active = serviceActive
 		var offset uint32 = 0
-		var limit uint32 = 1
+		var limit uint32 = 10
+		l := config["search_services_limit"]
+		l64, err := strconv.ParseUint(l, 10, 32)
+		if err != nil {
+			limit = 10
+		} else {
+			limit = uint32(l64)
+		}
+
 		for {
 			services, err := shared.SearchServices(searchService, offset, limit)
 			if err != nil {
 				panic(err)
 			}
-			fmt.Printf("Offset: %d, Limit: %d\n", offset, limit)
+
 			if len(services) == 0 {
 				break
 			}

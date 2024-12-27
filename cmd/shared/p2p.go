@@ -805,6 +805,14 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 			// Search services
 			var offset uint32 = 0
 			var limit uint32 = 1
+			l := config["search_services_limit"]
+			l64, err := strconv.ParseUint(l, 10, 32)
+			if err != nil {
+				limit = 10
+			} else {
+				limit = uint32(l64)
+			}
+
 			for {
 				services, err := SearchServices(searchService, offset, limit)
 				if err != nil {
