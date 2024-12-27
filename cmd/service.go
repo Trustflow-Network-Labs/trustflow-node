@@ -76,15 +76,26 @@ var searchServicesCmd = &cobra.Command{
 		searchService.Type = serviceType
 		searchService.Repo = serviceRepo
 		searchService.Active = serviceActive
-		services, err := shared.SearchServices(searchService)
-		if err != nil {
-			panic(err)
-		}
-		// TODO, make CLI output more readable
-		for _, service := range services {
-			fmt.Printf("Name: %s\n", service.Name.String)
-			fmt.Printf("Description: %s\n", service.Description.String)
-			fmt.Printf("Node: %s\n", service.NodeId.String)
+		var offset uint32 = 0
+		var limit uint32 = 1
+		for {
+			services, err := shared.SearchServices(searchService, offset, limit)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("Offset: %d, Limit: %d\n", offset, limit)
+			if len(services) == 0 {
+				break
+			}
+
+			offset += uint32(len(services))
+
+			// TODO, make CLI output more readable
+			for _, service := range services {
+				fmt.Printf("Name: %s\n", service.Name.String)
+				fmt.Printf("Description: %s\n", service.Description.String)
+				fmt.Printf("Node: %s\n", service.NodeId.String)
+			}
 		}
 	},
 }

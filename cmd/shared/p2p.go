@@ -768,7 +768,7 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 		err, blacklisted := blacklist_node.NodeBlacklisted(m.ReceivedFrom.String())
 		if err != nil {
 			msg := err.Error()
-			utils.Log("error", msg, "p2p")
+			utils.Log("warn", msg, "p2p")
 			continue
 		}
 		if blacklisted {
@@ -791,6 +791,7 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 				utils.Log("error", err.Error(), "p2p")
 				continue
 			}
+
 			// Use received message to search for local services from the DB
 			var searchService node_types.SearchService = node_types.SearchService{
 				Name:        serviceLookup.Name,
@@ -800,14 +801,26 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 				Repo:        serviceLookup.Repo,
 				Active:      true,
 			}
-			// TODO, search with pagination
-			services, err := SearchServices(searchService)
-			if err != nil {
-				utils.Log("error", err.Error(), "p2p")
-				continue
+
+			// Search services
+			var offset uint32 = 0
+			var limit uint32 = 1
+			for {
+				services, err := SearchServices(searchService, offset, limit)
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					break
+				}
+
+				if len(services) == 0 {
+					break
+				}
+
+				offset += uint32(len(services))
+
+				// TODO, send stream proposal containing offered services with prices
+				fmt.Printf("Services:\n %v", services)
 			}
-			// TODO, send stream proposal containing offered services with prices
-			fmt.Printf("Services:\n %v", services)
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
 			utils.Log("error", msg, "p2p")
