@@ -94,7 +94,8 @@ type ServiceResourcesWithPricing struct {
 	Price                 NullFloat64 `json:"price"`
 	PriceUnitNormalizator NullFloat64 `json:"price_unit_normalizator"`
 	PriceInterval         NullFloat64 `json:"price_interval"`
-	Currency              NullString  `json:"currency"`
+	CurrencyName          NullString  `json:"currency_name"`
+	CurrencySymbol        NullString  `json:"currency_symbol"`
 }
 
 // Declare service offer type

@@ -418,7 +418,38 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 			utils.Log("error", msg, "services")
 			return nil, err
 		}
-		// TODO, service resource prices to be added
+
+		// Query service resources with prices
+		sql = `SELECT r.name p.price, p.price_unit_normalizator, p.price_interval, c.currency, c.symbol
+		FROM prices p
+		INNER JOIN resources r ON p.resource_id = r.id
+		INNER JOIN currencies c ON p.currency_id = c.id
+		WHERE p.service_id = %d and r.active = true`
+
+		rrows, err := db.QueryContext(context.Background(), sql)
+		if err != nil {
+			msg := err.Error()
+			utils.Log("error", msg, "services")
+			return nil, err
+		}
+		defer rrows.Close()
+
+		var serviceResources []node_types.ServiceResourcesWithPricing
+
+		for rrows.Next() {
+			var serviceResource node_types.ServiceResourcesWithPricing
+			err = rows.Scan(&serviceResource.ResourceName, &serviceResource.Price, &serviceResource.PriceUnitNormalizator,
+				&serviceResource.PriceInterval, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
+			if err != nil {
+				msg := err.Error()
+				utils.Log("error", msg, "services")
+				return nil, err
+			}
+			serviceResources = append(serviceResources, serviceResource)
+		}
+
+		serviceOffer.ServicePriceModel = serviceResources
+
 		services = append(services, serviceOffer)
 	}
 
