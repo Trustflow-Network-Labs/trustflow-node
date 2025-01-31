@@ -438,7 +438,7 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 
 		for rrows.Next() {
 			var serviceResource node_types.ServiceResourcesWithPricing
-			err = rows.Scan(&serviceResource.ResourceName, &serviceResource.Price, &serviceResource.PriceUnitNormalizator,
+			err = rrows.Scan(&serviceResource.ResourceName, &serviceResource.Price, &serviceResource.PriceUnitNormalizator,
 				&serviceResource.PriceInterval, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
 			if err != nil {
 				msg := err.Error()
