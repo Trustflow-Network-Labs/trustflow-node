@@ -313,10 +313,9 @@ func discoverPeers(cntx context.Context, hst host.Host) {
 					continue
 				}
 
-				// TODO, read data from appropriate source
-				// What would we stream to node per connection (Service Catalogue?)
-				data := []byte{'H', 'E', 'L', 'L', 'O', ' ', 'W', 'O', 'R', 'L', 'D'}
-				err = StreamData(peer, &data)
+				// TODO, read list of active services (service offers with pricing)
+				var serviceCatalogue []node_types.ServiceOffer
+				err = StreamData(peer, &serviceCatalogue)
 				if err != nil {
 					msg := err.Error()
 					utils.Log("error", msg, "p2p")
@@ -470,10 +469,29 @@ func StreamData[T any](peer peer.AddrInfo, data T) error {
 		s.Reset()
 		return err
 	} else {
+		t := uint16(0)
+		id := int32(0)
+		switch v := any(data).(type) {
+		case *[]node_types.ServiceOffer:
+			t = 0
+			id = 0
+		case *[]byte:
+			t = 2
+			id = 0
+		case *os.File:
+			t = 3
+			id = 0
+		default:
+			msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
+			utils.Log("error", msg, "p2p")
+			s.Reset()
+			return errors.New(msg)
+		}
+
 		var str []byte = []byte(hst.ID().String())
 		var str255 [255]byte
 		copy(str255[:], str)
-		go streamProposal(s, str255, 0, 0)
+		go streamProposal(s, str255, t, id)
 		go sendStream(s, data)
 	}
 
@@ -512,7 +530,7 @@ func streamProposalResponse(s network.Stream) {
 
 	// Check what the stream proposal is
 	switch streamData.Type {
-	case 0:
+	case 0, 2, 3:
 		// Request to receive a Service Catalogue from the remote peer
 		// TODO, Check settings, do we want to accept receiving service catalogues and updates
 		accepted := true
@@ -588,36 +606,90 @@ func sendStream[T any](s network.Stream, data T) {
 	var pointer uint64 = 0
 
 	switch v := any(data).(type) {
-	case *[]byte:
-		for {
-			if len(*v)-int(pointer) < int(chunkSize) {
-				chunkSize = uint64(len(*v) - int(pointer))
-			}
-
-			err = binary.Write(s, binary.BigEndian, chunkSize)
-			if err != nil {
-				utils.Log("error", err.Error(), "p2p")
-				s.Reset()
-				return
-			}
-			message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
-			utils.Log("debug", message, "p2p")
-
-			if chunkSize == 0 {
-				break
-			}
-
-			err = binary.Write(s, binary.BigEndian, (*v)[pointer:pointer+chunkSize])
-			if err != nil {
-				utils.Log("error", err.Error(), "p2p")
-				s.Reset()
-				return
-			}
-			message = fmt.Sprintf("Sending chunk %v ended %s", (*v)[pointer:pointer+chunkSize], s.ID())
-			utils.Log("debug", message, "p2p")
-
-			pointer += chunkSize
+	case *[]node_types.ServiceOffer:
+		b, err := json.Marshal(data)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return
 		}
+
+		err = sendStreamChunks(b, pointer, chunkSize, s)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return
+		}
+
+		/*
+			for {
+				if len(b)-int(pointer) < int(chunkSize) {
+					chunkSize = uint64(len(b) - int(pointer))
+				}
+
+				err = binary.Write(s, binary.BigEndian, chunkSize)
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
+				}
+				message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
+				utils.Log("debug", message, "p2p")
+
+				if chunkSize == 0 {
+					break
+				}
+
+				err = binary.Write(s, binary.BigEndian, (b)[pointer:pointer+chunkSize])
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
+				}
+				message = fmt.Sprintf("Sending chunk %v ended %s", (b)[pointer:pointer+chunkSize], s.ID())
+				utils.Log("debug", message, "p2p")
+
+				pointer += chunkSize
+			}
+		*/
+	case *[]byte:
+		err = sendStreamChunks(*v, pointer, chunkSize, s)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return
+		}
+		/*
+			for {
+				if len(*v)-int(pointer) < int(chunkSize) {
+					chunkSize = uint64(len(*v) - int(pointer))
+				}
+
+				err = binary.Write(s, binary.BigEndian, chunkSize)
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
+				}
+				message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
+				utils.Log("debug", message, "p2p")
+
+				if chunkSize == 0 {
+					break
+				}
+
+				err = binary.Write(s, binary.BigEndian, (*v)[pointer:pointer+chunkSize])
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
+				}
+				message = fmt.Sprintf("Sending chunk %v ended %s", (*v)[pointer:pointer+chunkSize], s.ID())
+				utils.Log("debug", message, "p2p")
+
+				pointer += chunkSize
+			}
+		*/
 	case *os.File:
 		buffer := make([]byte, chunkSize)
 
@@ -669,6 +741,37 @@ func sendStream[T any](s network.Stream, data T) {
 
 	message = fmt.Sprintf("Sending ended %s", s.ID())
 	utils.Log("debug", message, "p2p")
+}
+
+func sendStreamChunks(b []byte, pointer uint64, chunkSize uint64, s network.Stream) error {
+	for {
+		if len(b)-int(pointer) < int(chunkSize) {
+			chunkSize = uint64(len(b) - int(pointer))
+		}
+
+		err := binary.Write(s, binary.BigEndian, chunkSize)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			return err
+		}
+		message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
+		utils.Log("debug", message, "p2p")
+
+		if chunkSize == 0 {
+			break
+		}
+
+		err = binary.Write(s, binary.BigEndian, (b)[pointer:pointer+chunkSize])
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			return err
+		}
+		message = fmt.Sprintf("Sending chunk %v ended %s", (b)[pointer:pointer+chunkSize], s.ID())
+		utils.Log("debug", message, "p2p")
+
+		pointer += chunkSize
+	}
+	return nil
 }
 
 func receivedStream(s network.Stream, streamData node_types.StreamData) {
@@ -779,9 +882,16 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 
 		message := string(m.Message.Data)
 		fmt.Println(m.ReceivedFrom, " Data: ", message)
+		utils.Log("debug", fmt.Sprintf("Message %s received from %s", message, m.ReceivedFrom), "p2p")
 
 		topic := string(*m.Topic)
 		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
+		utils.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
+
+		peerId := m.ReceivedFrom
+		p := peerId.String()
+		fmt.Println(m.ReceivedFrom, " Peer: ", p)
+		utils.Log("debug", fmt.Sprintf("From peer %s", p), "p2p")
 
 		switch topic {
 		case config["topic_name_prefix"] + "lookup.service":
@@ -813,21 +923,38 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 				limit = uint32(l64)
 			}
 
+			var services []node_types.ServiceOffer
 			for {
-				services, err := SearchServices(searchService, offset, limit)
+				servicesBatch, err := SearchServices(searchService, offset, limit)
 				if err != nil {
 					utils.Log("error", err.Error(), "p2p")
 					break
 				}
+				services = append(services, servicesBatch...)
 
-				if len(services) == 0 {
+				if len(servicesBatch) == 0 {
 					break
 				}
 
-				offset += uint32(len(services))
+				offset += uint32(len(servicesBatch))
 
-				// TODO, send stream proposal containing offered services with prices
-				fmt.Printf("Services:\n %v", services)
+				fmt.Printf("Services:\n %v", servicesBatch)
+			}
+
+			// Retrieve known multiaddresses from the peerstore
+			peerAddrInfo, err := GeneratePeerFromId(p)
+			if err != nil {
+				msg := err.Error()
+				utils.Log("error", msg, "p2p")
+				continue
+			}
+
+			// Stream back offered services with prices
+			err = StreamData(peerAddrInfo, &services)
+			if err != nil {
+				msg := err.Error()
+				utils.Log("error", msg, "p2p")
+				continue
 			}
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
