@@ -620,38 +620,6 @@ func sendStream[T any](s network.Stream, data T) {
 			s.Reset()
 			return
 		}
-
-		/*
-			for {
-				if len(b)-int(pointer) < int(chunkSize) {
-					chunkSize = uint64(len(b) - int(pointer))
-				}
-
-				err = binary.Write(s, binary.BigEndian, chunkSize)
-				if err != nil {
-					utils.Log("error", err.Error(), "p2p")
-					s.Reset()
-					return
-				}
-				message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
-				utils.Log("debug", message, "p2p")
-
-				if chunkSize == 0 {
-					break
-				}
-
-				err = binary.Write(s, binary.BigEndian, (b)[pointer:pointer+chunkSize])
-				if err != nil {
-					utils.Log("error", err.Error(), "p2p")
-					s.Reset()
-					return
-				}
-				message = fmt.Sprintf("Sending chunk %v ended %s", (b)[pointer:pointer+chunkSize], s.ID())
-				utils.Log("debug", message, "p2p")
-
-				pointer += chunkSize
-			}
-		*/
 	case *[]byte:
 		err = sendStreamChunks(*v, pointer, chunkSize, s)
 		if err != nil {
@@ -659,37 +627,6 @@ func sendStream[T any](s network.Stream, data T) {
 			s.Reset()
 			return
 		}
-		/*
-			for {
-				if len(*v)-int(pointer) < int(chunkSize) {
-					chunkSize = uint64(len(*v) - int(pointer))
-				}
-
-				err = binary.Write(s, binary.BigEndian, chunkSize)
-				if err != nil {
-					utils.Log("error", err.Error(), "p2p")
-					s.Reset()
-					return
-				}
-				message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
-				utils.Log("debug", message, "p2p")
-
-				if chunkSize == 0 {
-					break
-				}
-
-				err = binary.Write(s, binary.BigEndian, (*v)[pointer:pointer+chunkSize])
-				if err != nil {
-					utils.Log("error", err.Error(), "p2p")
-					s.Reset()
-					return
-				}
-				message = fmt.Sprintf("Sending chunk %v ended %s", (*v)[pointer:pointer+chunkSize], s.ID())
-				utils.Log("debug", message, "p2p")
-
-				pointer += chunkSize
-			}
-		*/
 	case *os.File:
 		buffer := make([]byte, chunkSize)
 
