@@ -313,8 +313,14 @@ func discoverPeers(cntx context.Context, hst host.Host) {
 					continue
 				}
 
-				// TODO, read list of active services (service offers with pricing)
-				var serviceCatalogue []node_types.ServiceOffer
+				// Read list of active services (service offers with pricing)
+				var data []byte
+				serviceCatalogue, err := serviceLookup(data, true)
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					continue
+				}
+
 				err = StreamData(peer, &serviceCatalogue)
 				if err != nil {
 					msg := err.Error()
@@ -849,50 +855,10 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 
 		switch topic {
 		case config["topic_name_prefix"] + "lookup.service":
-			var serviceLookup node_types.ServiceLookup
-			err = json.Unmarshal(m.Message.Data, &serviceLookup)
+			services, err := serviceLookup(m.Message.Data, true)
 			if err != nil {
 				utils.Log("error", err.Error(), "p2p")
 				continue
-			}
-
-			// Use received message to search for local services from the DB
-			var searchService node_types.SearchService = node_types.SearchService{
-				Name:        serviceLookup.Name,
-				Description: serviceLookup.Description,
-				NodeId:      serviceLookup.NodeId,
-				Type:        serviceLookup.Type,
-				Repo:        serviceLookup.Repo,
-				Active:      true,
-			}
-
-			// Search services
-			var offset uint32 = 0
-			var limit uint32 = 1
-			l := config["search_services_limit"]
-			l64, err := strconv.ParseUint(l, 10, 32)
-			if err != nil {
-				limit = 10
-			} else {
-				limit = uint32(l64)
-			}
-
-			var services []node_types.ServiceOffer
-			for {
-				servicesBatch, err := SearchServices(searchService, offset, limit)
-				if err != nil {
-					utils.Log("error", err.Error(), "p2p")
-					break
-				}
-				services = append(services, servicesBatch...)
-
-				if len(servicesBatch) == 0 {
-					break
-				}
-
-				offset += uint32(len(servicesBatch))
-
-				fmt.Printf("Services:\n %v", servicesBatch)
 			}
 
 			// Retrieve known multiaddresses from the peerstore
@@ -916,6 +882,62 @@ func receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 			continue
 		}
 	}
+}
+
+func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		return nil, err
+	}
+
+	var serviceLookup node_types.ServiceLookup
+	err = json.Unmarshal(data, &serviceLookup)
+	if err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		return nil, err
+	}
+
+	var searchService node_types.SearchService = node_types.SearchService{
+		Name:        serviceLookup.Name,
+		Description: serviceLookup.Description,
+		NodeId:      serviceLookup.NodeId,
+		Type:        serviceLookup.Type,
+		Repo:        serviceLookup.Repo,
+		Active:      active,
+	}
+
+	// Search services
+	var offset uint32 = 0
+	var limit uint32 = 1
+	l := config["search_services_limit"]
+	l64, err := strconv.ParseUint(l, 10, 32)
+	if err != nil {
+		limit = 10
+	} else {
+		limit = uint32(l64)
+	}
+
+	var services []node_types.ServiceOffer
+	for {
+		servicesBatch, err := SearchServices(searchService, offset, limit)
+		if err != nil {
+			utils.Log("error", err.Error(), "p2p")
+			break
+		}
+		services = append(services, servicesBatch...)
+
+		if len(servicesBatch) == 0 {
+			break
+		}
+
+		offset += uint32(len(servicesBatch))
+
+		fmt.Printf("Services:\n %v", servicesBatch)
+	}
+
+	return services, nil
 }
 
 func GeneratePeerFromId(peerId string) (peer.AddrInfo, error) {
