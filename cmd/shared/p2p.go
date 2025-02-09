@@ -374,7 +374,7 @@ func ConnectNode(peer peer.AddrInfo) (bool, error) {
 
 	if peer.ID == hst.ID() {
 		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), hst.ID().String())
-		utils.Log("error", msg, "p2p")
+		utils.Log("warn", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 	err, blacklisted := blacklist_node.NodeBlacklisted(peer.ID.String())
@@ -892,7 +892,13 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 		return nil, err
 	}
 
+	var services []node_types.ServiceOffer
 	var serviceLookup node_types.ServiceLookup
+
+	if len(data) == 0 {
+		return services, nil
+	}
+
 	err = json.Unmarshal(data, &serviceLookup)
 	if err != nil {
 		utils.Log("error", err.Error(), "p2p")
@@ -919,7 +925,6 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 		limit = uint32(l64)
 	}
 
-	var services []node_types.ServiceOffer
 	for {
 		servicesBatch, err := SearchServices(searchService, offset, limit)
 		if err != nil {
