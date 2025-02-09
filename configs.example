@@ -17,3 +17,5 @@ keystore_passphrase = KEYSTORE_PASSPHRASE
 
 [node]
 
+[misc]
+chunk_size = 2048

@@ -601,9 +601,26 @@ func sendStream[T any](s network.Stream, data T) {
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
 	utils.Log("debug", message, "p2p")
 
-	// TODO, read chunk size form settings
-	var chunkSize uint64 = 8
+	var chunkSize uint64 = 2048
 	var pointer uint64 = 0
+
+	// Load configs
+	config, err := utils.ReadConfigs(configsPath)
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		utils.Log("error", message, "p2p")
+		return
+	}
+
+	// Read chunk size form configs
+	if chunkSize == 0 {
+		cs := config["chunk_size"]
+		chunkSize, err = strconv.ParseUint(cs, 10, 16)
+		if err != nil {
+			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
+			utils.Log("warn", message, "p2p")
+		}
+	}
 
 	switch v := any(data).(type) {
 	case *[]node_types.ServiceOffer:
