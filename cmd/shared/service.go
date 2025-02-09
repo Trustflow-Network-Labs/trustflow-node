@@ -442,8 +442,8 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 				&serviceResource.PriceInterval, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
 			if err != nil {
 				msg := err.Error()
-				utils.Log("error", msg, "services")
-				return nil, err
+				utils.Log("warn", msg, "services")
+				continue
 			}
 			serviceResources = append(serviceResources, serviceResource)
 		}
