@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
+	"github.com/adgsm/trustflow-node/cmd/settings"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/tfnode"
@@ -538,39 +539,22 @@ func streamProposalResponse(s network.Stream) {
 	switch streamData.Type {
 	case 0, 2, 3:
 		// Request to receive a Service Catalogue from the remote peer
-		// TODO, Check settings, do we want to accept receiving service catalogues and updates
-		accepted := true
+		// Check settings, do we want to accept receiving service catalogues and updates
+		accepted := streamProposalAssessment(streamData.Type)
 		if accepted {
-			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are accepted",
-				streamData.Type, streamData.Id, s.ID())
-			utils.Log("debug", message, "p2p")
-
 			streamAccepted(s)
 			go receivedStream(s, streamData)
 		} else {
-			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are not accepted",
-				streamData.Type, streamData.Id, s.ID())
-			utils.Log("debug", message, "p2p")
-
 			s.Reset()
 		}
 	case 1:
 		// Request to send data to the remote peer
-		// TODO, Check settings, do we want to accept sending data
-		accepted := true
+		// Check settings, do we want to accept sending data
+		accepted := streamProposalAssessment(streamData.Type)
 		if accepted {
-			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are accepted",
-				streamData.Type, streamData.Id, s.ID())
-			utils.Log("debug", message, "p2p")
-
 			go RunJob(streamData.Id)
-
 			s.Reset()
 		} else {
-			message := fmt.Sprintf("Stream data type %d, id %d in stream %s are not accepted",
-				streamData.Type, streamData.Id, s.ID())
-			utils.Log("debug", message, "p2p")
-
 			s.Reset()
 		}
 	default:
@@ -578,6 +562,55 @@ func streamProposalResponse(s network.Stream) {
 		utils.Log("debug", message, "p2p")
 		s.Reset()
 	}
+}
+
+func streamProposalAssessment(streamDataType uint16) bool {
+	var accepted bool
+	// Check what the stream proposal is about
+	switch streamDataType {
+	case 0:
+		// Request to receive a Service Catalogue from the remote peer
+		// Check settings
+		accepted = readBoolSetting("accept_service_catalogue")
+	case 1:
+		// Request to send data to the remote peer
+		// Check settings
+		accepted = readBoolSetting("accept_sending_data")
+	case 2:
+		// Request to receive a binary stream from the remote peer
+		// Check settings
+		accepted = readBoolSetting("accept_binary_stream")
+	case 3:
+		// Request to receive a file from the remote peer
+		// Check settings
+		accepted = readBoolSetting("accept_file")
+	default:
+		message := fmt.Sprintf("Unknown stream type %d is poposed", streamDataType)
+		utils.Log("debug", message, "p2p")
+		return false
+	}
+	if accepted {
+		message := fmt.Sprintf("As per local settings stream data type %d is accepted.", streamDataType)
+		utils.Log("debug", message, "p2p")
+	} else {
+		message := fmt.Sprintf("As per local settings stream data type %d is not accepted", streamDataType)
+		utils.Log("debug", message, "p2p")
+	}
+
+	return accepted
+}
+
+func readBoolSetting(key string) bool {
+	b, err := settings.Read(key)
+	if err != nil {
+		utils.Log("error", err.Error(), "p2p")
+		return false
+	}
+	bval, ok := b.(bool)
+	if ok {
+		return bval
+	}
+	return false
 }
 
 func streamAccepted(s network.Stream) {

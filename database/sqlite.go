@@ -288,6 +288,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos 
 			utils.Log("error", message, "database")
 			return nil, err
 		}
+
+		createSettingsTableSql := `
+CREATE TABLE IF NOT EXISTS settings (
+	"id" INTEGER PRIMARY KEY,
+	"key" VARCHAR(255) UNIQUE NOT NULL,
+	"description" TEXT DEFAULT NULL,
+	"type" VARCHAR(10) CHECK( "type" IN ('STRING', 'INTEGER', 'REAL', 'BOOLEAN', 'JSON') ) NOT NULL DEFAULT 'STRING',
+	"value_string" VARCHAR(1024) DEFAULT NULL,
+	"value_integer" INTEGER DEFAULT NULL,
+	"value_real" REAL DEFAULT NULL,
+	"value_boolean" INTEGER CHECK( "value_boolean" IN (0, 1) ) NOT NULL DEFAULT 0,
+	"value_json" TEXT DEFAULT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS settings_id_idx ON settings ("id");
+CREATE INDEX IF NOT EXISTS settings_key_idx ON settings ("key");
+
+INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1);
+`
+		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `settings` table. (%s)", err.Error())
+			utils.Log("error", message, "database")
+			return nil, err
+		}
 	}
 
 	return db, nil
