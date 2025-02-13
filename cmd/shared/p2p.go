@@ -614,19 +614,20 @@ func readBoolSetting(key string) bool {
 }
 
 func streamAccepted(s network.Stream) {
-	data := []byte{'R', 'E', 'A', 'D', 'Y'}
+	data := [7]byte{'T', 'F', 'R', 'E', 'A', 'D', 'Y'}
 	err := binary.Write(s, binary.BigEndian, data)
 	if err != nil {
 		utils.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
 
-	message := fmt.Sprintf("Sending READY ended %s", s.ID())
+	message := fmt.Sprintf("Sending TFREADY ended %s", s.ID())
 	utils.Log("debug", message, "p2p")
 }
 
 func sendStream[T any](s network.Stream, data T) {
-	var ready [5]byte
+	var ready [7]byte
+	var expected [7]byte = [7]byte{'T', 'F', 'R', 'E', 'A', 'D', 'Y'}
 
 	err := binary.Read(s, binary.BigEndian, &ready)
 	if err != nil {
@@ -635,7 +636,13 @@ func sendStream[T any](s network.Stream, data T) {
 		return
 	}
 
-	// TODO, chech if received data matches READY signal
+	// Check if received data matches TFREADY signal
+	if !bytes.Equal(expected[:], ready[:]) {
+		err := errors.New("did not get expected TFREADY signal")
+		utils.Log("error", err.Error(), "p2p")
+		s.Reset()
+		return
+	}
 
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
 	utils.Log("debug", message, "p2p")
