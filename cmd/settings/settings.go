@@ -63,7 +63,7 @@ func Read(key string) (any, error) {
 	// Check if key exists
 	var id node_types.NullInt32
 	var keyType node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select id, type from settings where key = ?;", key)
+	row := db.QueryRowContext(context.Background(), "select id, setting_type from settings where key = ?;", key)
 
 	err = row.Scan(&id, &keyType)
 	if err != nil {
@@ -190,7 +190,7 @@ func Modify(key string, value string) {
 
 	// Check the key value type
 	var keyType node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select type from settings where key = ?;", key)
+	row := db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
 
 	err = row.Scan(&keyType)
 	if err != nil {

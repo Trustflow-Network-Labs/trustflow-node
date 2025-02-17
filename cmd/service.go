@@ -113,9 +113,9 @@ var searchServicesCmd = &cobra.Command{
 
 			// TODO, make CLI output more readable
 			for _, service := range services {
-				fmt.Printf("Name: %s\n", service.Name.String)
-				fmt.Printf("Description: %s\n", service.Description.String)
-				fmt.Printf("Node: %s\n", service.NodeId.String)
+				fmt.Printf("Name: %s\n", service.Name)
+				fmt.Printf("Description: %s\n", service.Description)
+				fmt.Printf("Node: %s\n", service.NodeId)
 			}
 		}
 	},

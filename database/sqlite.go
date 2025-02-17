@@ -143,11 +143,11 @@ INSERT INTO resources ("name") VALUES ('Egress');
 CREATE TABLE IF NOT EXISTS services (
 	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
-	"description" TEXT DEFAULT NULL,
+	"description" TEXT DEFAULT '',
 	"node_id" INTEGER NOT NULL,
-	"type" VARCHAR(10) CHECK( "type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'WASM EXECUTION ENVIRONMENT') ) NOT NULL DEFAULT 'DATA',
+	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'WASM EXECUTION ENVIRONMENT') ) NOT NULL DEFAULT 'DATA',
 	"path" TEXT NOT NULL,
-	"repo" TEXT DEFAULT NULL,
+	"repo" TEXT DEFAULT '',
 	"active" BOOLEAN DEFAULT TRUE,
 	FOREIGN KEY("node_id") REFERENCES nodes("id")
 );
@@ -189,8 +189,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"ordering_node_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
-	"started" TEXT DEFAULT NULL,
-	"ended" TEXT DEFAULT NULL,
+	"started" TEXT DEFAULT '',
+	"ended" TEXT DEFAULT '',
 	FOREIGN KEY("ordering_node_id") REFERENCES nodes("id"),
 	FOREIGN KEY("service_id") REFERENCES services("id")
 );
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"job_id" INTEGER NOT NULL,
 	"resource_id" INTEGER NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
-	"timestamp" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	"timestamp" TEXT NOT NULL,
 	FOREIGN KEY("resource_id") REFERENCES resources("id"),
 	FOREIGN KEY("job_id") REFERENCES jobs("id")
 );
@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS job_inputs (
 	"job_execution_node_id" INTEGER NOT NULL,
 	"execution_job_id" INTEGER NOT NULL,
 	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'INPUTS READY',
-	"constraints" TEXT DEFAULT NULL,
+	"constraints" TEXT DEFAULT '',
 	"job_input_node_id" INTEGER DEFAULT NULL,
 	"input_job_id" INTEGER DEFAULT NULL,
 	FOREIGN KEY("job_execution_node_id") REFERENCES nodes("id"),
@@ -262,8 +262,8 @@ CREATE TABLE IF NOT EXISTS executions (
 	"id" INTEGER PRIMARY KEY,
 	"orchestration_id" INTEGER NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
-	"started" TEXT DEFAULT NULL,
-	"ended" TEXT DEFAULT NULL,
+	"started" TEXT DEFAULT '',
+	"ended" TEXT DEFAULT '',
 	FOREIGN KEY("orchestration_id") REFERENCES orchestrations("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	"id" INTEGER PRIMARY KEY,
 	"key" VARCHAR(255) UNIQUE NOT NULL,
 	"description" TEXT DEFAULT NULL,
-	"type" VARCHAR(10) CHECK( "type" IN ('STRING', 'INTEGER', 'REAL', 'BOOLEAN', 'JSON') ) NOT NULL DEFAULT 'STRING',
+	"setting_type" VARCHAR(10) CHECK( "setting_type" IN ('STRING', 'INTEGER', 'REAL', 'BOOLEAN', 'JSON') ) NOT NULL DEFAULT 'STRING',
 	"value_string" VARCHAR(1024) DEFAULT NULL,
 	"value_integer" INTEGER DEFAULT NULL,
 	"value_real" REAL DEFAULT NULL,
@@ -304,10 +304,10 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE UNIQUE INDEX IF NOT EXISTS settings_id_idx ON settings ("id");
 CREATE INDEX IF NOT EXISTS settings_key_idx ON settings ("key");
 
-INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1);
 `
 		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
 		if err != nil {

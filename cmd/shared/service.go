@@ -63,7 +63,7 @@ func GetService(id int32) (node_types.Service, error) {
 	defer db.Close()
 
 	// Get service
-	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, type, active from services where id = ?;", id)
+	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, service_type, active from services where id = ?;", id)
 
 	err = row.Scan(&service)
 	if err != nil {
@@ -89,7 +89,7 @@ func AddService(name string, description string, node_id int32, serviceType stri
 	// Add service
 	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
+	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
 		name, description, node_id, serviceType, servicePath, serviceRepo, active)
 	if err != nil {
 		msg := err.Error()
@@ -284,7 +284,7 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 		limit = params[1]
 	}
 
-	sql := `SELECT s.id, s.name, s.description, n.node_id, s.type, s.path, s.repo, s.active
+	sql := `SELECT s.id, s.name, s.description, n.node_id, s.service_type, s.path, s.repo, s.active
 		FROM services s INNER JOIN nodes n ON s.node_id = n.id
 		WHERE 1`
 
@@ -355,9 +355,9 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 		}
 		// Query for each type provided
 		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (s.type = '%s'", serviceType)
+			sql = sql + fmt.Sprintf(" AND (s.service_type = '%s'", serviceType)
 		} else {
-			sql = sql + fmt.Sprintf(" OR s.type = '%s'", serviceType)
+			sql = sql + fmt.Sprintf(" OR s.service_type = '%s'", serviceType)
 		}
 		if i >= len(serviceTypes)-1 {
 			sql = sql + ")"
@@ -389,8 +389,6 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 	// Add trailing semicolumn
 	sql = sql + fmt.Sprintf(" limit %d offset %d;", limit, offset)
 
-	utils.Log("debug", sql, "services")
-
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -420,11 +418,11 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 		}
 
 		// Query service resources with prices
-		sql = `SELECT r.name p.price, p.price_unit_normalizator, p.price_interval, c.currency, c.symbol
-		FROM prices p
-		INNER JOIN resources r ON p.resource_id = r.id
-		INNER JOIN currencies c ON p.currency_id = c.id
-		WHERE p.service_id = %d and r.active = true`
+		sql = fmt.Sprintf(`SELECT r.name, p.price, p.price_unit_normalizator, p.price_interval, c.currency, c.symbol
+			FROM prices p
+			INNER JOIN resources r ON p.resource_id = r.id
+			INNER JOIN currencies c ON p.currency_id = c.id
+			WHERE p.service_id = %d and r.active = true`, serviceOffer.Id)
 
 		rrows, err := db.QueryContext(context.Background(), sql)
 		if err != nil {

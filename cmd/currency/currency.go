@@ -143,7 +143,7 @@ func RemoveCurrency(symbol string) {
 		return
 	}
 
-	prices, err := price.GetPricesByCurrencyId(currency.Id.Int32)
+	prices, err := price.GetPricesByCurrencyId(currency.Id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "currencies")

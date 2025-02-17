@@ -1,19 +1,21 @@
 package node_types
 
+import "time"
+
 // Declare node type
 type Node struct {
-	Id         NullInt32  `json:"id"`
-	NodeId     NullString `json:"node_id"`
-	Multiaddrs NullString `json:"multiaddrs"`
-	Self       NullBool   `json:"self"`
+	Id         int32  `json:"id"`
+	NodeId     string `json:"node_id"`
+	Multiaddrs string `json:"multiaddrs"`
+	Self       bool   `json:"self"`
 }
 
 // Declare key type
 type Key struct {
-	Id         NullInt32  `json:"id"`
-	Identifier NullString `json:"identifier"`
-	Algorithm  NullString `json:"algorithm"`
-	Key        []byte     `json:"key"`
+	Id         int32  `json:"id"`
+	Identifier string `json:"identifier"`
+	Algorithm  string `json:"algorithm"`
+	Key        []byte `json:"key"`
 }
 
 // Declare stream data type
@@ -25,48 +27,48 @@ type StreamData struct {
 
 // Declare currency type
 type Currency struct {
-	Id       NullInt32  `json:"id"`
-	Currency NullString `json:"currency"`
-	Symbol   NullString `json:"symbol"`
+	Id       int32  `json:"id"`
+	Currency string `json:"currency"`
+	Symbol   string `json:"symbol"`
 }
 
 // Declare price type
 type Price struct {
-	Id                    NullInt32   `json:"id"`
-	ServiceId             NullInt32   `json:"service_id"`
-	ResourceId            NullInt32   `json:"resource_id"`
-	CurrencyId            NullInt32   `json:"currency_id"`
-	Price                 NullFloat64 `json:"price"`
-	PriceUnitNormalizator NullFloat64 `json:"price_unit_normalizator"`
-	PriceInterval         NullFloat64 `json:"price_interval"`
+	Id                    int32   `json:"id"`
+	ServiceId             int32   `json:"service_id"`
+	ResourceId            int32   `json:"resource_id"`
+	CurrencyId            int32   `json:"currency_id"`
+	Price                 float64 `json:"price"`
+	PriceUnitNormalizator float64 `json:"price_unit_normalizator"`
+	PriceInterval         float64 `json:"price_interval"`
 }
 
 // Declare resource type
 type Resource struct {
-	Id     NullInt32  `json:"id"`
-	Name   NullString `json:"name"`
-	Active NullBool   `json:"active"`
+	Id     int32  `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
 }
 
 // Declare resource utilization type
 type ResourceUtilization struct {
-	Id          NullInt32   `json:"id"`
-	JobId       NullInt32   `json:"job_id"`
-	ResourceId  NullInt32   `json:"resource_id"`
-	Utilization NullFloat64 `json:"utilization"`
-	Timestamp   NullString  `json:"timestamp"`
+	Id          int32   `json:"id"`
+	JobId       int32   `json:"job_id"`
+	ResourceId  int32   `json:"resource_id"`
+	Utilization float64 `json:"utilization"`
+	Timestamp   string  `json:"timestamp"`
 }
 
 // Declare service type
 type Service struct {
-	Id          NullInt32  `json:"id"`
-	Name        NullString `json:"name"`
-	Description NullString `json:"description"`
-	NodeId      NullInt32  `json:"node_id"`
-	Type        NullString `json:"type"`
-	Path        NullString `json:"path"`
-	Repo        NullString `json:"repo"`
-	Active      NullBool   `json:"active"`
+	Id          int32  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	NodeId      int32  `json:"node_id"`
+	Type        string `json:"type"`
+	Path        string `json:"path"`
+	Repo        string `json:"repo"`
+	Active      bool   `json:"active"`
 }
 
 // Declare search local service type
@@ -90,33 +92,33 @@ type ServiceLookup struct {
 
 // Declare service price model type
 type ServiceResourcesWithPricing struct {
-	ResourceName          NullString  `json:"resource_name"`
-	Price                 NullFloat64 `json:"price"`
-	PriceUnitNormalizator NullFloat64 `json:"price_unit_normalizator"`
-	PriceInterval         NullFloat64 `json:"price_interval"`
-	CurrencyName          NullString  `json:"currency_name"`
-	CurrencySymbol        NullString  `json:"currency_symbol"`
+	ResourceName          string  `json:"resource_name"`
+	Price                 float64 `json:"price"`
+	PriceUnitNormalizator float64 `json:"price_unit_normalizator"`
+	PriceInterval         float64 `json:"price_interval"`
+	CurrencyName          string  `json:"currency_name"`
+	CurrencySymbol        string  `json:"currency_symbol"`
 }
 
 // Declare service offer type
 type ServiceOffer struct {
-	Id                NullInt32                     `json:"id"`
-	Name              NullString                    `json:"name"`
-	Description       NullString                    `json:"description"`
-	NodeId            NullString                    `json:"node_id"`
-	Type              NullString                    `json:"type"`
-	Path              NullString                    `json:"path"`
-	Repo              NullString                    `json:"repo"`
-	Active            NullBool                      `json:"active"`
+	Id                int32                         `json:"id"`
+	Name              string                        `json:"name"`
+	Description       string                        `json:"description"`
+	NodeId            string                        `json:"node_id"`
+	Type              string                        `json:"type"`
+	Path              string                        `json:"path"`
+	Repo              string                        `json:"repo"`
+	Active            bool                          `json:"active"`
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
 }
 
 // Declare job type
 type Job struct {
-	Id             NullInt32  `json:"id"`
-	OrderingNodeId NullInt32  `json:"ordering_node_id"`
-	ServiceId      NullInt32  `json:"service_id"`
-	Status         NullString `json:"status"`
-	Started        NullTime   `json:"started"`
-	Ended          NullTime   `json:"ended"`
+	Id             int32     `json:"id"`
+	OrderingNodeId int32     `json:"ordering_node_id"`
+	ServiceId      int32     `json:"service_id"`
+	Status         string    `json:"status"`
+	Started        time.Time `json:"started"`
+	Ended          time.Time `json:"ended"`
 }

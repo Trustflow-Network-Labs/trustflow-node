@@ -316,6 +316,20 @@ func discoverPeers(cntx context.Context, hst host.Host) {
 
 				// Read list of active services (service offers with pricing)
 				var data []byte
+				var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
+					Name:        "",
+					Description: "",
+					NodeId:      "",
+					Type:        "",
+					Repo:        "",
+				}
+
+				data, err = json.Marshal(catalogueLookup)
+				if err != nil {
+					utils.Log("error", err.Error(), "p2p")
+					continue
+				}
+
 				serviceCatalogue, err := serviceLookup(data, true)
 				if err != nil {
 					utils.Log("error", err.Error(), "p2p")
@@ -473,7 +487,6 @@ func StreamData[T any](peer peer.AddrInfo, data T) error {
 	s, err := hst.NewStream(cntx, peer.ID, protocolID)
 	if err != nil {
 		utils.Log("error", err.Error(), "p2p")
-		s.Reset()
 		return err
 	} else {
 		t := uint16(0)
@@ -585,7 +598,7 @@ func streamProposalAssessment(streamDataType uint16) bool {
 		// Check settings
 		accepted = readBoolSetting("accept_file")
 	default:
-		message := fmt.Sprintf("Unknown stream type %d is poposed", streamDataType)
+		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		utils.Log("debug", message, "p2p")
 		return false
 	}
@@ -647,7 +660,7 @@ func sendStream[T any](s network.Stream, data T) {
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
 	utils.Log("debug", message, "p2p")
 
-	var chunkSize uint64 = 2048
+	var chunkSize uint64 = 4096
 	var pointer uint64 = 0
 
 	// Load configs
@@ -659,13 +672,11 @@ func sendStream[T any](s network.Stream, data T) {
 	}
 
 	// Read chunk size form configs
-	if chunkSize == 0 {
-		cs := config["chunk_size"]
-		chunkSize, err = strconv.ParseUint(cs, 10, 16)
-		if err != nil {
-			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
-			utils.Log("warn", message, "p2p")
-		}
+	cs := config["chunk_size"]
+	chunkSize, err = strconv.ParseUint(cs, 10, 64)
+	if err != nil {
+		message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
+		utils.Log("warn", message, "p2p")
 	}
 
 	switch v := any(data).(type) {
@@ -776,6 +787,7 @@ func sendStreamChunks(b []byte, pointer uint64, chunkSize uint64, s network.Stre
 
 func receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Prepare to read back the data
+	var data []byte
 	for {
 		var chunkSize uint64
 		err := binary.Read(s, binary.BigEndian, &chunkSize)
@@ -791,22 +803,45 @@ func receivedStream(s network.Stream, streamData node_types.StreamData) {
 			break
 		}
 
-		data := make([]byte, chunkSize)
+		chunk := make([]byte, chunkSize)
 
-		err = binary.Read(s, binary.BigEndian, &data)
+		err = binary.Read(s, binary.BigEndian, &chunk)
 		if err != nil {
 			utils.Log("error", err.Error(), "p2p")
 			s.Reset()
 		}
 
-		message = fmt.Sprintf("Received %v of type %d id %d from %s", data, streamData.Type, streamData.Id, s.ID())
+		message = fmt.Sprintf("Received %v of type %d id %d from %s", chunk, streamData.Type, streamData.Id, s.ID())
 		utils.Log("debug", message, "p2p")
+
+		// Concatenate receiving chunk
+		data = append(data, chunk...)
 	}
 
-	// TODO, concat the data and understand what was received
-	message := fmt.Sprintf("Received data type from %s is %d, id %d, node %s", s.ID(),
+	message := fmt.Sprintf("Received data %v type from %s is %d, id %d, node %s", data, s.ID(),
 		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")))
 	utils.Log("debug", message, "p2p")
+
+	// Determine data type
+	switch streamData.Type {
+	case 0:
+		// Received a Service Catalogue from the remote peer
+		var serviceCatalogue []node_types.ServiceOffer
+		err := json.Unmarshal(data, &serviceCatalogue)
+		if err != nil {
+			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
+			utils.Log("error", msg, "p2p")
+		}
+	case 1:
+		// Sent data to the remote peer
+	case 2:
+		// Received a binary stream from the remote peer
+	case 3:
+		// Received a file from the remote peer
+	default:
+		message := fmt.Sprintf("Unknown stream type %d is received", streamData.Type)
+		utils.Log("warn", message, "p2p")
+	}
 
 	message = fmt.Sprintf("Receiving ended %s", s.ID())
 	utils.Log("debug", message, "p2p")
@@ -933,24 +968,24 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 	}
 
 	var services []node_types.ServiceOffer
-	var serviceLookup node_types.ServiceLookup
+	var lookup node_types.ServiceLookup
 
 	if len(data) == 0 {
 		return services, nil
 	}
 
-	err = json.Unmarshal(data, &serviceLookup)
+	err = json.Unmarshal(data, &lookup)
 	if err != nil {
 		utils.Log("error", err.Error(), "p2p")
 		return nil, err
 	}
 
 	var searchService node_types.SearchService = node_types.SearchService{
-		Name:        serviceLookup.Name,
-		Description: serviceLookup.Description,
-		NodeId:      serviceLookup.NodeId,
-		Type:        serviceLookup.Type,
-		Repo:        serviceLookup.Repo,
+		Name:        lookup.Name,
+		Description: lookup.Description,
+		NodeId:      lookup.NodeId,
+		Type:        lookup.Type,
+		Repo:        lookup.Repo,
 		Active:      active,
 	}
 
@@ -971,6 +1006,7 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 			utils.Log("error", err.Error(), "p2p")
 			break
 		}
+
 		services = append(services, servicesBatch...)
 
 		if len(servicesBatch) == 0 {
@@ -978,8 +1014,6 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 		}
 
 		offset += uint32(len(servicesBatch))
-
-		fmt.Printf("Services:\n %v", servicesBatch)
 	}
 
 	return services, nil
@@ -1002,7 +1036,7 @@ func GeneratePeerFromId(peerId string) (peer.AddrInfo, error) {
 		return p, err
 	}
 
-	multiaddrsList := strings.Split(node.Multiaddrs.String, ",")
+	multiaddrsList := strings.Split(node.Multiaddrs, ",")
 
 	// Convert []string to []multiaddr.Multiaddr
 	multiaddrs := []multiaddr.Multiaddr{}

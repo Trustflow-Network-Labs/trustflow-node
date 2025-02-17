@@ -143,7 +143,7 @@ func RemoveResource(name string) {
 		return
 	}
 
-	utilizations, err := resource_utilization.GetUtilizationsByResourceId(resource.Id.Int32)
+	utilizations, err := resource_utilization.GetUtilizationsByResourceId(resource.Id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")
@@ -157,7 +157,7 @@ func RemoveResource(name string) {
 	}
 
 	// Check if there are existing prices defined using this resource
-	prices, err := price.GetPricesByResourceId(resource.Id.Int32)
+	prices, err := price.GetPricesByResourceId(resource.Id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")
@@ -213,7 +213,7 @@ func SetResourceInactive(name string) {
 		return
 	}
 
-	prices, err := price.GetPricesByResourceId(resource.Id.Int32)
+	prices, err := price.GetPricesByResourceId(resource.Id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "resources")

@@ -32,10 +32,8 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 		msg := err.Error()
 		utils.Log("error", msg, "node")
 		return nil, nil, err
-	}
-
-	// If we don't have a key let's create it
-	if !node.Self.Valid || !node.Self.Bool {
+	} else if err != nil && strings.ToLower(err.Error()) == "sql: no rows in result set" {
+		// We don't have a key let's create it
 		// Create a keypair
 		//		p, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 		//privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -49,33 +47,33 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 			return nil, nil, err
 		}
 	} else {
-		// Find node key
-		key, err := keystore.FindKey(node.NodeId.String)
-		if err != nil {
+		// We already have a key created before
+		key, err := keystore.FindKey(node.NodeId)
+		if err != nil && strings.ToLower(err.Error()) != "sql: no rows in result set" {
 			msg := err.Error()
 			utils.Log("error", msg, "node")
 			return nil, nil, err
-		}
-		if !key.Identifier.Valid {
-			msg := fmt.Sprintf("Could not find a key for provided node identifier %s.", node.NodeId.String)
+		} else if err != nil && strings.ToLower(err.Error()) == "sql: no rows in result set" {
+			// but we can't find it
+			msg := fmt.Sprintf("Could not find a key for provided node identifier %s.", node.NodeId)
 			utils.Log("error", msg, "api")
 			return nil, nil, err
-		}
-
-		// Get private key
-		switch key.Algorithm.String {
-		case "ECDSA: secp256r1":
-			priv, err = crypto.UnmarshalPrivateKey(key.Key)
-			if err != nil {
-				msg := err.Error()
-				utils.Log("error", msg, "node")
+		} else {
+			// Get private key
+			switch key.Algorithm {
+			case "ECDSA: secp256r1":
+				priv, err = crypto.UnmarshalPrivateKey(key.Key)
+				if err != nil {
+					msg := err.Error()
+					utils.Log("error", msg, "node")
+					return nil, nil, err
+				}
+				pub = priv.GetPublic()
+			default:
+				msg := fmt.Sprintf("Could not extract a key for provided algorithm %s.", key.Algorithm)
+				utils.Log("error", msg, "api")
 				return nil, nil, err
 			}
-			pub = priv.GetPublic()
-		default:
-			msg := fmt.Sprintf("Could not extract a key for provided algorithm %s.", key.Algorithm.String)
-			utils.Log("error", msg, "api")
-			return nil, nil, err
 		}
 	}
 
@@ -166,6 +164,7 @@ func FindItself() (node_types.Node, error) {
 		utils.Log("error", msg, "node")
 		return node, err
 	}
+
 	return node, nil
 }
 

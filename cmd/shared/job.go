@@ -168,7 +168,7 @@ func RunJob(jobId int32) error {
 	}
 
 	// Check job status
-	status := job.Status.String
+	status := job.Status
 
 	switch status {
 	case "IDLE":
@@ -191,19 +191,19 @@ func RunJob(jobId int32) error {
 		}
 		return nil
 	case "RUNNING":
-		msg := fmt.Sprintf("Job id %d is %s", job.Id.Int32, status)
+		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
 		utils.Log("error", msg, "jobs")
 		return err
 	case "CANCELLED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id.Int32, status)
+		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
 		utils.Log("error", msg, "jobs")
 		return err
 	case "ERRORED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id.Int32, status)
+		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
 		utils.Log("error", msg, "jobs")
 		return err
 	case "FINISHED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id.Int32, status)
+		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
 		utils.Log("error", msg, "jobs")
 		return err
 	default:
@@ -215,9 +215,9 @@ func RunJob(jobId int32) error {
 
 func StartJob(job node_types.Job) error {
 	// Check underlaying service
-	utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId.Int32), "jobs")
+	utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
-	service, err := GetService(job.ServiceId.Int32)
+	service, err := GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
@@ -225,14 +225,14 @@ func StartJob(job node_types.Job) error {
 	}
 
 	// Check if service is active
-	if !service.Active.Bool {
-		msg := fmt.Sprintf("Service id %d is inactive", service.Id.Int32)
+	if !service.Active {
+		msg := fmt.Sprintf("Service id %d is inactive", service.Id)
 		utils.Log("error", msg, "jobs")
 		return err
 	}
 
 	// Determine service type
-	serviceType := service.Type.String
+	serviceType := service.Type
 
 	switch serviceType {
 	case "DATA":
@@ -251,7 +251,7 @@ func StartJob(job node_types.Job) error {
 	}
 
 	// Run a job
-	jobId := job.Id.Int32
+	jobId := job.Id
 	utils.Log("debug", fmt.Sprintf("start running job id %d", jobId), "jobs")
 
 	return nil
@@ -267,23 +267,15 @@ func StreamDataJob(job node_types.Job) error {
 	}
 
 	// Get data source path
-	service, err := GetService(job.ServiceId.Int32)
+	service, err := GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
 		return err
 	}
 
-	// Check source data is existing / in place
-	if !service.Path.Valid {
-		msg := "service path is invalid"
-		err := errors.New(msg)
-		utils.Log("error", msg, "jobs")
-		return err
-	}
-
 	// Check if the file exists
-	_, err = os.Stat(service.Path.String)
+	_, err = os.Stat(service.Path)
 	if os.IsNotExist(err) {
 		msg := "file does not exist"
 		err := errors.New(msg)
@@ -296,7 +288,7 @@ func StreamDataJob(job node_types.Job) error {
 	}
 
 	// Open the file for reading
-	file, err := os.Open(service.Path.String)
+	file, err := os.Open(service.Path)
 	if err != nil {
 		utils.Log("error", err.Error(), "jobs")
 		return err
@@ -304,14 +296,14 @@ func StreamDataJob(job node_types.Job) error {
 	defer file.Close() // Ensure the file is closed after operations
 
 	// Get ordering node peer ID
-	orderingNode, err := tfnode.FindNodeById(job.OrderingNodeId.Int32)
+	orderingNode, err := tfnode.FindNodeById(job.OrderingNodeId)
 	if err != nil {
 		utils.Log("error", err.Error(), "jobs")
 		return err
 	}
 
 	// Get peer
-	p, err := GeneratePeerFromId(orderingNode.NodeId.String)
+	p, err := GeneratePeerFromId(orderingNode.NodeId)
 	if err != nil {
 		utils.Log("error", err.Error(), "jobs")
 		return err
