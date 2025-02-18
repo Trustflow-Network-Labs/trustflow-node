@@ -30,7 +30,7 @@ var addServiceCmd = &cobra.Command{
 	Long:    "Adding new service will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		shared.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, servicePath, serviceRepo, serviceActive)
+		shared.AddService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, servicePath, serviceRepo, serviceActive)
 	},
 }
 
@@ -133,10 +133,10 @@ var serviceLookupCmd = &cobra.Command{
 }
 
 func init() {
-	addServiceCmd.Flags().StringVarP(&serviceName, "name", "n", "", "Service name to be added")
+	addServiceCmd.Flags().StringVarP(&serviceName, "name", "s", "", "Service name to be added")
 	addServiceCmd.MarkFlagRequired("name")
 	addServiceCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to be added")
-	addServiceCmd.Flags().Int32VarP(&serviceNodeId, "node", "i", 0, "Service node ID")
+	addServiceCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "n", "", "Service node ID")
 	addServiceCmd.MarkFlagRequired("node")
 	addServiceCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type")
 	addServiceCmd.MarkFlagRequired("type")
@@ -159,7 +159,6 @@ func init() {
 	rootCmd.AddCommand(setServiceActiveCmd)
 
 	searchServicesCmd.Flags().StringVarP(&serviceName, "name", "n", "", "Service name to lookup for (any word/sentence match, comma delimited)")
-	searchServicesCmd.MarkFlagRequired("name")
 	searchServicesCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to lookup for (any word/sentence match, comma delimited)")
 	searchServicesCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "i", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
 	searchServicesCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type to be lookup for (any listed type match /DATA, DOCKER EXECUTION ENVIRONMENT, WASM EXECUTION ENVIRONMENT/, comma delimited)")
