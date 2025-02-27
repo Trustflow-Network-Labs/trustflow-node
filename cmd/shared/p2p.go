@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
 	"github.com/adgsm/trustflow-node/cmd/settings"
@@ -33,11 +35,12 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	"github.com/manifoldco/promptui"
 	"github.com/multiformats/go-multiaddr"
 )
 
 var (
-	topicNames       []string = []string{"lookup.service"}
+	topicNames       []string = []string{"lookup.service", "dummy.service"}
 	topicNameFlags   []*string
 	topicsSubscribed map[string]*pubsub.Topic = make(map[string]*pubsub.Topic)
 	protocolID       protocol.ID
@@ -71,7 +74,7 @@ func SetHostContext(c context.Context, hst host.Host) {
 	h = hst
 }
 
-func Start(port uint16) {
+func Start(port uint16, daemon bool) {
 	// Read configs
 	config, err := utils.ReadConfigs(configsPath)
 	if err != nil {
@@ -103,6 +106,7 @@ func Start(port uint16) {
 	protocolID = protocol.ID(config["protocol_id"])
 
 	flag.Parse()
+
 	cntx := context.Background()
 
 	// Create or get previously created node key
@@ -212,6 +216,31 @@ func Start(port uint16) {
 			panic(fmt.Sprintf("%v", err))
 		}
 	}
+
+	if !daemon {
+		// Print interactive menu
+		runMenu()
+	} else {
+		// Running as a daemon never ends
+		<-ctx.Done()
+	}
+}
+
+func Stop(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	if runtime.GOOS == "windows" {
+		// On Windows
+		return process.Kill()
+	} else {
+		// On Unix-like systems
+		//return process.Signal(syscall.SIGKILL)
+		// Or for graceful termination:
+		return process.Signal(syscall.SIGTERM)
+	}
 }
 
 func joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, topicNameFlag *string) error {
@@ -229,29 +258,75 @@ func joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, topicNameFlag *
 
 	topicsSubscribed[*topicNameFlag] = topic
 
-	receivedMessage(cntx, sub)
+	go receivedMessage(cntx, sub)
 
 	return nil
 }
 
-func Stop() error {
-	running := IsHostRunning()
-	if !running {
-		message := "host is not running"
-		err := errors.New(message)
-		utils.Log("warn", message, "p2p")
-		return err
+// Interactive menu loop
+func runMenu() {
+	for {
+		prompt := promptui.Select{
+			Label: "Choose an option",
+			Items: []string{"Find remote services", "Find local services", "Exit"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			utils.Log("error", msg, "p2p")
+			return
+		}
+
+		switch result {
+		case "Find remote services":
+			frsPrompt := promptui.Prompt{
+				Label:       "Service name",
+				Default:     "New service",
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			snResult, err := frsPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("Entering service name failed:", err)
+				fmt.Println(msg)
+				utils.Log("error", msg, "p2p")
+				return
+			}
+			LookupRemoteService(snResult, "", "", "", "")
+		case "Find local services":
+			var data []byte
+			var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
+				Name:        "",
+				Description: "",
+				NodeId:      "",
+				Type:        "",
+				Repo:        "",
+			}
+
+			data, err = json.Marshal(catalogueLookup)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				continue
+			}
+
+			serviceCatalogue, err := serviceLookup(data, true)
+			if err != nil {
+				utils.Log("error", err.Error(), "p2p")
+				continue
+			}
+
+			fmt.Printf("%v\n", serviceCatalogue)
+		case "Exit":
+			msg := "Exiting interactive mode..."
+			fmt.Println(msg)
+			utils.Log("info", msg, "p2p")
+			return
+		}
 	}
-
-	_, hst := GetHostContext()
-
-	err := hst.Close()
-	if err != nil {
-		utils.Log("warn", err.Error(), "p2p")
-		return err
-	}
-
-	return nil
 }
 
 func initDHT(cntx context.Context, hst host.Host) *dht.IpfsDHT {
@@ -872,7 +947,6 @@ func BroadcastMessage[T any](message T) error {
 		}
 
 		topicKey := config["topic_name_prefix"] + "lookup.service"
-
 		topic = topicsSubscribed[topicKey]
 	default:
 		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
