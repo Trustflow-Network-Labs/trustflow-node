@@ -134,6 +134,43 @@ func GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, er
 	return jobs, nil
 }
 
+// Change job status
+func UpdateJobStatus(id int32, status string) error {
+	// Check if job exists in a queue
+	err, exists := JobExists(id)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	if !exists {
+		msg := fmt.Sprintf("Job %d does not exists in a queue", id)
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	// Create a database connection
+	db, err := database.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+	defer db.Close()
+
+	// Update job status
+	_, err = db.ExecContext(context.Background(), "update jobs set status = ? where id = ?);",
+		status, id)
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return err
+	}
+
+	return nil
+}
+
 // Create new job
 func CreateJob(orderingNodeId int32, serviceId int32) {
 	// Create a database connection
@@ -172,7 +209,6 @@ func RunJob(jobId int32) error {
 
 	switch status {
 	case "IDLE":
-		// TODO, set job status to RUNNING
 		manager := NewWorkerManager()
 		err := manager.StartWorker(jobId, job)
 		if err != nil {
@@ -185,6 +221,13 @@ func RunJob(jobId int32) error {
 			}
 
 			// Log error
+			msg := err.Error()
+			utils.Log("error", msg, "jobs")
+			return err
+		}
+		// Set job status to RUNNING
+		err = UpdateJobStatus(jobId, "RUNNING")
+		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "jobs")
 			return err
