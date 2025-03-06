@@ -12,8 +12,18 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type JobManager struct {
+	jobs map[int32]*node_types.Job
+}
+
+func NewJobManager() *JobManager {
+	return &JobManager{
+		jobs: make(map[int32]*node_types.Job),
+	}
+}
+
 // Job exists?
-func JobExists(id int32) (error, bool) {
+func (jm *JobManager) JobExists(id int32) (error, bool) {
 	if id <= 0 {
 		msg := "invalid job id"
 		utils.Log("error", msg, "jobs")
@@ -44,11 +54,11 @@ func JobExists(id int32) (error, bool) {
 }
 
 // Get job by id
-func GetJob(id int32) (node_types.Job, error) {
+func (jm *JobManager) GetJob(id int32) (node_types.Job, error) {
 	var job node_types.Job
 
 	// Check if job exists in a queue
-	err, exists := JobExists(id)
+	err, exists := jm.JobExists(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
@@ -80,11 +90,13 @@ func GetJob(id int32) (node_types.Job, error) {
 		return job, err
 	}
 
+	jm.jobs[job.Id] = &job
+
 	return job, nil
 }
 
 // Get jobs by service ID
-func GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, error) {
+func (jm *JobManager) GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, error) {
 	var job node_types.Job
 	var jobs []node_types.Job
 	if serviceId <= 0 {
@@ -129,15 +141,16 @@ func GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, er
 			return jobs, err
 		}
 		jobs = append(jobs, job)
+		jm.jobs[job.Id] = &job
 	}
 
 	return jobs, nil
 }
 
 // Change job status
-func UpdateJobStatus(id int32, status string) error {
+func (jm *JobManager) UpdateJobStatus(id int32, status string) error {
 	// Check if job exists in a queue
-	err, exists := JobExists(id)
+	err, exists := jm.JobExists(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
@@ -168,11 +181,15 @@ func UpdateJobStatus(id int32, status string) error {
 		return err
 	}
 
+	if _, exists := jm.jobs[id]; exists {
+		jm.jobs[id].Status = status
+	}
+
 	return nil
 }
 
 // Create new job
-func CreateJob(orderingNodeId int32, serviceId int32) {
+func (jm *JobManager) CreateJob(orderingNodeId int32, serviceId int32) {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -185,19 +202,35 @@ func CreateJob(orderingNodeId int32, serviceId int32) {
 	// Create new job
 	utils.Log("debug", fmt.Sprintf("create job from ordering node id %d using service id %d", orderingNodeId, serviceId), "jobs")
 
-	_, err = db.ExecContext(context.Background(), "insert into jobs (ordering_node_id, service_id) values (?, ?);",
+	result, err := db.ExecContext(context.Background(), "insert into jobs (ordering_node_id, service_id) values (?, ?);",
 		orderingNodeId, serviceId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
 		return
 	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "jobs")
+		return
+	}
+
+	job := node_types.Job{
+		Id:             int32(id),
+		OrderingNodeId: orderingNodeId,
+		ServiceId:      serviceId,
+		Status:         "IDLE",
+	}
+
+	jm.jobs[int32(id)] = &job
 }
 
 // Run job from a queue
-func RunJob(jobId int32) error {
+func (jm *JobManager) RunJob(jobId int32) error {
 	// Get job from a queue
-	job, err := GetJob(jobId)
+	job, err := jm.GetJob(jobId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
@@ -226,7 +259,7 @@ func RunJob(jobId int32) error {
 			return err
 		}
 		// Set job status to RUNNING
-		err = UpdateJobStatus(jobId, "RUNNING")
+		err = jm.UpdateJobStatus(jobId, "RUNNING")
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "jobs")
@@ -256,11 +289,12 @@ func RunJob(jobId int32) error {
 	}
 }
 
-func StartJob(job node_types.Job) error {
+func (jm *JobManager) StartJob(job node_types.Job) error {
 	// Check underlaying service
 	utils.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
-	service, err := GetService(job.ServiceId)
+	serviceManager := NewServiceManager()
+	service, err := serviceManager.GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")
@@ -279,7 +313,7 @@ func StartJob(job node_types.Job) error {
 
 	switch serviceType {
 	case "DATA":
-		err := StreamDataJob(job)
+		err := jm.StreamDataJob(job)
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "jobs")
@@ -300,7 +334,7 @@ func StartJob(job node_types.Job) error {
 	return nil
 }
 
-func StreamDataJob(job node_types.Job) error {
+func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	// Check if node is running
 	if running := IsHostRunning(); !running {
 		msg := "node is not running"
@@ -310,7 +344,8 @@ func StreamDataJob(job node_types.Job) error {
 	}
 
 	// Get data source path
-	service, err := GetService(job.ServiceId)
+	serviceManager := NewServiceManager()
+	service, err := serviceManager.GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "jobs")

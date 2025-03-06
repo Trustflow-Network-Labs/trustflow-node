@@ -296,7 +296,8 @@ func runMenu() {
 				utils.Log("error", msg, "p2p")
 				return
 			}
-			LookupRemoteService(snResult, "", "", "", "")
+			serviceManager := NewServiceManager()
+			serviceManager.LookupRemoteService(snResult, "", "", "", "")
 		case "Find local services":
 			var data []byte
 			var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
@@ -640,7 +641,8 @@ func streamProposalResponse(s network.Stream) {
 		// Check settings, do we want to accept sending data
 		accepted := streamProposalAssessment(streamData.Type)
 		if accepted {
-			go RunJob(streamData.Id)
+			jobManager := NewJobManager()
+			go jobManager.RunJob(streamData.Id)
 			s.Reset()
 		} else {
 			s.Reset()
@@ -1073,9 +1075,10 @@ func serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) 
 	} else {
 		limit = uint32(l64)
 	}
+	serviceManager := NewServiceManager()
 
 	for {
-		servicesBatch, err := SearchServices(searchService, offset, limit)
+		servicesBatch, err := serviceManager.SearchServices(searchService, offset, limit)
 		if err != nil {
 			utils.Log("error", err.Error(), "p2p")
 			break

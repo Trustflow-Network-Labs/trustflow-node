@@ -18,7 +18,8 @@ var createJobCmd = &cobra.Command{
 	Long:    "Create a new job will add the job to the queue to be executed on a hosting machine",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		shared.CreateJob(jobOrderingNodeId, jobServiceId)
+		jobManager := shared.NewJobManager()
+		jobManager.CreateJob(jobOrderingNodeId, jobServiceId)
 	},
 }
 
@@ -29,7 +30,8 @@ var runJobCmd = &cobra.Command{
 	Long:    "Run a job from a queue will start executing the job on a hosting machine",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		shared.RunJob(jobId)
+		jobManager := shared.NewJobManager()
+		jobManager.RunJob(jobId)
 	},
 }
 

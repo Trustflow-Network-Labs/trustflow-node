@@ -13,8 +13,18 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type ServiceManager struct {
+	services map[int32]*node_types.Service
+}
+
+func NewServiceManager() *ServiceManager {
+	return &ServiceManager{
+		services: make(map[int32]*node_types.Service),
+	}
+}
+
 // Service already added?
-func ServiceExists(id int32) (error, bool) {
+func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
 	if id <= 0 {
 		msg := "invalid service id"
 		utils.Log("error", msg, "servics")
@@ -45,7 +55,7 @@ func ServiceExists(id int32) (error, bool) {
 }
 
 // Get Service by ID
-func GetService(id int32) (node_types.Service, error) {
+func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 	var service node_types.Service
 	if id <= 0 {
 		msg := "invalid service id"
@@ -72,11 +82,13 @@ func GetService(id int32) (node_types.Service, error) {
 		return service, err
 	}
 
+	sm.services[id] = &service
+
 	return service, nil
 }
 
 // Add a service
-func AddService(name string, description string, serviceNodeIdentityId string, serviceType string, servicePath string, serviceRepo string, active bool) {
+func (sm *ServiceManager) AddService(name string, description string, serviceNodeIdentityId string, serviceType string, servicePath string, serviceRepo string, active bool) {
 	// Create a database connection
 	db, err := database.CreateConnection()
 	if err != nil {
@@ -100,18 +112,27 @@ func AddService(name string, description string, serviceNodeIdentityId string, s
 	// Add service
 	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	_, err = db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
+	result, err := db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
 		name, description, nodeId, serviceType, servicePath, serviceRepo, active)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
 		return
 	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		msg := err.Error()
+		utils.Log("error", msg, "services")
+		return
+	}
+
+	sm.services[int32(id)] = &node_types.Service{}
 }
 
 // Remove service
-func RemoveService(id int32) {
-	err, existing := ServiceExists(id)
+func (sm *ServiceManager) RemoveService(id int32) {
+	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -135,7 +156,8 @@ func RemoveService(id int32) {
 	}
 
 	// Check if there are jobs executed using this service
-	jobs, err := GetJobsByServiceId(id)
+	jobManager := NewJobManager()
+	jobs, err := jobManager.GetJobsByServiceId(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -169,11 +191,13 @@ func RemoveService(id int32) {
 		utils.Log("error", msg, "services")
 		return
 	}
+
+	delete(sm.services, id)
 }
 
 // Set service inactive
-func SetServiceInactive(id int32) {
-	err, existing := ServiceExists(id)
+func (sm *ServiceManager) SetServiceInactive(id int32) {
+	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -218,11 +242,15 @@ func SetServiceInactive(id int32) {
 		utils.Log("error", msg, "services")
 		return
 	}
+
+	if _, exists := sm.services[id]; exists {
+		sm.services[id].Active = false
+	}
 }
 
 // Set service active
-func SetServiceActive(id int32) {
-	err, existing := ServiceExists(id)
+func (sm *ServiceManager) SetServiceActive(id int32) {
+	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
 		utils.Log("error", msg, "services")
@@ -254,9 +282,13 @@ func SetServiceActive(id int32) {
 		utils.Log("error", msg, "services")
 		return
 	}
+
+	if _, exists := sm.services[id]; exists {
+		sm.services[id].Active = true
+	}
 }
 
-func LookupRemoteService(serviceName string, serviceDescription string, serviceNodeIdentityId string, serviceType string, serviceRepo string) {
+func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescription string, serviceNodeIdentityId string, serviceType string, serviceRepo string) {
 	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
 		Name:        serviceName,
 		Description: serviceDescription,
@@ -267,7 +299,7 @@ func LookupRemoteService(serviceName string, serviceDescription string, serviceN
 	BroadcastMessage(serviceLookup)
 }
 
-func SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
+func (sm *ServiceManager) SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
 	var services []node_types.ServiceOffer
 
 	// Read configs
@@ -295,7 +327,7 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 		limit = params[1]
 	}
 
-	sql := `SELECT s.id, s.name, s.description, n.node_id, s.service_type, s.path, s.repo, s.active
+	sql := `SELECT s.id, s.name, s.description, n.id, n.node_id, s.service_type, s.path, s.repo, s.active
 		FROM services s INNER JOIN nodes n ON s.node_id = n.id
 		WHERE 1`
 
@@ -419,14 +451,29 @@ func SearchServices(searchService node_types.SearchService, params ...uint32) ([
 	defer rows.Close()
 
 	for rows.Next() {
+		var nodeId int32
+		var service node_types.Service
 		var serviceOffer node_types.ServiceOffer
-		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &serviceOffer.NodeId,
+		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &nodeId, &serviceOffer.NodeId,
 			&serviceOffer.Type, &serviceOffer.Path, &serviceOffer.Repo, &serviceOffer.Active)
 		if err != nil {
 			msg := err.Error()
 			utils.Log("error", msg, "services")
 			return nil, err
 		}
+
+		service = node_types.Service{
+			Id:          serviceOffer.Id,
+			Name:        serviceOffer.Name,
+			Description: serviceOffer.Description,
+			NodeId:      nodeId,
+			Type:        serviceOffer.Type,
+			Path:        serviceOffer.Path,
+			Repo:        serviceOffer.Repo,
+			Active:      serviceOffer.Active,
+		}
+
+		sm.services[service.Id] = &service
 
 		// Query service resources with prices
 		sql = fmt.Sprintf(`SELECT r.name, p.price, p.price_unit_normalizator, p.price_interval, c.currency, c.symbol

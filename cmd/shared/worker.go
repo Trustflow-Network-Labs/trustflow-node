@@ -109,7 +109,8 @@ func (w *Worker) Start() error {
 				return
 			default:
 				fmt.Printf("Worker %d: Working...\n", w.ID)
-				err := StartJob(w.job)
+				jobManager := NewJobManager()
+				err := jobManager.StartJob(w.job)
 				if err != nil {
 					e = err
 				}
