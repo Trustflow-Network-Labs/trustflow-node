@@ -291,7 +291,7 @@ func runMenu() {
 			}
 			snResult, err := frsPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("Entering service name failed:", err)
+				msg := fmt.Sprintf("Entering service name failed: %s", err.Error())
 				fmt.Println(msg)
 				utils.Log("error", msg, "p2p")
 				return

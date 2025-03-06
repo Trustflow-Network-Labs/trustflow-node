@@ -15,7 +15,7 @@ var port uint16
 var daemon bool = false
 var pid int
 var nodeCmd = &cobra.Command{
-	Use:     "node",
+	Use:     "start",
 	Aliases: []string{"interactive"},
 	Short:   "Start a p2p node",
 	Long:    "Start running a p2p node in trustflow network",
@@ -26,16 +26,16 @@ var nodeCmd = &cobra.Command{
 }
 
 var nodeDaemonCmd = &cobra.Command{
-	Use:     "node-daemon",
+	Use:     "start-daemon",
 	Aliases: []string{"daemon"},
 	Short:   "Start a p2p node as a daemon",
 	Long:    "Start running a p2p node as a daemon in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Start the process in background
-		command := exec.Command(os.Args[0], "node", "-d=true")
-		command.Stdout = nil
-		command.Stderr = nil
+		command := exec.Command(os.Args[0], "start", "-d=true")
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
 		command.Stdin = nil
 		command.SysProcAttr = &syscall.SysProcAttr{
 			Setpgid: true,
@@ -49,13 +49,41 @@ var nodeDaemonCmd = &cobra.Command{
 			utils.Log("error", msg, "node")
 			return
 		}
-		msg := fmt.Sprintf("Daemon started with PID: %d, command: %v", command.Process.Pid, command.Args)
+		pid = command.Process.Pid
+		msg := fmt.Sprintf("Daemon started with PID: %d, command: %v", pid, command.Args)
 		fmt.Println(msg)
 		utils.Log("info", msg, "node")
 
 		err = command.Process.Release()
 		if err != nil {
 			msg := fmt.Sprintf("Error occured whilst releasing a daemon process: %s", err.Error())
+			fmt.Println(msg)
+			utils.Log("error", msg, "node")
+			return
+		}
+
+		// Read configs
+		config, err := utils.ReadConfigs(configsPath)
+		if err != nil {
+			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+			utils.Log("error", message, "node")
+			return
+		}
+		// PID file path
+		pidPath := config["pid_path"]
+
+		// Create PID Manager instance
+		pm, err := shared.NewPIDManager(pidPath)
+		if err != nil {
+			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
+			fmt.Println(msg)
+			utils.Log("error", msg, "node")
+			return
+		}
+
+		// Write our PID
+		if err := pm.WritePID(pid); err != nil {
+			msg := fmt.Sprintf("Error writting PID: %v\n", err)
 			fmt.Println(msg)
 			utils.Log("error", msg, "node")
 			return
@@ -72,6 +100,33 @@ var stopNodeCmd = &cobra.Command{
 	Long:    "Stops running p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		if pid == 0 {
+			// Read configs
+			config, err := utils.ReadConfigs(configsPath)
+			if err != nil {
+				message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+				utils.Log("error", message, "node")
+				return
+			}
+			// PID file path
+			pidPath := config["pid_path"]
+
+			// Create PID Manager instance
+			pm, err := shared.NewPIDManager(pidPath)
+			if err != nil {
+				msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
+				fmt.Println(msg)
+				utils.Log("error", msg, "node")
+				return
+			}
+			if pid, err = pm.ReadPID(); err != nil {
+				msg := fmt.Sprintf("Error reading PID: %v\n", err)
+				fmt.Println(msg)
+				utils.Log("error", msg, "node")
+				return
+			}
+		}
+
 		err := shared.Stop(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())
