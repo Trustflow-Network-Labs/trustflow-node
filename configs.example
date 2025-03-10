@@ -2,7 +2,7 @@
 node_port = 30609
 topic_name = trustflow.network
 protocol_id = /trustflow-network/1.0.0
-search_services_limit = 10
+search_results = 10
 
 [sqlite]
 database_file = ./trustflow.db

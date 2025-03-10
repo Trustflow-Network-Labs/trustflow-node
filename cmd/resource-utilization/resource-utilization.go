@@ -9,21 +9,30 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type ResourceUtilizationManager struct {
+}
+
+func NewResourceUtilizationManager() *ResourceUtilizationManager {
+	return &ResourceUtilizationManager{}
+}
+
 // Get utilizations by resource ID
-func GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_types.ResourceUtilization, error) {
+func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_types.ResourceUtilization, error) {
 	var utilization node_types.ResourceUtilization
 	var utilizations []node_types.ResourceUtilization
+	logsManager := utils.NewLogsManager()
 	if resourceId <= 0 {
 		msg := "invalid resource ID"
-		utils.Log("error", msg, "utilizations")
+		logsManager.Log("error", msg, "utilizations")
 		return utilizations, errors.New(msg)
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "utilizations")
+		logsManager.Log("error", msg, "utilizations")
 		return utilizations, err
 	}
 	defer db.Close()
@@ -42,7 +51,7 @@ func GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_typ
 		resourceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "utilizations")
+		logsManager.Log("error", msg, "utilizations")
 		return utilizations, err
 	}
 	defer rows.Close()
@@ -51,7 +60,7 @@ func GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_typ
 		err = rows.Scan(&utilization)
 		if err != nil {
 			msg := err.Error()
-			utils.Log("error", msg, "utilizations")
+			logsManager.Log("error", msg, "utilizations")
 			return utilizations, err
 		}
 		utilizations = append(utilizations, utilization)

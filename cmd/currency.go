@@ -14,7 +14,8 @@ var addCurrencyCmd = &cobra.Command{
 	Long:    "Adding new currency will allow setting data/services pricing in that currency",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		currency.AddCurrency(curr, symbol)
+		currencyManager := currency.NewCurrencyManager()
+		currencyManager.AddCurrency(curr, symbol)
 	},
 }
 
@@ -25,7 +26,8 @@ var removeCurrencyCmd = &cobra.Command{
 	Long:    "Removing a currency will prevent setting data/services pricing in that currency. Currency can not be removed if there is an price set in that currency",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		currency.RemoveCurrency(symbol)
+		currencyManager := currency.NewCurrencyManager()
+		currencyManager.RemoveCurrency(symbol)
 	},
 }
 

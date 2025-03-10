@@ -25,17 +25,19 @@ func NewServiceManager() *ServiceManager {
 
 // Service already added?
 func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
+	logsManager := utils.NewLogsManager()
 	if id <= 0 {
 		msg := "invalid service id"
-		utils.Log("error", msg, "servics")
+		logsManager.Log("error", msg, "servics")
 		return errors.New(msg), false
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "servics")
+		logsManager.Log("error", msg, "servics")
 		return err, false
 	}
 	defer db.Close()
@@ -47,7 +49,7 @@ func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
 	err = row.Scan(&serviceId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("debug", msg, "servics")
+		logsManager.Log("debug", msg, "servics")
 		return nil, false
 	}
 
@@ -57,17 +59,19 @@ func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
 // Get Service by ID
 func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 	var service node_types.Service
+	logsManager := utils.NewLogsManager()
 	if id <= 0 {
 		msg := "invalid service id"
-		utils.Log("error", msg, "servics")
+		logsManager.Log("error", msg, "servics")
 		return service, errors.New(msg)
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "servics")
+		logsManager.Log("error", msg, "servics")
 		return service, err
 	}
 	defer db.Close()
@@ -78,7 +82,7 @@ func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 	err = row.Scan(&service)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("debug", msg, "servics")
+		logsManager.Log("debug", msg, "servics")
 		return service, err
 	}
 
@@ -90,10 +94,12 @@ func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 // Add a service
 func (sm *ServiceManager) AddService(name string, description string, serviceNodeIdentityId string, serviceType string, servicePath string, serviceRepo string, active bool) {
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	defer db.Close()
@@ -105,25 +111,25 @@ func (sm *ServiceManager) AddService(name string, description string, serviceNod
 	err = row.Scan(&nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "servics")
+		logsManager.Log("error", msg, "servics")
 		return
 	}
 
 	// Add service
-	utils.Log("debug", fmt.Sprintf("add service %s", name), "services")
+	logsManager.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
 	result, err := db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
 		name, description, nodeId, serviceType, servicePath, serviceRepo, active)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
@@ -132,18 +138,20 @@ func (sm *ServiceManager) AddService(name string, description string, serviceNod
 
 // Remove service
 func (sm *ServiceManager) RemoveService(id int32) {
+	logsManager := utils.NewLogsManager()
 	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	defer db.Close()
@@ -151,7 +159,7 @@ func (sm *ServiceManager) RemoveService(id int32) {
 	// Check if service is already existing
 	if !existing {
 		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to remove", id)
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
@@ -160,35 +168,36 @@ func (sm *ServiceManager) RemoveService(id int32) {
 	jobs, err := jobManager.GetJobsByServiceId(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	if len(jobs) > 0 {
 		msg := fmt.Sprintf("Service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
 	// Check if there are existing prices defined using this service
-	prices, err := price.GetPricesByServiceId(id)
+	priceManager := price.NewPriceManager()
+	prices, err := priceManager.GetPricesByServiceId(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	if len(prices) > 0 {
 		msg := fmt.Sprintf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
 	// Remove service
-	utils.Log("debug", fmt.Sprintf("removing service %d", id), "services")
+	logsManager.Log("debug", fmt.Sprintf("removing service %d", id), "services")
 
 	_, err = db.ExecContext(context.Background(), "delete from services where id = ?;", id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
@@ -197,18 +206,20 @@ func (sm *ServiceManager) RemoveService(id int32) {
 
 // Set service inactive
 func (sm *ServiceManager) SetServiceInactive(id int32) {
+	logsManager := utils.NewLogsManager()
 	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	defer db.Close()
@@ -216,30 +227,31 @@ func (sm *ServiceManager) SetServiceInactive(id int32) {
 	// Check if service is already existing
 	if !existing {
 		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to set inactive", id)
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
 	// Check if there are existing prices defined using this service
-	prices, err := price.GetPricesByServiceId(id)
+	priceManager := price.NewPriceManager()
+	prices, err := priceManager.GetPricesByServiceId(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	if len(prices) > 0 {
 		msg := fmt.Sprintf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
 	// Set service inactive
-	utils.Log("debug", fmt.Sprintf("setting service id %d inactive", id), "services")
+	logsManager.Log("debug", fmt.Sprintf("setting service id %d inactive", id), "services")
 
 	_, err = db.ExecContext(context.Background(), "update services set active = false where id = ?;", id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
@@ -250,18 +262,20 @@ func (sm *ServiceManager) SetServiceInactive(id int32) {
 
 // Set service active
 func (sm *ServiceManager) SetServiceActive(id int32) {
+	logsManager := utils.NewLogsManager()
 	err, existing := sm.ServiceExists(id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 	defer db.Close()
@@ -269,17 +283,17 @@ func (sm *ServiceManager) SetServiceActive(id int32) {
 	// Check if service is already existing
 	if !existing {
 		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to set active", id)
-		utils.Log("warn", msg, "services")
+		logsManager.Log("warn", msg, "services")
 		return
 	}
 
 	// Set service active
-	utils.Log("debug", fmt.Sprintf("setting service id %d active", id), "services")
+	logsManager.Log("debug", fmt.Sprintf("setting service id %d active", id), "services")
 
 	_, err = db.ExecContext(context.Background(), "update services set active = true where id = ?;", id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return
 	}
 
@@ -296,23 +310,26 @@ func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescrip
 		Type:        serviceType,
 		Repo:        serviceRepo,
 	}
-	BroadcastMessage(serviceLookup)
+	p2pManager := NewP2PManager()
+	BroadcastMessage(p2pManager, serviceLookup)
 }
 
 func (sm *ServiceManager) SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
 	var services []node_types.ServiceOffer
 
 	// Read configs
-	config, err := utils.ReadConfigs(configsPath)
+	configManager := utils.NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		utils.Log("error", message, "p2p")
+		logsManager.Log("error", message, "p2p")
 		panic(err)
 	}
 
 	var offset uint32 = 0
 	var limit uint32 = 10
-	l := config["search_services_limit"]
+	l := config["search_results"]
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10
@@ -433,10 +450,11 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	sql = sql + fmt.Sprintf(" limit %d offset %d;", limit, offset)
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return nil, err
 	}
 	defer db.Close()
@@ -445,7 +463,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	rows, err := db.QueryContext(context.Background(), sql)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "services")
+		logsManager.Log("error", msg, "services")
 		return nil, err
 	}
 	defer rows.Close()
@@ -458,7 +476,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			&serviceOffer.Type, &serviceOffer.Path, &serviceOffer.Repo, &serviceOffer.Active)
 		if err != nil {
 			msg := err.Error()
-			utils.Log("error", msg, "services")
+			logsManager.Log("error", msg, "services")
 			return nil, err
 		}
 
@@ -485,7 +503,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		rrows, err := db.QueryContext(context.Background(), sql)
 		if err != nil {
 			msg := err.Error()
-			utils.Log("error", msg, "services")
+			logsManager.Log("error", msg, "services")
 			return nil, err
 		}
 		defer rrows.Close()
@@ -498,7 +516,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 				&serviceResource.PriceInterval, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
 			if err != nil {
 				msg := err.Error()
-				utils.Log("warn", msg, "services")
+				logsManager.Log("warn", msg, "services")
 				continue
 			}
 			serviceResources = append(serviceResources, serviceResource)

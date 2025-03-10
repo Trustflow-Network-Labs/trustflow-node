@@ -11,19 +11,28 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type CurrencyManager struct {
+}
+
+func NewCurrencyManager() *CurrencyManager {
+	return &CurrencyManager{}
+}
+
 // Currency already added?
-func CurrencyExists(symbol string) (error, bool) {
+func (cm *CurrencyManager) CurrencyExists(symbol string) (error, bool) {
+	logsManager := utils.NewLogsManager()
 	if symbol == "" {
 		msg := "invalid currency symbol"
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return errors.New(msg), false
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return err, false
 	}
 	defer db.Close()
@@ -35,7 +44,7 @@ func CurrencyExists(symbol string) (error, bool) {
 	err = row.Scan(&id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("debug", msg, "currencies")
+		logsManager.Log("debug", msg, "currencies")
 		return nil, false
 	}
 
@@ -43,19 +52,21 @@ func CurrencyExists(symbol string) (error, bool) {
 }
 
 // Get currency by symbol
-func GetCurrencyBySymbol(symbol string) (node_types.Currency, error) {
+func (cm *CurrencyManager) GetCurrencyBySymbol(symbol string) (node_types.Currency, error) {
+	logsManager := utils.NewLogsManager()
 	var currency node_types.Currency
 	if symbol == "" {
 		msg := "invalid currency symbol"
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return currency, errors.New(msg)
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return currency, err
 	}
 	defer db.Close()
@@ -66,7 +77,7 @@ func GetCurrencyBySymbol(symbol string) (node_types.Currency, error) {
 	err = row.Scan(&currency.Id, &currency.Currency, &currency.Symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("debug", msg, "currencies")
+		logsManager.Log("debug", msg, "currencies")
 		return currency, nil
 	}
 
@@ -74,19 +85,21 @@ func GetCurrencyBySymbol(symbol string) (node_types.Currency, error) {
 }
 
 // Add a currency
-func AddCurrency(currency string, symbol string) {
-	err, existing := CurrencyExists(symbol)
+func (cm *CurrencyManager) AddCurrency(currency string, symbol string) {
+	logsManager := utils.NewLogsManager()
+	err, existing := cm.CurrencyExists(symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 	defer db.Close()
@@ -94,36 +107,38 @@ func AddCurrency(currency string, symbol string) {
 	// Check if currency is already existing
 	if existing {
 		msg := fmt.Sprintf("Currency %s (%s) is already existing", currency, symbol)
-		utils.Log("warn", msg, "currencies")
+		logsManager.Log("warn", msg, "currencies")
 		return
 	}
 
 	// Add currency
-	utils.Log("debug", fmt.Sprintf("add currency %s (%s)", currency, symbol), "currencies")
+	logsManager.Log("debug", fmt.Sprintf("add currency %s (%s)", currency, symbol), "currencies")
 
 	_, err = db.ExecContext(context.Background(), "insert into currencies (currency, symbol) values (?, ?);",
 		currency, symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 }
 
 // Remove currency
-func RemoveCurrency(symbol string) {
-	err, existing := CurrencyExists(symbol)
+func (cm *CurrencyManager) RemoveCurrency(symbol string) {
+	logsManager := utils.NewLogsManager()
+	err, existing := cm.CurrencyExists(symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 	defer db.Close()
@@ -131,37 +146,38 @@ func RemoveCurrency(symbol string) {
 	// Check if currency is already existing
 	if !existing {
 		msg := fmt.Sprintf("Currency %s is not existing in the database. Nothing to remove", symbol)
-		utils.Log("warn", msg, "currencies")
+		logsManager.Log("warn", msg, "currencies")
 		return
 	}
 
 	// Check if there are existing prices defined using this currency
-	currency, err := GetCurrencyBySymbol(symbol)
+	currency, err := cm.GetCurrencyBySymbol(symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 
-	prices, err := price.GetPricesByCurrencyId(currency.Id)
+	priceManager := price.NewPriceManager()
+	prices, err := priceManager.GetPricesByCurrencyId(currency.Id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 	if len(prices) > 0 {
 		msg := fmt.Sprintf("Currency %s is used with %d pricings defined. Please remove pricings in this currency first", symbol, len(prices))
-		utils.Log("warn", msg, "currencies")
+		logsManager.Log("warn", msg, "currencies")
 		return
 	}
 
 	// Remove currency
-	utils.Log("debug", fmt.Sprintf("removing currency %s", symbol), "currencies")
+	logsManager.Log("debug", fmt.Sprintf("removing currency %s", symbol), "currencies")
 
 	_, err = db.ExecContext(context.Background(), "delete from currencies where symbol = ?;", symbol)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "currencies")
+		logsManager.Log("error", msg, "currencies")
 		return
 	}
 }

@@ -8,13 +8,22 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type KeyStoreManager struct {
+}
+
+func NewKeyStoreManager() *KeyStoreManager {
+	return &KeyStoreManager{}
+}
+
 // Add node
-func AddKey(identifier string, algorithm string, key []byte) error {
+func (ksm *KeyStoreManager) AddKey(identifier string, algorithm string, key []byte) error {
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "keystore")
+		logsManager.Log("error", msg, "keystore")
 		return err
 	}
 	defer db.Close()
@@ -23,7 +32,7 @@ func AddKey(identifier string, algorithm string, key []byte) error {
 		identifier, algorithm, key)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "keystore")
+		logsManager.Log("error", msg, "keystore")
 		return err
 	}
 
@@ -31,15 +40,17 @@ func AddKey(identifier string, algorithm string, key []byte) error {
 }
 
 // Find key
-func FindKey(identifier string) (node_types.Key, error) {
+func (ksm *KeyStoreManager) FindKey(identifier string) (node_types.Key, error) {
 	// Declarations
 	var k node_types.Key
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "keystore")
+		logsManager.Log("error", msg, "keystore")
 		return k, err
 	}
 	defer db.Close()
@@ -48,7 +59,7 @@ func FindKey(identifier string) (node_types.Key, error) {
 	err = row.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "keystore")
+		logsManager.Log("error", msg, "keystore")
 		return k, err
 	}
 	return k, nil

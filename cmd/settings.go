@@ -16,7 +16,8 @@ var readSettingCmd = &cobra.Command{
 	Long:    "Read a setting using a unique setting key (e.g. accept_service_catalogue, accept_binary_stream, accept_file, etc)",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		s, err := settings.Read(key)
+		settingsManager := settings.NewSettingsManager()
+		s, err := settingsManager.Read(key)
 		if err != nil {
 			fmt.Printf("Error occured while reading setting for a key %s. (%s)\n", key, err.Error())
 			return
@@ -33,7 +34,8 @@ var modifySettingCmd = &cobra.Command{
 	Long:    "Modify a setting using a unique setting key (e.g. accept_service_catalogue, accept_binary_stream, accept_file, etc)",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		settings.Modify(key, value)
+		settingsManager := settings.NewSettingsManager()
+		settingsManager.Modify(key, value)
 	},
 }
 

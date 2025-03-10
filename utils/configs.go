@@ -7,21 +7,34 @@ import (
 	"strings"
 )
 
+type ConfigManager struct {
+	configsPath string
+}
+
+func NewConfigManager(path string) *ConfigManager {
+	if path == "" {
+		path = "configs"
+	}
+	return &ConfigManager{
+		configsPath: path,
+	}
+}
+
 type Config map[string]string
 
-func ReadConfigs(path string) (Config, error) {
+func (cm *ConfigManager) ReadConfigs() (Config, error) {
 	// init config
 	config := Config{
-		"file": path,
+		"file": cm.configsPath,
 	}
 
 	// return error if config filepath is not provided
-	if len(path) == 0 {
+	if len(cm.configsPath) == 0 {
 		return config, nil
 	}
 
 	// open configs file
-	file, err := os.Open(path)
+	file, err := os.Open(cm.configsPath)
 	if err != nil {
 		return nil, err
 	}

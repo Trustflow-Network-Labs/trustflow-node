@@ -14,7 +14,8 @@ var blackListNodeCmd = &cobra.Command{
 	Long:    "Blacklisting a node prevent any communication with that node",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		blacklist_node.BlacklistNode(nodeId, reason)
+		blnManager := blacklist_node.NewBlacklistNodeManager()
+		blnManager.BlacklistNode(nodeId, reason)
 	},
 }
 
@@ -25,7 +26,8 @@ var removeNodeFromBlacklistCmd = &cobra.Command{
 	Long:    "Removing a node from blacklist makes communication with that node possible again",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		blacklist_node.RemoveNodeFromBlacklist(nodeId)
+		blnManager := blacklist_node.NewBlacklistNodeManager()
+		blnManager.RemoveNodeFromBlacklist(nodeId)
 	},
 }
 

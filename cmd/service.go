@@ -78,10 +78,12 @@ var searchServicesCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Read configs
-		config, err := utils.ReadConfigs(configsPath)
+		configManager := utils.NewConfigManager("")
+		config, err := configManager.ReadConfigs()
+		logsManager := utils.NewLogsManager()
 		if err != nil {
 			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-			utils.Log("error", message, "p2p")
+			logsManager.Log("error", message, "p2p")
 			panic(err)
 		}
 
@@ -94,7 +96,7 @@ var searchServicesCmd = &cobra.Command{
 		searchService.Active = serviceActive
 		var offset uint32 = 0
 		var limit uint32 = 10
-		l := config["search_services_limit"]
+		l := config["search_results"]
 		l64, err := strconv.ParseUint(l, 10, 32)
 		if err != nil {
 			limit = 10

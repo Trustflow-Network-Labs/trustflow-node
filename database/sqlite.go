@@ -11,16 +11,22 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// provide configs file path
-var configsPath string = "configs"
+type SQLiteManager struct {
+}
+
+func NewSQLiteManager() *SQLiteManager {
+	return &SQLiteManager{}
+}
 
 // Create connection
-func CreateConnection() (*sql.DB, error) {
+func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 	// Read configs
-	config, err := utils.ReadConfigs(configsPath)
+	configManager := utils.NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		utils.Log("error", message, "database")
+		logsManager.Log("error", message, "database")
 		return nil, err
 	}
 
@@ -35,7 +41,7 @@ func CreateConnection() (*sql.DB, error) {
 
 	if err != nil {
 		message := fmt.Sprintf("Can not create database connection. (%s)", err.Error())
-		utils.Log("error", message, "database")
+		logsManager.Log("error", message, "database")
 		return nil, err
 	}
 
@@ -54,7 +60,7 @@ CREATE INDEX IF NOT EXISTS nodes_node_id_idx ON nodes ("node_id");
 		_, err = db.ExecContext(context.Background(), createNodesTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `nodes` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -71,7 +77,7 @@ CREATE INDEX IF NOT EXISTS blacklisted_nodes_node_id_idx ON blacklisted_nodes ("
 		_, err = db.ExecContext(context.Background(), createBlacklistedNodesTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `blacklisted_nodes` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -89,7 +95,7 @@ CREATE INDEX IF NOT EXISTS keystore_algorithm_idx ON keystore ("algorithm");
 		_, err = db.ExecContext(context.Background(), createKeystoreTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `keystore` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -112,7 +118,7 @@ INSERT INTO currencies ("currency", "symbol") VALUES ('Dirham', 'AED');
 		_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `currencies` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -135,7 +141,7 @@ INSERT INTO resources ("name") VALUES ('Egress');
 		_, err = db.ExecContext(context.Background(), createResourcesTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `resources` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -157,7 +163,7 @@ CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
 		_, err = db.ExecContext(context.Background(), createServicesTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `services` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -179,7 +185,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 		_, err = db.ExecContext(context.Background(), createPricesTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `prices` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -199,7 +205,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 		_, err = db.ExecContext(context.Background(), createJobsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -218,7 +224,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 		_, err = db.ExecContext(context.Background(), createResourcesUtilizationsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `resources_utilizations` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -239,7 +245,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
 		_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -253,7 +259,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id")
 		_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -271,7 +277,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
 		_, err = db.ExecContext(context.Background(), createExecutionsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -285,7 +291,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos 
 		_, err = db.ExecContext(context.Background(), createWhitelistedReposTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `whitelisted_repos` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 
@@ -312,7 +318,7 @@ INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VAL
 		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `settings` table. (%s)", err.Error())
-			utils.Log("error", message, "database")
+			logsManager.Log("error", message, "database")
 			return nil, err
 		}
 	}

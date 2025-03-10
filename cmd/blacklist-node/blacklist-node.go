@@ -10,19 +10,28 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 )
 
+type BlacklistNodeManager struct {
+}
+
+func NewBlacklistNodeManager() *BlacklistNodeManager {
+	return &BlacklistNodeManager{}
+}
+
 // Is node blacklisted
-func NodeBlacklisted(nodeId string) (error, bool) {
+func (blnm *BlacklistNodeManager) NodeBlacklisted(nodeId string) (error, bool) {
+	logsManager := utils.NewLogsManager()
 	if nodeId == "" {
 		msg := "invalid Node ID"
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return errors.New(msg), false
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return err, false
 	}
 	defer db.Close()
@@ -34,7 +43,7 @@ func NodeBlacklisted(nodeId string) (error, bool) {
 	err = row.Scan(&id)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("debug", msg, "blacklist-node")
+		logsManager.Log("debug", msg, "blacklist-node")
 		return nil, false
 	}
 
@@ -42,19 +51,21 @@ func NodeBlacklisted(nodeId string) (error, bool) {
 }
 
 // Blacklist a node
-func BlacklistNode(nodeId string, reason string) {
-	err, blacklisted := NodeBlacklisted(nodeId)
+func (blnm *BlacklistNodeManager) BlacklistNode(nodeId string, reason string) {
+	logsManager := utils.NewLogsManager()
+	err, blacklisted := blnm.NodeBlacklisted(nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 	defer db.Close()
@@ -62,36 +73,38 @@ func BlacklistNode(nodeId string, reason string) {
 	// Check if node is already blacklisted
 	if blacklisted {
 		msg := fmt.Sprintf("Node %s is already blacklisted", nodeId)
-		utils.Log("warn", msg, "blacklist-node")
+		logsManager.Log("warn", msg, "blacklist-node")
 		return
 	}
 
 	// Add node to blacklist
-	utils.Log("debug", fmt.Sprintf("add node %s to blacklist", nodeId), "blacklist-node")
+	logsManager.Log("debug", fmt.Sprintf("add node %s to blacklist", nodeId), "blacklist-node")
 
 	_, err = db.ExecContext(context.Background(), "insert into blacklisted_nodes (node_id, reason) values (?, ?);",
 		nodeId, reason)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 }
 
 // Remove node from blacklist
-func RemoveNodeFromBlacklist(nodeId string) {
-	err, blacklisted := NodeBlacklisted(nodeId)
+func (blnm *BlacklistNodeManager) RemoveNodeFromBlacklist(nodeId string) {
+	logsManager := utils.NewLogsManager()
+	err, blacklisted := blnm.NodeBlacklisted(nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 	defer db.Close()
@@ -99,17 +112,17 @@ func RemoveNodeFromBlacklist(nodeId string) {
 	// Check if node is already blacklisted
 	if !blacklisted {
 		msg := fmt.Sprintf("Node %s is not blacklisted", nodeId)
-		utils.Log("warn", msg, "blacklist-node")
+		logsManager.Log("warn", msg, "blacklist-node")
 		return
 	}
 
 	// Remove node from blacklist
-	utils.Log("debug", fmt.Sprintf("removing node %s from blacklist", nodeId), "blacklist-node")
+	logsManager.Log("debug", fmt.Sprintf("removing node %s from blacklist", nodeId), "blacklist-node")
 
 	_, err = db.ExecContext(context.Background(), "delete from blacklisted_nodes where node_id = ?;", nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "blacklist-node")
+		logsManager.Log("error", msg, "blacklist-node")
 		return
 	}
 }

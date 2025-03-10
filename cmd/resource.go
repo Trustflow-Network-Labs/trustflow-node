@@ -13,7 +13,8 @@ var addResourceCmd = &cobra.Command{
 	Long:    "Adding new resource will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		resource.AddResource(name)
+		resourceManager := resource.NewResourceManager()
+		resourceManager.AddResource(name)
 	},
 }
 
@@ -24,7 +25,8 @@ var removeResourceCmd = &cobra.Command{
 	Long:    "Removing a resource will prevent setting data/services pricing for that resource. Resource can not be removed if there is an price set for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		resource.RemoveResource(name)
+		resourceManager := resource.NewResourceManager()
+		resourceManager.RemoveResource(name)
 	},
 }
 
@@ -35,7 +37,8 @@ var setResourceInactiveCmd = &cobra.Command{
 	Long:    "Setting resource to active will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		resource.SetResourceInactive(name)
+		resourceManager := resource.NewResourceManager()
+		resourceManager.SetResourceInactive(name)
 	},
 }
 
@@ -46,7 +49,8 @@ var setResourceActiveCmd = &cobra.Command{
 	Long:    "Setting resource to active will allow setting data/services pricing for that resource",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		resource.SetResourceActive(name)
+		resourceManager := resource.NewResourceManager()
+		resourceManager.SetResourceActive(name)
 	},
 }
 

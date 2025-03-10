@@ -12,25 +12,34 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
-func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
+type NodeManager struct {
+}
+
+func NewNodeManager() *NodeManager {
+	return &NodeManager{}
+}
+
+func (nm *NodeManager) GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 	// Declarations
 	var priv crypto.PrivKey
 	var pub crypto.PubKey
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return nil, nil, err
 	}
 	defer db.Close()
 
 	// Check do we have a node key already
-	node, err := FindItself()
+	node, err := nm.FindItself()
 	if err != nil && strings.ToLower(err.Error()) != "sql: no rows in result set" {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return nil, nil, err
 	} else if err != nil && strings.ToLower(err.Error()) == "sql: no rows in result set" {
 		// We don't have a key let's create it
@@ -43,20 +52,21 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 		)
 		if err != nil {
 			msg := fmt.Sprintf("Can generate key pair. (%s)", err.Error())
-			utils.Log("error", msg, "api")
+			logsManager.Log("error", msg, "api")
 			return nil, nil, err
 		}
 	} else {
 		// We already have a key created before
-		key, err := keystore.FindKey(node.NodeId)
+		keystoreManager := keystore.NewKeyStoreManager()
+		key, err := keystoreManager.FindKey(node.NodeId)
 		if err != nil && strings.ToLower(err.Error()) != "sql: no rows in result set" {
 			msg := err.Error()
-			utils.Log("error", msg, "node")
+			logsManager.Log("error", msg, "node")
 			return nil, nil, err
 		} else if err != nil && strings.ToLower(err.Error()) == "sql: no rows in result set" {
 			// but we can't find it
 			msg := fmt.Sprintf("Could not find a key for provided node identifier %s.", node.NodeId)
-			utils.Log("error", msg, "api")
+			logsManager.Log("error", msg, "api")
 			return nil, nil, err
 		} else {
 			// Get private key
@@ -65,13 +75,13 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 				priv, err = crypto.UnmarshalPrivateKey(key.Key)
 				if err != nil {
 					msg := err.Error()
-					utils.Log("error", msg, "node")
+					logsManager.Log("error", msg, "node")
 					return nil, nil, err
 				}
 				pub = priv.GetPublic()
 			default:
 				msg := fmt.Sprintf("Could not extract a key for provided algorithm %s.", key.Algorithm)
-				utils.Log("error", msg, "api")
+				logsManager.Log("error", msg, "api")
 				return nil, nil, err
 			}
 		}
@@ -81,12 +91,14 @@ func GetNodeKey() (crypto.PrivKey, crypto.PubKey, error) {
 }
 
 // Add node
-func AddNode(nodeId string, multiaddrs string, self bool) error {
+func (nm *NodeManager) AddNode(nodeId string, multiaddrs string, self bool) error {
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	defer db.Close()
@@ -95,19 +107,21 @@ func AddNode(nodeId string, multiaddrs string, self bool) error {
 		nodeId, multiaddrs, self)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	return nil
 }
 
 // Update node
-func UpdateNode(nodeId string, multiaddrs string, self bool) error {
+func (nm *NodeManager) UpdateNode(nodeId string, multiaddrs string, self bool) error {
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	defer db.Close()
@@ -116,19 +130,21 @@ func UpdateNode(nodeId string, multiaddrs string, self bool) error {
 		multiaddrs, self, nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	return nil
 }
 
 // Delete node
-func DeleteNode(nodeId string) error {
+func (nm *NodeManager) DeleteNode(nodeId string) error {
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	defer db.Close()
@@ -136,22 +152,24 @@ func DeleteNode(nodeId string) error {
 	_, err = db.ExecContext(context.Background(), "delete from nodes where node_id = ?;", nodeId)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return err
 	}
 	return nil
 }
 
 // Find itself
-func FindItself() (node_types.Node, error) {
+func (nm *NodeManager) FindItself() (node_types.Node, error) {
 	// Declarations
 	var node node_types.Node
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 	defer db.Close()
@@ -161,7 +179,7 @@ func FindItself() (node_types.Node, error) {
 	err = row.Scan(&node.Id, &node.NodeId, &node.Multiaddrs, &node.Self)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 
@@ -169,15 +187,17 @@ func FindItself() (node_types.Node, error) {
 }
 
 // Find node
-func FindNode(nodeId string) (node_types.Node, error) {
+func (nm *NodeManager) FindNode(nodeId string) (node_types.Node, error) {
 	// Declarations
 	var node node_types.Node
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 	defer db.Close()
@@ -187,22 +207,24 @@ func FindNode(nodeId string) (node_types.Node, error) {
 	err = row.Scan(&node.Id, &node.NodeId, &node.Multiaddrs, &node.Self)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 	return node, nil
 }
 
 // Find node by DB ID
-func FindNodeById(id int32) (node_types.Node, error) {
+func (nm *NodeManager) FindNodeById(id int32) (node_types.Node, error) {
 	// Declarations
 	var node node_types.Node
 
 	// Create a database connection
-	db, err := database.CreateConnection()
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	logsManager := utils.NewLogsManager()
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 	defer db.Close()
@@ -212,7 +234,7 @@ func FindNodeById(id int32) (node_types.Node, error) {
 	err = row.Scan(&node.Id, &node.NodeId, &node.Multiaddrs, &node.Self)
 	if err != nil {
 		msg := err.Error()
-		utils.Log("error", msg, "node")
+		logsManager.Log("error", msg, "node")
 		return node, err
 	}
 	return node, nil
