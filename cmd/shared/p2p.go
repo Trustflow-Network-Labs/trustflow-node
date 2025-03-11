@@ -933,6 +933,31 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
 			logsManager.Log("error", msg, "p2p")
 		}
+		serviceManager := NewServiceManager()
+		for i, service := range serviceCatalogue {
+			// Remote node ID
+			nodeId := service.NodeId
+			localNodeId := s.Conn().LocalPeer().String()
+			// Skip if this is our service advertized on remote node
+			if localNodeId == nodeId {
+				continue
+			}
+			// Delete currently stored service catalogue (if existing)
+			if i == 0 {
+				services, err := serviceManager.GetServicesByNodeId(nodeId)
+				if err != nil {
+					msg := fmt.Sprintf("Error occured whilst looking for existing Service Catalogue of a foreign node %s.\n\n%s", nodeId, err.Error())
+					logsManager.Log("error", msg, "p2p")
+				}
+				for _, service := range services {
+					serviceManager.RemoveService(service.Id)
+					msg := fmt.Sprintf("Removing service %s of a foreign node %s.\n\n", service.Name, nodeId)
+					logsManager.Log("debug", msg, "p2p")
+				}
+			}
+			// Store newly received Service Catalogue
+			serviceManager.AddService(service.Name, service.Description, service.NodeId, service.Type, service.Path, service.Repo, service.Active)
+		}
 	case 1:
 		// Sent data to the remote peer
 	case 2:

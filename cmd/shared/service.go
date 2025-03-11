@@ -10,6 +10,7 @@ import (
 	"github.com/adgsm/trustflow-node/cmd/price"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -89,6 +90,61 @@ func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 	sm.services[id] = &service
 
 	return service, nil
+}
+
+// Get Services by node ID
+func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Service, error) {
+	var service node_types.Service
+	var services []node_types.Service
+
+	logsManager := utils.NewLogsManager()
+	if nodeId == "" {
+		msg := "invalid service id"
+		logsManager.Log("error", msg, "servics")
+		return nil, errors.New(msg)
+	}
+
+	// Create a database connection
+	sqlManager := database.NewSQLiteManager()
+	db, err := sqlManager.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		logsManager.Log("error", msg, "servics")
+		return nil, err
+	}
+	defer db.Close()
+
+	// Ger DB node ID
+	nodeManager := tfnode.NewNodeManager()
+	node, err := nodeManager.FindNode(nodeId)
+	if err != nil {
+		msg := err.Error()
+		logsManager.Log("error", msg, "servics")
+		return nil, err
+	}
+
+	// Search for services
+	rows, err := db.QueryContext(context.Background(), "select id, name, description, node_id, service_type, path, repo, active from services where node_id = ?;", node.Id)
+	if err != nil {
+		msg := err.Error()
+		logsManager.Log("error", msg, "services")
+		return services, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&service.Id, &service.Name, &service.Description, &service.NodeId,
+			&service.Type, &service.Path, &service.Repo, &service.Active)
+		if err != nil {
+			msg := err.Error()
+			logsManager.Log("error", msg, "services")
+			return nil, err
+		}
+		services = append(services, service)
+		sm.services[service.Id] = &service
+	}
+
+	return services, nil
 }
 
 // Add a service
