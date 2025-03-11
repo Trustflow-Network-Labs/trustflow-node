@@ -9,7 +9,14 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
-func CloneOrPull(remote string, local string, user string, password string) {
+type GitManager struct {
+}
+
+func NewGitManager() *GitManager {
+	return &GitManager{}
+}
+
+func (gm *GitManager) CloneOrPull(remote string, local string, user string, password string) {
 	repo, err := git.PlainClone(local, false, &git.CloneOptions{
 		URL:      remote,
 		Progress: os.Stdout,
