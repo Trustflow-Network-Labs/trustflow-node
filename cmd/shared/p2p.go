@@ -312,7 +312,7 @@ func (p2pm *P2PManager) runMenu() {
 				logsManager.Log("error", msg, "p2p")
 				return
 			}
-			serviceManager := NewServiceManager()
+			serviceManager := NewServiceManager(p2pm)
 			serviceManager.LookupRemoteService(snResult, "", "", "", "")
 		case "Find local services":
 			var data []byte
@@ -671,7 +671,7 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		// Check settings, do we want to accept sending data
 		accepted := p2pm.streamProposalAssessment(streamData.Type)
 		if accepted {
-			jobManager := NewJobManager()
+			jobManager := NewJobManager(p2pm)
 			go jobManager.RunJob(streamData.Id)
 			s.Reset()
 		} else {
@@ -933,7 +933,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
 			logsManager.Log("error", msg, "p2p")
 		}
-		serviceManager := NewServiceManager()
+		serviceManager := NewServiceManager(p2pm)
 		for i, service := range serviceCatalogue {
 			// Remote node ID
 			nodeId := service.NodeId
@@ -961,7 +961,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 	case 1:
 		// Sent data to the remote peer
 	case 2:
-		// Received a binary stream from the remote peer
+		// Received binary stream from the remote peer
 	case 3:
 		// Received a file from the remote peer
 	default:
@@ -986,8 +986,8 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
 	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "p2p")
+		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		logsManager.Log("error", msg, "p2p")
 		return err
 	}
 
@@ -1001,6 +1001,8 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 
 		topicKey := config["topic_name_prefix"] + "lookup.service"
 		topic = p2pm.topicsSubscribed[topicKey]
+
+		fmt.Printf("topicKey: %s,\ntopic: %v\ntopicsSubscribed: %v\n", topicKey, topic, p2pm.topicsSubscribed)
 	default:
 		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
 		logsManager.Log("error", msg, "p2p")
@@ -1131,7 +1133,7 @@ func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.Se
 	} else {
 		limit = uint32(l64)
 	}
-	serviceManager := NewServiceManager()
+	serviceManager := NewServiceManager(p2pm)
 
 	for {
 		servicesBatch, err := serviceManager.SearchServices(searchService, offset, limit)

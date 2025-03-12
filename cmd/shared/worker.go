@@ -23,11 +23,13 @@ type Worker struct {
 type WorkerManager struct {
 	workers map[int32]*Worker
 	mu      sync.RWMutex
+	p2pm    *P2PManager
 }
 
-func NewWorkerManager() *WorkerManager {
+func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 	return &WorkerManager{
 		workers: make(map[int32]*Worker),
+		p2pm:    p2pManager,
 	}
 }
 
@@ -50,7 +52,7 @@ func (wm *WorkerManager) StartWorker(id int32, job node_types.Job) error {
 	}
 
 	wm.workers[id] = worker
-	err := worker.Start()
+	err := worker.Start(wm.p2pm)
 	if err != nil {
 		return err
 	}
@@ -89,7 +91,7 @@ func (wm *WorkerManager) ListWorkers() []int32 {
 	return ids
 }
 
-func (w *Worker) Start() error {
+func (w *Worker) Start(p2pm *P2PManager) error {
 	w.mu.Lock()
 	w.isRunning = true
 	w.mu.Unlock()
@@ -109,7 +111,7 @@ func (w *Worker) Start() error {
 				return
 			default:
 				fmt.Printf("Worker %d: Working...\n", w.ID)
-				jobManager := NewJobManager()
+				jobManager := NewJobManager(p2pm)
 				err := jobManager.StartJob(w.job)
 				if err != nil {
 					e = err

@@ -16,11 +16,13 @@ import (
 
 type ServiceManager struct {
 	services map[int32]*node_types.Service
+	p2pm     *P2PManager
 }
 
-func NewServiceManager() *ServiceManager {
+func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		services: make(map[int32]*node_types.Service),
+		p2pm:     p2pm,
 	}
 }
 
@@ -220,7 +222,7 @@ func (sm *ServiceManager) RemoveService(id int32) {
 	}
 
 	// Check if there are jobs executed using this service
-	jobManager := NewJobManager()
+	jobManager := NewJobManager(sm.p2pm)
 	jobs, err := jobManager.GetJobsByServiceId(id)
 	if err != nil {
 		msg := err.Error()
@@ -366,8 +368,7 @@ func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescrip
 		Type:        serviceType,
 		Repo:        serviceRepo,
 	}
-	p2pManager := NewP2PManager()
-	BroadcastMessage(p2pManager, serviceLookup)
+	BroadcastMessage(sm.p2pm, serviceLookup)
 }
 
 func (sm *ServiceManager) SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {

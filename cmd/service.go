@@ -29,7 +29,8 @@ var addServiceCmd = &cobra.Command{
 	Long:    "Adding new service will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 		serviceManager.AddService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, servicePath, serviceRepo, serviceActive)
 	},
 }
@@ -41,7 +42,8 @@ var removeServiceCmd = &cobra.Command{
 	Long:    "Removing a service will prevent setting data/services pricing and creating jobs for that service. Service can not be removed if there is an price set or jobs created for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 		serviceManager.RemoveService(serviceId)
 	},
 }
@@ -53,7 +55,8 @@ var setServiceInactiveCmd = &cobra.Command{
 	Long:    "Setting service to inactive will prevent setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 		serviceManager.SetServiceInactive(serviceId)
 	},
 }
@@ -65,7 +68,8 @@ var setServiceActiveCmd = &cobra.Command{
 	Long:    "Setting service to active will allow setting data/services pricing and creating jobs for that service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 		serviceManager.SetServiceActive(serviceId)
 	},
 }
@@ -103,7 +107,8 @@ var searchServicesCmd = &cobra.Command{
 		} else {
 			limit = uint32(l64)
 		}
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 
 		for {
 			services, err := serviceManager.SearchServices(searchService, offset, limit)
@@ -134,7 +139,8 @@ var serviceLookupCmd = &cobra.Command{
 	Long:    "Service lookup will broadcast a search query for a remote service",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		serviceManager := shared.NewServiceManager()
+		p2pm := shared.NewP2PManager()
+		serviceManager := shared.NewServiceManager(p2pm)
 		serviceManager.LookupRemoteService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, serviceRepo)
 	},
 }

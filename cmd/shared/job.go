@@ -14,11 +14,13 @@ import (
 
 type JobManager struct {
 	jobs map[int32]*node_types.Job
+	p2pm *P2PManager
 }
 
-func NewJobManager() *JobManager {
+func NewJobManager(p2pm *P2PManager) *JobManager {
 	return &JobManager{
 		jobs: make(map[int32]*node_types.Job),
+		p2pm: p2pm,
 	}
 }
 
@@ -257,11 +259,11 @@ func (jm *JobManager) RunJob(jobId int32) error {
 
 	switch status {
 	case "IDLE":
-		manager := NewWorkerManager()
-		err := manager.StartWorker(jobId, job)
+		workerManager := NewWorkerManager(jm.p2pm)
+		err := workerManager.StartWorker(jobId, job)
 		if err != nil {
 			// Stop worker
-			serr := manager.StopWorker(jobId)
+			serr := workerManager.StopWorker(jobId)
 			if serr != nil {
 				msg := serr.Error()
 				logsManager.Log("error", msg, "jobs")
@@ -310,7 +312,7 @@ func (jm *JobManager) StartJob(job node_types.Job) error {
 	// Check underlaying service
 	logsManager.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
-	serviceManager := NewServiceManager()
+	serviceManager := NewServiceManager(jm.p2pm)
 	service, err := serviceManager.GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
@@ -355,8 +357,7 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	logsManager := utils.NewLogsManager()
 
 	// Check if node is running
-	p2pm := NewP2PManager()
-	if running := p2pm.IsHostRunning(); !running {
+	if running := jm.p2pm.IsHostRunning(); !running {
 		msg := "node is not running"
 		err := errors.New(msg)
 		logsManager.Log("error", msg, "jobs")
@@ -364,7 +365,7 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Get data source path
-	serviceManager := NewServiceManager()
+	serviceManager := NewServiceManager(jm.p2pm)
 	service, err := serviceManager.GetService(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
@@ -402,15 +403,14 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Get peer
-	p2pManager := NewP2PManager()
-	p, err := p2pManager.GeneratePeerFromId(orderingNode.NodeId)
+	p, err := jm.p2pm.GeneratePeerFromId(orderingNode.NodeId)
 	if err != nil {
 		logsManager.Log("error", err.Error(), "jobs")
 		return err
 	}
 
 	// Connect to peer and start streaming
-	err = StreamData(p2pManager, p, file)
+	err = StreamData(jm.p2pm, p, file)
 	if err != nil {
 		msg := err.Error()
 		logsManager.Log("error", msg, "jobs")
