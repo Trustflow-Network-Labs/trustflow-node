@@ -1077,11 +1077,14 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			}
 
 			// Stream back offered services with prices
-			err = StreamData(p2pm, peerAddrInfo, &services)
-			if err != nil {
-				msg := err.Error()
-				logsManager.Log("error", msg, "p2p")
-				continue
+			// (only if there we have matching services to offer)
+			if len(services) > 0 {
+				err = StreamData(p2pm, peerAddrInfo, &services)
+				if err != nil {
+					msg := err.Error()
+					logsManager.Log("error", msg, "p2p")
+					continue
+				}
 			}
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
