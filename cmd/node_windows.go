@@ -1,10 +1,14 @@
+//go:build windows
+
 package cmd
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
+	"path/filepath"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/adgsm/trustflow-node/cmd/shared"
 	"github.com/adgsm/trustflow-node/utils"
@@ -35,17 +39,26 @@ var nodeDaemonCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		logsManager := utils.NewLogsManager()
 
+		// Ensure the path is absolute
+		exePath, err := filepath.Abs(os.Args[0])
+		if err != nil {
+			fmt.Println("Error getting absolute path:", err)
+			return
+		}
+
 		// Start the process in background
-		command := exec.Command(os.Args[0], "start", "-d=true")
+		command := exec.Command(exePath, "start", "-d=true")
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		command.Stdin = nil
-		command.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true,
-			Pgid:    0,
-		}
 
-		err := command.Start()
+		command.SysProcAttr = &windows.SysProcAttr{
+			CreationFlags: windows.DETACHED_PROCESS,
+		}
+		command.Stdout = nil
+		command.Stderr = nil
+
+		err = command.Start()
 		if err != nil {
 			msg := fmt.Sprintf("Error starting daemon: %s", err.Error())
 			fmt.Println(msg)
