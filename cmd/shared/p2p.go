@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -40,40 +39,34 @@ import (
 )
 
 type P2PManager struct {
-	topicNames       []string
-	topicNameFlags   []*string
-	topicsSubscribed map[string]*pubsub.Topic
-	protocolID       protocol.ID
-	idht             *dht.IpfsDHT
-	h                host.Host
-	ctx              context.Context
+	topicNames         []string
+	completeTopicNames []string
+	topicsSubscribed   map[string]*pubsub.Topic
+	protocolID         protocol.ID
+	idht               *dht.IpfsDHT
+	h                  host.Host
+	ctx                context.Context
 }
 
 func NewP2PManager() *P2PManager {
 	return &P2PManager{
-		topicNames:       []string{"lookup.service", "dummy.service"},
-		topicNameFlags:   []*string{},
-		topicsSubscribed: make(map[string]*pubsub.Topic),
-		protocolID:       "",
-		idht:             nil,
-		h:                nil,
-		ctx:              nil,
+		topicNames:         []string{"lookup.service", "dummy.service"},
+		completeTopicNames: []string{},
+		topicsSubscribed:   make(map[string]*pubsub.Topic),
+		protocolID:         "",
+		idht:               nil,
+		h:                  nil,
+		ctx:                nil,
 	}
 }
 
 // IsHostRunning checks if the provided host is actively running
 func (p2pm *P2PManager) IsHostRunning() bool {
-	_, p2pm.h = p2pm.GetHostContext()
 	if p2pm.h == nil {
 		return false
 	}
 	// Check if the host is listening on any network addresses
 	return len(p2pm.h.Network().ListenAddresses()) > 0
-}
-
-// Get host context
-func (p2pm *P2PManager) GetHostContext() (context.Context, host.Host) {
-	return p2pm.ctx, p2pm.h
 }
 
 // Set host context
@@ -106,16 +99,13 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	// Read topics' names to subscribe
 	topicNamePrefix := config["topic_name_prefix"]
-	for i, topicName := range p2pm.topicNames {
+	for _, topicName := range p2pm.topicNames {
 		topicName = topicNamePrefix + strings.TrimSpace(topicName)
-		topicNameFlag := flag.String(fmt.Sprintf("topicName_%d", i), topicName, fmt.Sprintf("topic no %d to join", i))
-		p2pm.topicNameFlags = append(p2pm.topicNameFlags, topicNameFlag)
+		p2pm.completeTopicNames = append(p2pm.completeTopicNames, topicName)
 	}
 
 	// Read streaming protocol
 	p2pm.protocolID = protocol.ID(config["protocol_id"])
-
-	flag.Parse()
 
 	cntx := context.Background()
 
@@ -215,7 +205,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		go p2pm.streamProposalResponse(s)
 	})
 
-	go p2pm.discoverPeers(cntx, hst)
+	peerChannel := make(chan []peer.AddrInfo)
 
 	ps, err := pubsub.NewGossipSub(cntx, hst)
 	if err != nil {
@@ -223,12 +213,19 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	for _, topicNameFlag := range p2pm.topicNameFlags {
-		err = p2pm.joinSubscribeTopic(cntx, ps, topicNameFlag)
+	go p2pm.discoverPeers(peerChannel)
+
+	for _, completeTopicName := range p2pm.completeTopicNames {
+		_, topic, err := p2pm.joinSubscribeTopic(cntx, ps, completeTopicName)
 		if err != nil {
 			logsManager.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
+
+		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, peerChannel)
+
+		// Attach the notifiee to the host's network
+		p2pm.h.Network().Notify(notifyManager)
 	}
 
 	if !daemon {
@@ -257,25 +254,25 @@ func (p2pm *P2PManager) Stop(pid int) error {
 	}
 }
 
-func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, topicNameFlag *string) error {
+func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, completeTopicName string) (*pubsub.Subscription, *pubsub.Topic, error) {
 	logsManager := utils.NewLogsManager()
-	topic, err := ps.Join(*topicNameFlag)
+	topic, err := ps.Join(completeTopicName)
 	if err != nil {
 		logsManager.Log("error", err.Error(), "p2p")
-		return err
+		return nil, nil, err
 	}
 
 	sub, err := topic.Subscribe()
 	if err != nil {
 		logsManager.Log("error", err.Error(), "p2p")
-		return err
+		return nil, nil, err
 	}
 
-	p2pm.topicsSubscribed[*topicNameFlag] = topic
+	p2pm.topicsSubscribed[completeTopicName] = topic
 
 	go p2pm.receivedMessage(cntx, sub)
 
-	return nil
+	return sub, topic, nil
 }
 
 // Interactive menu loop
@@ -377,26 +374,35 @@ func initDHT(cntx context.Context, hst host.Host) *dht.IpfsDHT {
 	return kademliaDHT
 }
 
-func (p2pm *P2PManager) discoverPeers(cntx context.Context, hst host.Host) {
+func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 	logsManager := utils.NewLogsManager()
+	//serviceManager := NewServiceManager(p2pm)
 
-	kademliaDHT := initDHT(cntx, hst)
+	kademliaDHT := initDHT(p2pm.ctx, p2pm.h)
 	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
-	for _, topicNameFlag := range p2pm.topicNameFlags {
-		dutil.Advertise(cntx, routingDiscovery, *topicNameFlag)
+	for _, completeTopicName := range p2pm.completeTopicNames {
+		dutil.Advertise(p2pm.ctx, routingDiscovery, completeTopicName)
 	}
 
 	// Look for others who have announced and attempt to connect to them
 	anyConnected := false
 	for !anyConnected {
 		logsManager.Log("debug", "Searching for peers...", "p2p")
-		for _, topicNameFlag := range p2pm.topicNameFlags {
-			peerChan, err := routingDiscovery.FindPeers(cntx, *topicNameFlag)
+		for _, completeTopicName := range p2pm.completeTopicNames {
+			peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
 			if err != nil {
 				logsManager.Log("panic", err.Error(), "p2p")
 				panic(fmt.Sprintf("%v", err))
 			}
+
+			var discoveredPeers []peer.AddrInfo
+
 			for peer := range peerChan {
+				if peer.ID != "" {
+					discoveredPeers = append(discoveredPeers, peer)
+				}
+				peerChannel <- discoveredPeers
+
 				skip, err := p2pm.ConnectNode(peer)
 				if err != nil {
 					msg := err.Error()
@@ -408,38 +414,44 @@ func (p2pm *P2PManager) discoverPeers(cntx context.Context, hst host.Host) {
 					logsManager.Log("info", msg, "p2p")
 					continue
 				}
+				/*
+					// Read list of active services (service offers with pricing)
+					var data []byte
+					var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
+						Name:        "",
+						Description: "",
+						NodeId:      "",
+						Type:        "",
+						Repo:        "",
+					}
 
-				// Read list of active services (service offers with pricing)
-				var data []byte
-				var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
-					Name:        "",
-					Description: "",
-					NodeId:      "",
-					Type:        "",
-					Repo:        "",
-				}
+					data, err = json.Marshal(catalogueLookup)
+					if err != nil {
+						logsManager.Log("error", err.Error(), "p2p")
+						continue
+					}
 
-				data, err = json.Marshal(catalogueLookup)
-				if err != nil {
-					logsManager.Log("error", err.Error(), "p2p")
-					continue
-				}
+					serviceCatalogue, err := p2pm.serviceLookup(data, true)
+					if err != nil {
+						logsManager.Log("error", err.Error(), "p2p")
+						continue
+					}
 
-				serviceCatalogue, err := p2pm.serviceLookup(data, true)
-				if err != nil {
-					logsManager.Log("error", err.Error(), "p2p")
-					continue
-				}
+					// Stream it's own Service Catalogue
+					err = StreamData(p2pm, peer, &serviceCatalogue)
+					if err != nil {
+						msg := err.Error()
+						logsManager.Log("error", msg, "p2p")
+						continue
+					}
 
-				err = StreamData(p2pm, peer, &serviceCatalogue)
-				if err != nil {
-					msg := err.Error()
-					logsManager.Log("error", msg, "p2p")
-					continue
-				}
+					// Request connected peer's Service Catalogue
+					//serviceManager.LookupRemoteService("", "", peer.ID.String(), "", "")
+				*/
 			}
 		}
 	}
+	close(peerChannel)
 	logsManager.Log("debug", "Peer discovery complete", "p2p")
 }
 
@@ -452,12 +464,10 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 		err := errors.New(msg)
 		return false, err
 	}
-	_, hst := p2pm.GetHostContext()
 
 	connected := false
-
 	// Check for connected peers
-	connectedPeers := hst.Network().Peers()
+	connectedPeers := p2pm.h.Network().Peers()
 	for _, peerID := range connectedPeers {
 		if peerID == peer.ID {
 			connected = true
@@ -470,6 +480,7 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 
 func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	logsManager := utils.NewLogsManager()
+
 	connected, err := p2pm.IsNodeConnected(peer)
 	if err != nil {
 		msg := err.Error()
@@ -482,13 +493,12 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 		return true, nil // skip node but do not panic
 	}
 
-	cntx, hst := p2pm.GetHostContext()
-
-	if peer.ID == hst.ID() {
-		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), hst.ID().String())
+	if peer.ID == p2pm.h.ID() {
+		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), p2pm.h.ID().String())
 		logsManager.Log("warn", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
+
 	blnManager := blacklist_node.NewBlacklistNodeManager()
 	err, blacklisted := blnManager.NodeBlacklisted(peer.ID.String())
 	if err != nil {
@@ -502,48 +512,15 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 		return true, nil // skip node but do not panic
 	}
 
-	err = hst.Connect(cntx, peer)
+	err = p2pm.h.Connect(p2pm.ctx, peer)
 	if err != nil {
-		logsManager.Log("debug", fmt.Sprintf("Failed connecting to %s, error: %s", peer.ID, err), "p2p")
-		logsManager.Log("debug", fmt.Sprintf("Delete node %s from the DB, error: %s", peer.ID, err), "p2p")
-		nodeManager := tfnode.NewNodeManager()
-		err = nodeManager.DeleteNode(peer.ID.String())
-		if err != nil {
-			logsManager.Log("warn", fmt.Sprintf("Failed deleting node %s, error: %s", peer.ID, err), "p2p")
-		}
-		hst.Network().ClosePeer(peer.ID)
-		hst.Network().Peerstore().RemovePeer(peer.ID)
-		hst.Peerstore().ClearAddrs(peer.ID)
-		hst.Peerstore().RemovePeer(peer.ID)
-		logsManager.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
-	} else {
-		logsManager.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
-		// Determine multiaddrs
-		var multiaddrs []string
-		for _, ma := range peer.Addrs {
-			logsManager.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
-			multiaddrs = append(multiaddrs, ma.String())
-		}
-		// Check if node is already existing in the DB
-		nodeManager := tfnode.NewNodeManager()
-		_, err := nodeManager.FindNode(peer.ID.String())
-		if err != nil {
-			// Add new nodes to DB
-			logsManager.Log("debug", fmt.Sprintf("add node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
-			err = nodeManager.AddNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
-			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
-				return true, nil // skip node but do not panic
-			}
-		} else {
-			// Update node
-			logsManager.Log("debug", fmt.Sprintf("update node %s with multiaddrs %s", peer.ID.String(), strings.Join(multiaddrs, ",")), "p2p")
-			err = nodeManager.UpdateNode(peer.ID.String(), strings.Join(multiaddrs, ","), false)
-			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
-				return true, nil // skip node but do not panic
-			}
-		}
+		logsManager.Log("debug", err.Error(), "p2p")
+		return false, err
+	}
+
+	logsManager.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
+	for _, ma := range peer.Addrs {
+		logsManager.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
 	}
 
 	return false, nil
@@ -558,15 +535,13 @@ func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int32) error {
 		return err
 	}
 
-	cntx, hst := p2pm.GetHostContext()
-
-	s, err := hst.NewStream(cntx, peer.ID, p2pm.protocolID)
+	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 	if err != nil {
 		logsManager.Log("error", err.Error(), "p2p")
 		s.Reset()
 		return err
 	} else {
-		var str []byte = []byte(hst.ID().String())
+		var str []byte = []byte(p2pm.h.ID().String())
 		var str255 [255]byte
 		copy(str255[:], str)
 		go p2pm.streamProposal(s, str255, 1, jobId)
@@ -584,9 +559,7 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
 		return err
 	}
 
-	cntx, hst := p2pm.GetHostContext()
-
-	s, err := hst.NewStream(cntx, peer.ID, p2pm.protocolID)
+	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 	if err != nil {
 		logsManager.Log("error", err.Error(), "p2p")
 		return err
@@ -610,7 +583,7 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
 			return errors.New(msg)
 		}
 
-		var str []byte = []byte(hst.ID().String())
+		var str []byte = []byte(p2pm.h.ID().String())
 		var str255 [255]byte
 		copy(str255[:], str)
 		go p2pm.streamProposal(s, str255, t, id)
@@ -976,7 +949,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 }
 
 func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
-	cntx, _ := p2pm.GetHostContext()
 	logsManager := utils.NewLogsManager()
 
 	var m []byte
@@ -1010,7 +982,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 		return err
 	}
 
-	if err := topic.Publish(cntx, m); err != nil {
+	if err := topic.Publish(p2pm.ctx, m); err != nil {
 		logsManager.Log("error", err.Error(), "p2p")
 		return err
 	}
