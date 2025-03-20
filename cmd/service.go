@@ -12,15 +12,12 @@ import (
 
 var serviceName string
 var serviceDescription string
-var serviceNodeIdentityId string
+var serviceNodeId string
 var serviceType string
 var servicePath string
 var serviceRepo string
 var serviceActive bool
 var serviceId int32
-
-// provide configs file path
-var configsPath string = "configs"
 
 var addServiceCmd = &cobra.Command{
 	Use:     "add-service",
@@ -31,7 +28,7 @@ var addServiceCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		p2pm := shared.NewP2PManager()
 		serviceManager := shared.NewServiceManager(p2pm)
-		serviceManager.AddService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, servicePath, serviceRepo, serviceActive)
+		serviceManager.AddService(serviceName, serviceDescription, serviceNodeId, serviceType, servicePath, serviceRepo, serviceActive)
 	},
 }
 
@@ -94,7 +91,7 @@ var searchServicesCmd = &cobra.Command{
 		var searchService node_types.SearchService
 		searchService.Name = serviceName
 		searchService.Description = serviceDescription
-		searchService.NodeId = serviceNodeIdentityId
+		searchService.NodeId = serviceNodeId
 		searchService.Type = serviceType
 		searchService.Repo = serviceRepo
 		searchService.Active = serviceActive
@@ -141,7 +138,7 @@ var serviceLookupCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		p2pm := shared.NewP2PManager()
 		serviceManager := shared.NewServiceManager(p2pm)
-		serviceManager.LookupRemoteService(serviceName, serviceDescription, serviceNodeIdentityId, serviceType, serviceRepo)
+		serviceManager.LookupRemoteService(serviceName, serviceDescription, serviceNodeId, serviceType, serviceRepo)
 	},
 }
 
@@ -149,7 +146,7 @@ func init() {
 	addServiceCmd.Flags().StringVarP(&serviceName, "name", "s", "", "Service name to be added")
 	addServiceCmd.MarkFlagRequired("name")
 	addServiceCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to be added")
-	addServiceCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "n", "", "Service node ID")
+	addServiceCmd.Flags().StringVarP(&serviceNodeId, "node", "n", "", "Service node ID")
 	addServiceCmd.MarkFlagRequired("node")
 	addServiceCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type")
 	addServiceCmd.MarkFlagRequired("type")
@@ -173,7 +170,7 @@ func init() {
 
 	searchServicesCmd.Flags().StringVarP(&serviceName, "name", "n", "", "Service name to lookup for (any word/sentence match, comma delimited)")
 	searchServicesCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to lookup for (any word/sentence match, comma delimited)")
-	searchServicesCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "i", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
+	searchServicesCmd.Flags().StringVarP(&serviceNodeId, "node", "i", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
 	searchServicesCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type to be lookup for (any listed type match /DATA, DOCKER EXECUTION ENVIRONMENT, WASM EXECUTION ENVIRONMENT/, comma delimited)")
 	searchServicesCmd.Flags().StringVarP(&serviceRepo, "repo", "r", "", "Service repo (git repo) to lookup for (any repo address match, comma delimited)")
 	searchServicesCmd.Flags().BoolVarP(&serviceActive, "active", "a", true, "Search for active or inactive services")
@@ -182,7 +179,7 @@ func init() {
 	serviceLookupCmd.Flags().StringVarP(&serviceName, "name", "s", "", "Service name to lookup for (any word/sentence match, comma delimited)")
 	serviceLookupCmd.MarkFlagRequired("name")
 	serviceLookupCmd.Flags().StringVarP(&serviceDescription, "description", "d", "", "Service description to lookup for (any word/sentence match, comma delimited)")
-	serviceLookupCmd.Flags().StringVarP(&serviceNodeIdentityId, "node", "n", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
+	serviceLookupCmd.Flags().StringVarP(&serviceNodeId, "node", "n", "", "Service node identity ID to lookup for (any node identity ID match, comma delimited)")
 	serviceLookupCmd.Flags().StringVarP(&serviceType, "type", "t", "", "Service type to be lookup for (any listed type match /DATA, DOCKER EXECUTION ENVIRONMENT, WASM EXECUTION ENVIRONMENT/, comma delimited)")
 	serviceLookupCmd.Flags().StringVarP(&serviceRepo, "repo", "r", "", "Service repo (git repo) to lookup for (any repo address match, comma delimited)")
 	rootCmd.AddCommand(serviceLookupCmd)

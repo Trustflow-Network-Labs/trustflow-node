@@ -39,10 +39,10 @@ func (sm *SettingsManager) Exists(key string) (error, bool) {
 	defer db.Close()
 
 	// Check if key exists
-	var id node_types.NullInt32
-	row := db.QueryRowContext(context.Background(), "select id from settings where key = ?;", key)
+	var k node_types.NullString
+	row := db.QueryRowContext(context.Background(), "select key from settings where key = ?;", key)
 
-	err = row.Scan(&id)
+	err = row.Scan(&k)
 	if err != nil {
 		msg := err.Error()
 		logsManager.Log("debug", msg, "settings")
@@ -72,11 +72,10 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	defer db.Close()
 
 	// Check if key exists
-	var id node_types.NullInt32
 	var keyType node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select id, setting_type from settings where key = ?;", key)
+	row := db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
 
-	err = row.Scan(&id, &keyType)
+	err = row.Scan(&keyType)
 	if err != nil {
 		msg := err.Error()
 		logsManager.Log("debug", msg, "settings")
@@ -314,6 +313,6 @@ func (sm *SettingsManager) Modify(key string, value string) {
 
 // IsValidJSON checks if a string is a valid JSON structure
 func IsValidJSON(s string) bool {
-	var js interface{} // Can be map or slice
+	var js any // Can be map or slice
 	return json.Unmarshal([]byte(s), &js) == nil
 }

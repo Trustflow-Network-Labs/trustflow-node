@@ -8,7 +8,6 @@ import (
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -201,7 +200,7 @@ func (jm *JobManager) UpdateJobStatus(id int32, status string) error {
 }
 
 // Create new job
-func (jm *JobManager) CreateJob(orderingNodeId int32, serviceId int32) {
+func (jm *JobManager) CreateJob(orderingNodeId string, serviceId int32) {
 	logsManager := utils.NewLogsManager()
 
 	// Create a database connection
@@ -215,7 +214,7 @@ func (jm *JobManager) CreateJob(orderingNodeId int32, serviceId int32) {
 	defer db.Close()
 
 	// Create new job
-	logsManager.Log("debug", fmt.Sprintf("create job from ordering node id %d using service id %d", orderingNodeId, serviceId), "jobs")
+	logsManager.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNodeId, serviceId), "jobs")
 
 	result, err := db.ExecContext(context.Background(), "insert into jobs (ordering_node_id, service_id) values (?, ?);",
 		orderingNodeId, serviceId)
@@ -394,16 +393,8 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 	defer file.Close() // Ensure the file is closed after operations
 
-	// Get ordering node peer ID
-	nodeManager := tfnode.NewNodeManager()
-	orderingNode, err := nodeManager.FindNodeById(job.OrderingNodeId)
-	if err != nil {
-		logsManager.Log("error", err.Error(), "jobs")
-		return err
-	}
-
 	// Get peer
-	p, err := jm.p2pm.GeneratePeerFromId(orderingNode.NodeId)
+	p, err := jm.p2pm.GeneratePeerFromId(job.OrderingNodeId)
 	if err != nil {
 		logsManager.Log("error", err.Error(), "jobs")
 		return err

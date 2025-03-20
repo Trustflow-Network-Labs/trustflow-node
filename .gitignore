@@ -40,4 +40,5 @@
 **/*.sln
 **/.keystore
 **/*.db
-trustflow-node
+**/trustflow-node*
+**/*.exe

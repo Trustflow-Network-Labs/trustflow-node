@@ -12,19 +12,18 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
+
+	"slices"
 
 	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
 	"github.com/adgsm/trustflow-node/cmd/settings"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -35,7 +34,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/manifoldco/promptui"
-	"github.com/multiformats/go-multiaddr"
 )
 
 type P2PManager struct {
@@ -110,8 +108,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	cntx := context.Background()
 
 	// Create or get previously created node key
-	nodeManager := tfnode.NewNodeManager()
-	priv, _, err := nodeManager.GetNodeKey()
+	keystoreManager := keystore.NewKeyStoreManager()
+	priv, _, err := keystoreManager.ProvideKey()
 	if err != nil {
 		logsManager.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -137,7 +135,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		libp2p.NATPortMap(),
 		// Let this host use the DHT to find other hosts
 		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
-			p2pm.idht, err = dht.New(cntx, hst)
+			p2pm.SetHostContext(cntx, hst)
+			p2pm.idht, err = p2pm.initDHT()
 			return p2pm.idht, err
 		}),
 		// If you want to help other peers to figure out if they are behind
@@ -153,47 +152,11 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	p2pm.SetHostContext(cntx, hst)
-
-	var multiaddrs []string
 	message := fmt.Sprintf("Node ID is %s", hst.ID())
 	logsManager.Log("info", message, "p2p")
 	for _, ma := range hst.Addrs() {
 		message := fmt.Sprintf("Multiaddr is %s", ma.String())
 		logsManager.Log("info", message, "p2p")
-		multiaddrs = append(multiaddrs, ma.String())
-	}
-
-	// Check if node is already existing in the DB
-	_, err = nodeManager.FindNode(hst.ID().String())
-	if err != nil {
-		// Add node
-		err = nodeManager.AddNode(hst.ID().String(), strings.Join(multiaddrs, ","), true)
-		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
-		}
-
-		// Add key
-		key, err := crypto.MarshalPrivateKey(priv)
-		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
-		}
-
-		keystoreManager := keystore.NewKeyStoreManager()
-		err = keystoreManager.AddKey(hst.ID().String(), fmt.Sprintf("%s: secp256r1", priv.Type().String()), key)
-		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
-		}
-	} else {
-		// Update node
-		err = nodeManager.UpdateNode(hst.ID().String(), strings.Join(multiaddrs, ","), true)
-		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
-			panic(err)
-		}
 	}
 
 	// Setup a stream handler.
@@ -343,43 +306,37 @@ func (p2pm *P2PManager) runMenu() {
 	}
 }
 
-func initDHT(cntx context.Context, hst host.Host) *dht.IpfsDHT {
-	// Start a DHT, for use in peer discovery. We can't just make a new DHT
-	// client because we want each peer to maintain its own local copy of the
-	// DHT, so that the bootstrapping node of the DHT can go down without
-	// inhibiting future peer discovery.
+func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
 	logsManager := utils.NewLogsManager()
-	kademliaDHT, err := dht.New(cntx, hst)
+	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h)
 	if err != nil {
-		logsManager.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		logsManager.Log("error", err.Error(), "p2p")
+		return nil, errors.New(err.Error())
 	}
-	if err = kademliaDHT.Bootstrap(cntx); err != nil {
-		logsManager.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+
+	if err = kademliaDHT.Bootstrap(p2pm.ctx); err != nil {
+		logsManager.Log("error", err.Error(), "p2p")
+		return nil, errors.New(err.Error())
 	}
-	var wg sync.WaitGroup
+
 	for _, peerAddr := range dht.DefaultBootstrapPeers {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-		wg.Add(1)
+
 		go func() {
-			defer wg.Done()
-			if err := hst.Connect(cntx, *peerinfo); err != nil {
+			if err := p2pm.h.Connect(p2pm.ctx, *peerinfo); err != nil {
 				logsManager.Log("warn", err.Error(), "p2p")
 			}
 		}()
 	}
-	wg.Wait()
 
-	return kademliaDHT
+	return kademliaDHT, nil
 }
 
 func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 	logsManager := utils.NewLogsManager()
 	//serviceManager := NewServiceManager(p2pm)
 
-	kademliaDHT := initDHT(p2pm.ctx, p2pm.h)
-	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
+	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
 	for _, completeTopicName := range p2pm.completeTopicNames {
 		dutil.Advertise(p2pm.ctx, routingDiscovery, completeTopicName)
 	}
@@ -387,12 +344,11 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 	// Look for others who have announced and attempt to connect to them
 	anyConnected := false
 	for !anyConnected {
-		logsManager.Log("debug", "Searching for peers...", "p2p")
 		for _, completeTopicName := range p2pm.completeTopicNames {
 			peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
 			if err != nil {
-				logsManager.Log("panic", err.Error(), "p2p")
-				panic(fmt.Sprintf("%v", err))
+				logsManager.Log("warn", err.Error(), "p2p")
+				continue
 			}
 
 			var discoveredPeers []peer.AddrInfo
@@ -401,19 +357,17 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 				if peer.ID != "" {
 					discoveredPeers = append(discoveredPeers, peer)
 				}
-				peerChannel <- discoveredPeers
 
 				skip, err := p2pm.ConnectNode(peer)
 				if err != nil {
-					msg := err.Error()
-					logsManager.Log("error", msg, "p2p")
-					panic(err)
-				}
-				if skip {
-					msg := "Skipping node"
-					logsManager.Log("info", msg, "p2p")
+					//logsManager.Log("warn", err.Error(), "p2p")
 					continue
 				}
+				if skip {
+					continue
+				}
+
+				peerChannel <- discoveredPeers
 				/*
 					// Read list of active services (service offers with pricing)
 					var data []byte
@@ -468,11 +422,8 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 	connected := false
 	// Check for connected peers
 	connectedPeers := p2pm.h.Network().Peers()
-	for _, peerID := range connectedPeers {
-		if peerID == peer.ID {
-			connected = true
-			break
-		}
+	if slices.Contains(connectedPeers, peer.ID) {
+		connected = true
 	}
 
 	return connected, nil
@@ -494,8 +445,6 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	}
 
 	if peer.ID == p2pm.h.ID() {
-		msg := fmt.Sprintf("No self connection allowed. Trying to connect peer %s from host %s.", peer.ID.String(), p2pm.h.ID().String())
-		logsManager.Log("warn", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 
@@ -514,7 +463,12 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 
 	err = p2pm.h.Connect(p2pm.ctx, peer)
 	if err != nil {
-		logsManager.Log("debug", err.Error(), "p2p")
+		p2pm.h.Network().ClosePeer(peer.ID)
+		p2pm.h.Network().Peerstore().RemovePeer(peer.ID)
+		p2pm.h.Peerstore().ClearAddrs(peer.ID)
+		p2pm.h.Peerstore().RemovePeer(peer.ID)
+		logsManager.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
+
 		return false, err
 	}
 
@@ -1141,32 +1095,18 @@ func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error)
 		return p, err
 	}
 
-	// Get existing multiaddrs from DB
-	nodeManager := tfnode.NewNodeManager()
-	node, err := nodeManager.FindNode(peerId)
+	addrInfo, err := p2pm.idht.FindPeer(p2pm.ctx, pID)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		msg := err.Error()
+		logsManager.Log("warn", msg, "p2p")
 		return p, err
-	}
-
-	multiaddrsList := strings.Split(node.Multiaddrs, ",")
-
-	// Convert []string to []multiaddr.Multiaddr
-	multiaddrs := []multiaddr.Multiaddr{}
-	for _, addrStr := range multiaddrsList {
-		addr, err := multiaddr.NewMultiaddr(addrStr)
-		if err != nil {
-			logsManager.Log("warn", err.Error(), "p2p")
-			continue
-		}
-		multiaddrs = append(multiaddrs, addr)
 	}
 
 	// Create peer.AddrInfo from peer.ID
 	p = peer.AddrInfo{
 		ID: pID,
 		// Add any multiaddresses if known (leave blank here if unknown)
-		Addrs: multiaddrs,
+		Addrs: addrInfo.Addrs,
 	}
 
 	return p, nil

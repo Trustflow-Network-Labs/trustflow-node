@@ -47,23 +47,6 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 
 	if newDB {
 		// Create DB structure if it's not existing
-		createNodesTableSql := `
-CREATE TABLE IF NOT EXISTS nodes (
-	"id" INTEGER PRIMARY KEY,
-	"node_id" VARCHAR(255) NOT NULL,
-	"multiaddrs" TEXT NOT NULL,
-	"self" BOOLEAN DEFAULT FALSE
-);
-CREATE UNIQUE INDEX IF NOT EXISTS nodes_id_idx ON nodes ("id");
-CREATE INDEX IF NOT EXISTS nodes_node_id_idx ON nodes ("node_id");
-`
-		_, err = db.ExecContext(context.Background(), createNodesTableSql)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `nodes` table. (%s)", err.Error())
-			logsManager.Log("error", message, "database")
-			return nil, err
-		}
-
 		createBlacklistedNodesTableSql := `
 CREATE TABLE IF NOT EXISTS blacklisted_nodes (
 	"id" INTEGER PRIMARY KEY,
@@ -150,12 +133,11 @@ CREATE TABLE IF NOT EXISTS services (
 	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT '',
-	"node_id" INTEGER NOT NULL,
+	"node_id" TEXT NOT NULL,
 	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'WASM EXECUTION ENVIRONMENT') ) NOT NULL DEFAULT 'DATA',
 	"path" TEXT NOT NULL,
 	"repo" TEXT DEFAULT '',
-	"active" BOOLEAN DEFAULT TRUE,
-	FOREIGN KEY("node_id") REFERENCES nodes("id")
+	"active" BOOLEAN DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS services_id_idx ON services ("id");
 CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
@@ -192,12 +174,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
-	"ordering_node_id" INTEGER NOT NULL,
+	"ordering_node_id" TEXT NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT '',
 	"ended" TEXT DEFAULT '',
-	FOREIGN KEY("ordering_node_id") REFERENCES nodes("id"),
 	FOREIGN KEY("service_id") REFERENCES services("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
@@ -231,14 +212,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 		createJobInputsTableSql := `
 CREATE TABLE IF NOT EXISTS job_inputs (
 	"id" INTEGER PRIMARY KEY,
-	"job_execution_node_id" INTEGER NOT NULL,
+	"job_execution_node_id" TEXT NOT NULL,
 	"execution_job_id" INTEGER NOT NULL,
 	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'INPUTS READY',
 	"constraints" TEXT DEFAULT '',
-	"job_input_node_id" INTEGER DEFAULT NULL,
-	"input_job_id" INTEGER DEFAULT NULL,
-	FOREIGN KEY("job_execution_node_id") REFERENCES nodes("id"),
-	FOREIGN KEY("job_input_node_id") REFERENCES nodes("id")
+	"job_input_node_id" TEXT DEFAULT NULL,
+	"input_job_id" INTEGER DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
 `
@@ -297,23 +276,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos 
 
 		createSettingsTableSql := `
 CREATE TABLE IF NOT EXISTS settings (
-	"id" INTEGER PRIMARY KEY,
-	"key" VARCHAR(255) UNIQUE NOT NULL,
+	"key" TEXT PRIMARY KEY,
 	"description" TEXT DEFAULT NULL,
 	"setting_type" VARCHAR(10) CHECK( "setting_type" IN ('STRING', 'INTEGER', 'REAL', 'BOOLEAN', 'JSON') ) NOT NULL DEFAULT 'STRING',
-	"value_string" VARCHAR(1024) DEFAULT NULL,
+	"value_string" TEXT DEFAULT NULL,
 	"value_integer" INTEGER DEFAULT NULL,
 	"value_real" REAL DEFAULT NULL,
 	"value_boolean" INTEGER CHECK( "value_boolean" IN (0, 1) ) NOT NULL DEFAULT 0,
 	"value_json" TEXT DEFAULT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS settings_id_idx ON settings ("id");
 CREATE INDEX IF NOT EXISTS settings_key_idx ON settings ("key");
 
-INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1);
-INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1);
+INSERT INTO settings ("key", "description", "setting_type", "value_string") VALUES ('node_identifier', 'Node Identifier', 'STRING', '') ON CONFLICT(key) DO UPDATE SET "description" = 'Node Identifier', "setting_type" = 'STRING', "value_string" = '';
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Catalogues sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept sending data to requesting peer', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving binary stream sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving file sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 `
 		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
 		if err != nil {

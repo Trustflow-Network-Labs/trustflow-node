@@ -10,7 +10,6 @@ import (
 	"github.com/adgsm/trustflow-node/cmd/price"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/tfnode"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -116,17 +115,8 @@ func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Servi
 	}
 	defer db.Close()
 
-	// Ger DB node ID
-	nodeManager := tfnode.NewNodeManager()
-	node, err := nodeManager.FindNode(nodeId)
-	if err != nil {
-		msg := err.Error()
-		logsManager.Log("error", msg, "servics")
-		return nil, err
-	}
-
 	// Search for services
-	rows, err := db.QueryContext(context.Background(), "select id, name, description, node_id, service_type, path, repo, active from services where node_id = ?;", node.Id)
+	rows, err := db.QueryContext(context.Background(), "select id, name, description, node_id, service_type, path, repo, active from services where node_id = ?;", nodeId)
 	if err != nil {
 		msg := err.Error()
 		logsManager.Log("error", msg, "services")
@@ -150,7 +140,7 @@ func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Servi
 }
 
 // Add a service
-func (sm *ServiceManager) AddService(name string, description string, serviceNodeIdentityId string, serviceType string, servicePath string, serviceRepo string, active bool) {
+func (sm *ServiceManager) AddService(name string, description string, nodeId string, serviceType string, servicePath string, serviceRepo string, active bool) {
 	// Create a database connection
 	sqlManager := database.NewSQLiteManager()
 	db, err := sqlManager.CreateConnection()
@@ -161,17 +151,6 @@ func (sm *ServiceManager) AddService(name string, description string, serviceNod
 		return
 	}
 	defer db.Close()
-
-	// Get node Id
-	row := db.QueryRowContext(context.Background(), "select id from nodes where node_id = ?;", serviceNodeIdentityId)
-
-	var nodeId uint32
-	err = row.Scan(&nodeId)
-	if err != nil {
-		msg := err.Error()
-		logsManager.Log("error", msg, "servics")
-		return
-	}
 
 	// Add service
 	logsManager.Log("debug", fmt.Sprintf("add service %s", name), "services")
@@ -360,11 +339,11 @@ func (sm *ServiceManager) SetServiceActive(id int32) {
 	}
 }
 
-func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescription string, serviceNodeIdentityId string, serviceType string, serviceRepo string) {
+func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescription string, serviceNodeId string, serviceType string, serviceRepo string) {
 	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
 		Name:        serviceName,
 		Description: serviceDescription,
-		NodeId:      serviceNodeIdentityId,
+		NodeId:      serviceNodeId,
 		Type:        serviceType,
 		Repo:        serviceRepo,
 	}
@@ -401,8 +380,8 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		limit = params[1]
 	}
 
-	sql := `SELECT s.id, s.name, s.description, n.id, n.node_id, s.service_type, s.path, s.repo, s.active
-		FROM services s INNER JOIN nodes n ON s.node_id = n.id
+	sql := `SELECT s.id, s.name, s.description, s.node_id, s.service_type, s.path, s.repo, s.active
+		FROM services s
 		WHERE 1`
 
 	// Parse service names (comma delimited) to search for
@@ -444,20 +423,20 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	}
 
 	// Parse service identity nodes (comma delimited) to search for
-	serviceNodeIdentityIds := strings.Split(searchService.NodeId, ",")
-	for i, serviceNodeIdentityId := range serviceNodeIdentityIds {
-		serviceNodeIdentityId = strings.TrimSpace(serviceNodeIdentityId)
+	serviceNodeIds := strings.Split(searchService.NodeId, ",")
+	for i, serviceNodeId := range serviceNodeIds {
+		serviceNodeId = strings.TrimSpace(serviceNodeId)
 		// Skip if empty string
-		if serviceNodeIdentityId == "" {
+		if serviceNodeId == "" {
 			continue
 		}
 		// Query for each node ID provided
 		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (n.id = '%s'", serviceNodeIdentityId)
+			sql = sql + fmt.Sprintf(" AND (s.node_id = '%s'", serviceNodeId)
 		} else {
-			sql = sql + fmt.Sprintf(" OR n.id = '%s'", serviceNodeIdentityId)
+			sql = sql + fmt.Sprintf(" OR s.node_id = '%s'", serviceNodeId)
 		}
-		if i >= len(serviceNodeIdentityIds)-1 {
+		if i >= len(serviceNodeIds)-1 {
 			sql = sql + ")"
 		}
 	}
@@ -526,10 +505,9 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	defer rows.Close()
 
 	for rows.Next() {
-		var nodeId int32
 		var service node_types.Service
 		var serviceOffer node_types.ServiceOffer
-		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &nodeId, &serviceOffer.NodeId,
+		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &serviceOffer.NodeId,
 			&serviceOffer.Type, &serviceOffer.Path, &serviceOffer.Repo, &serviceOffer.Active)
 		if err != nil {
 			msg := err.Error()
@@ -541,7 +519,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			Id:          serviceOffer.Id,
 			Name:        serviceOffer.Name,
 			Description: serviceOffer.Description,
-			NodeId:      nodeId,
+			NodeId:      serviceOffer.NodeId,
 			Type:        serviceOffer.Type,
 			Path:        serviceOffer.Path,
 			Repo:        serviceOffer.Repo,

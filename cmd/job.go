@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var jobOrderingNodeId int32
+var jobOrderingNodeId string
 var jobServiceId int32
 var jobStatus string
 var jobStarted string
@@ -38,7 +38,7 @@ var runJobCmd = &cobra.Command{
 }
 
 func init() {
-	createJobCmd.Flags().Int32VarP(&jobOrderingNodeId, "ordering-node", "n", 0, "Ordering node ID")
+	createJobCmd.Flags().StringVarP(&jobOrderingNodeId, "ordering-node", "n", "", "Ordering node ID")
 	createJobCmd.MarkFlagRequired("ordering-node")
 	createJobCmd.Flags().Int32VarP(&jobServiceId, "service", "s", 0, "Service ID")
 	createJobCmd.MarkFlagRequired("service")

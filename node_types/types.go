@@ -2,6 +2,7 @@ package node_types
 
 import "time"
 
+/*
 // Declare node type
 type Node struct {
 	Id         int32  `json:"id"`
@@ -9,7 +10,7 @@ type Node struct {
 	Multiaddrs string `json:"multiaddrs"`
 	Self       bool   `json:"self"`
 }
-
+*/
 // Declare key type
 type Key struct {
 	Id         int32  `json:"id"`
@@ -64,7 +65,7 @@ type Service struct {
 	Id          int32  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	NodeId      int32  `json:"node_id"`
+	NodeId      string `json:"node_id"`
 	Type        string `json:"type"`
 	Path        string `json:"path"`
 	Repo        string `json:"repo"`
@@ -116,7 +117,7 @@ type ServiceOffer struct {
 // Declare job type
 type Job struct {
 	Id             int32     `json:"id"`
-	OrderingNodeId int32     `json:"ordering_node_id"`
+	OrderingNodeId string    `json:"ordering_node_id"`
 	ServiceId      int32     `json:"service_id"`
 	Status         string    `json:"status"`
 	Started        time.Time `json:"started"`
