@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/adgsm/trustflow-node/cmd/shared"
+	"github.com/adgsm/trustflow-node/engine"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/spf13/cobra"
 )
@@ -25,7 +25,7 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		p2pManager := shared.NewP2PManager()
+		p2pManager := engine.NewP2PManager()
 		p2pManager.Start(port, daemon)
 	},
 }
@@ -90,7 +90,7 @@ var nodeDaemonCmd = &cobra.Command{
 		pidPath := config["pid_path"]
 
 		// Create PID Manager instance
-		pm, err := shared.NewPIDManager(pidPath)
+		pm, err := utils.NewPIDManager(pidPath)
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)
@@ -132,7 +132,7 @@ var stopNodeCmd = &cobra.Command{
 			pidPath := config["pid_path"]
 
 			// Create PID Manager instance
-			pm, err := shared.NewPIDManager(pidPath)
+			pm, err := utils.NewPIDManager(pidPath)
 			if err != nil {
 				msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 				fmt.Println(msg)
@@ -147,7 +147,7 @@ var stopNodeCmd = &cobra.Command{
 			}
 		}
 
-		p2pManager := shared.NewP2PManager()
+		p2pManager := engine.NewP2PManager()
 		err := p2pManager.Stop(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())

@@ -5,30 +5,33 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adgsm/trustflow-node/cmd/settings"
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/settings"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type KeyStoreManager struct {
+	sqlm *database.SQLiteManager
+	lm   *utils.LogsManager
 }
 
 func NewKeyStoreManager() *KeyStoreManager {
-	return &KeyStoreManager{}
+	return &KeyStoreManager{
+		sqlm: database.NewSQLiteManager(),
+		lm:   utils.NewLogsManager(),
+	}
 }
 
 // Add node
 func (ksm *KeyStoreManager) AddKey(identifier string, algorithm string, key []byte) error {
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
-	logsManager := utils.NewLogsManager()
+	db, err := ksm.sqlm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "keystore")
+		ksm.lm.Log("error", msg, "keystore")
 		return err
 	}
 	defer db.Close()
@@ -37,7 +40,7 @@ func (ksm *KeyStoreManager) AddKey(identifier string, algorithm string, key []by
 		identifier, algorithm, key)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "keystore")
+		ksm.lm.Log("error", msg, "keystore")
 		return err
 	}
 
@@ -50,12 +53,10 @@ func (ksm *KeyStoreManager) FindKey(identifier string) (node_types.Key, error) {
 	var k node_types.Key
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
-	logsManager := utils.NewLogsManager()
+	db, err := ksm.sqlm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "keystore")
+		ksm.lm.Log("error", msg, "keystore")
 		return k, err
 	}
 	defer db.Close()
@@ -64,7 +65,7 @@ func (ksm *KeyStoreManager) FindKey(identifier string) (node_types.Key, error) {
 	err = row.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "keystore")
+		ksm.lm.Log("error", msg, "keystore")
 		return k, err
 	}
 	return k, nil
@@ -76,12 +77,10 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 	var pub crypto.PubKey
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
-	logsManager := utils.NewLogsManager()
+	db, err := ksm.sqlm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "node")
+		ksm.lm.Log("error", msg, "node")
 		return nil, nil, err
 	}
 	defer db.Close()
@@ -91,7 +90,7 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 	nodeId, err := settingsManager.Read("node_identifier")
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "node")
+		ksm.lm.Log("error", msg, "node")
 		return nil, nil, err
 	} else if nodeId.(string) == "" {
 		// We don't have a key let's create it
@@ -104,7 +103,7 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 		)
 		if err != nil {
 			msg := fmt.Sprintf("Can generate key pair. (%s)", err.Error())
-			logsManager.Log("error", msg, "api")
+			ksm.lm.Log("error", msg, "api")
 			return nil, nil, err
 		}
 
@@ -112,7 +111,7 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 		peerId, err := peer.IDFromPublicKey(pub)
 		if err != nil {
 			msg := fmt.Sprintf("Can generate peer ID from public key. (%s)", err.Error())
-			logsManager.Log("error", msg, "api")
+			ksm.lm.Log("error", msg, "api")
 			return nil, nil, err
 		}
 
@@ -122,13 +121,13 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 		// Add key
 		key, err := crypto.MarshalPrivateKey(priv)
 		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
+			ksm.lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 
 		err = ksm.AddKey(peerId.String(), fmt.Sprintf("%s: secp256r1", priv.Type().String()), key)
 		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
+			ksm.lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 	} else {
@@ -136,12 +135,12 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 		key, err := ksm.FindKey(nodeId.(string))
 		if err != nil && strings.ToLower(err.Error()) != "sql: no rows in result set" {
 			msg := err.Error()
-			logsManager.Log("error", msg, "node")
+			ksm.lm.Log("error", msg, "node")
 			return nil, nil, err
 		} else if err != nil && strings.ToLower(err.Error()) == "sql: no rows in result set" {
 			// but we can't find it
 			msg := fmt.Sprintf("Could not find a key for provided node identifier %s.", nodeId.(string))
-			logsManager.Log("error", msg, "api")
+			ksm.lm.Log("error", msg, "api")
 			return nil, nil, err
 		} else {
 			// Get private key
@@ -150,13 +149,13 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 				priv, err = crypto.UnmarshalPrivateKey(key.Key)
 				if err != nil {
 					msg := err.Error()
-					logsManager.Log("error", msg, "node")
+					ksm.lm.Log("error", msg, "node")
 					return nil, nil, err
 				}
 				pub = priv.GetPublic()
 			default:
 				msg := fmt.Sprintf("Could not extract a key for provided algorithm %s.", key.Algorithm)
-				logsManager.Log("error", msg, "api")
+				ksm.lm.Log("error", msg, "api")
 				return nil, nil, err
 			}
 		}

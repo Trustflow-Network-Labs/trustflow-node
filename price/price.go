@@ -10,30 +10,33 @@ import (
 )
 
 type PriceManager struct {
+	sm *database.SQLiteManager
+	lm *utils.LogsManager
 }
 
 func NewPriceManager() *PriceManager {
-	return &PriceManager{}
+	return &PriceManager{
+		sm: database.NewSQLiteManager(),
+		lm: utils.NewLogsManager(),
+	}
 }
 
 // Get prices by currency ID
 func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
-	logsManager := utils.NewLogsManager()
 
 	if currencyId <= 0 {
 		msg := "invalid currency ID"
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := pm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer db.Close()
@@ -52,7 +55,7 @@ func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32
 		currencyId, limit, offset)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer rows.Close()
@@ -61,7 +64,7 @@ func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32
 		err = rows.Scan(&price)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "prices")
+			pm.lm.Log("error", msg, "prices")
 			return prices, err
 		}
 		prices = append(prices, price)
@@ -74,20 +77,18 @@ func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32
 func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
-	logsManager := utils.NewLogsManager()
 
 	if resourceId <= 0 {
 		msg := "invalid resource ID"
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := pm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer db.Close()
@@ -106,7 +107,7 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32
 		resourceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer rows.Close()
@@ -115,7 +116,7 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32
 		err = rows.Scan(&price)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "prices")
+			pm.lm.Log("error", msg, "prices")
 			return prices, err
 		}
 		prices = append(prices, price)
@@ -128,20 +129,18 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32
 func (pm *PriceManager) GetPricesByServiceId(serviceId int32, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
-	logsManager := utils.NewLogsManager()
 
 	if serviceId <= 0 {
 		msg := "invalid service ID"
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := pm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer db.Close()
@@ -160,7 +159,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int32, params ...uint32) 
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "prices")
+		pm.lm.Log("error", msg, "prices")
 		return prices, err
 	}
 	defer rows.Close()
@@ -169,7 +168,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int32, params ...uint32) 
 		err = rows.Scan(&price)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "prices")
+			pm.lm.Log("error", msg, "prices")
 			return prices, err
 		}
 		prices = append(prices, price)

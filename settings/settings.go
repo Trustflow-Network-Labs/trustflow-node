@@ -13,27 +13,30 @@ import (
 )
 
 type SettingsManager struct {
+	sm *database.SQLiteManager
+	lm *utils.LogsManager
 }
 
 func NewSettingsManager() *SettingsManager {
-	return &SettingsManager{}
+	return &SettingsManager{
+		sm: database.NewSQLiteManager(),
+		lm: utils.NewLogsManager(),
+	}
 }
 
 // A setting exists
 func (sm *SettingsManager) Exists(key string) (error, bool) {
-	logsManager := utils.NewLogsManager()
 	if key == "" {
 		msg := "invalid setting key"
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return errors.New(msg), false
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := sm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return err, false
 	}
 	defer db.Close()
@@ -45,7 +48,7 @@ func (sm *SettingsManager) Exists(key string) (error, bool) {
 	err = row.Scan(&k)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("debug", msg, "settings")
+		sm.lm.Log("debug", msg, "settings")
 		return nil, false
 	}
 
@@ -54,19 +57,17 @@ func (sm *SettingsManager) Exists(key string) (error, bool) {
 
 // Read a setting
 func (sm *SettingsManager) Read(key string) (any, error) {
-	logsManager := utils.NewLogsManager()
 	if key == "" {
 		msg := "invalid setting key"
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return nil, errors.New(msg)
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := sm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return nil, err
 	}
 	defer db.Close()
@@ -78,7 +79,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	err = row.Scan(&keyType)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("debug", msg, "settings")
+		sm.lm.Log("debug", msg, "settings")
 		return nil, err
 	}
 
@@ -92,7 +93,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = row.Scan(&val)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 
@@ -105,13 +106,13 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = row.Scan(&val)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 		// Check if this is valid JSON structure
 		if !IsValidJSON(val) {
 			msg := fmt.Sprintf("Value %v is not a valid JSON structure", val)
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return nil, err
 		}
 
@@ -119,7 +120,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = json.Unmarshal([]byte(val), &js)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 
@@ -132,7 +133,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = row.Scan(&val)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 
@@ -145,7 +146,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = row.Scan(&val)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 
@@ -158,23 +159,22 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		err = row.Scan(&val)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("debug", msg, "settings")
+			sm.lm.Log("debug", msg, "settings")
 			return nil, err
 		}
 
 		return val, nil
 	default:
 		msg := fmt.Sprintf("Invalid key type, %s", keyType.String)
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return nil, errors.New(msg)
 	}
 }
 
 func (sm *SettingsManager) ReadBoolSetting(key string) bool {
-	logsManager := utils.NewLogsManager()
 	b, err := sm.Read(key)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "settings")
+		sm.lm.Log("error", err.Error(), "settings")
 		return false
 	}
 	bval, ok := b.(bool)
@@ -186,20 +186,18 @@ func (sm *SettingsManager) ReadBoolSetting(key string) bool {
 
 // Modify a setting
 func (sm *SettingsManager) Modify(key string, value string) {
-	logsManager := utils.NewLogsManager()
 	err, exists := sm.Exists(key)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := sm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return
 	}
 	defer db.Close()
@@ -207,12 +205,12 @@ func (sm *SettingsManager) Modify(key string, value string) {
 	// Check if key is existing
 	if !exists {
 		msg := fmt.Sprintf("Key %s does not exist", key)
-		logsManager.Log("warn", msg, "settings")
+		sm.lm.Log("warn", msg, "settings")
 		return
 	}
 
 	// Modify a setting
-	logsManager.Log("debug", fmt.Sprintf("modifying setting %s to %s", key, value), "settings")
+	sm.lm.Log("debug", fmt.Sprintf("modifying setting %s to %s", key, value), "settings")
 
 	// Check the key value type
 	var keyType node_types.NullString
@@ -221,12 +219,12 @@ func (sm *SettingsManager) Modify(key string, value string) {
 	err = row.Scan(&keyType)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return
 	}
 	if !keyType.Valid {
 		msg := "Invalid key type"
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return
 	}
 
@@ -237,14 +235,14 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			value, key)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 	case "JSON":
 		// Check if this is valid JSON structure
 		if !IsValidJSON(value) {
 			msg := fmt.Sprintf("Provided value %v is not a valid JSON structure", value)
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 		// Update settings table value_json for the provided key
@@ -252,14 +250,14 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			value, key)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 	case "INTEGER":
 		num, err := strconv.ParseInt(value, 10, 32) // Base 10, 32-bit integer
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 		// Update settings table value_integer for the provided key
@@ -267,7 +265,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			num, key)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 	case "BOOLEAN":
@@ -275,7 +273,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 		b, err := strconv.ParseBool(value)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 		if b {
@@ -286,14 +284,14 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			num, key)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 	case "REAL":
 		num, err := strconv.ParseFloat(value, 32)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 		// Update settings table value_real for the provided key
@@ -301,12 +299,12 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			num, key)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "settings")
+			sm.lm.Log("error", msg, "settings")
 			return
 		}
 	default:
 		msg := fmt.Sprintf("Invalid key type, %s", keyType.String)
-		logsManager.Log("error", msg, "settings")
+		sm.lm.Log("error", msg, "settings")
 		return
 	}
 }

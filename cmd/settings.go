@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	settings "github.com/adgsm/trustflow-node/cmd/settings"
+	settings "github.com/adgsm/trustflow-node/settings"
 	"github.com/spf13/cobra"
 )
 

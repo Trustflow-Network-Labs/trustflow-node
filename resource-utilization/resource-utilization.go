@@ -10,29 +10,32 @@ import (
 )
 
 type ResourceUtilizationManager struct {
+	sm *database.SQLiteManager
+	lm *utils.LogsManager
 }
 
 func NewResourceUtilizationManager() *ResourceUtilizationManager {
-	return &ResourceUtilizationManager{}
+	return &ResourceUtilizationManager{
+		sm: database.NewSQLiteManager(),
+		lm: utils.NewLogsManager(),
+	}
 }
 
 // Get utilizations by resource ID
 func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_types.ResourceUtilization, error) {
 	var utilization node_types.ResourceUtilization
 	var utilizations []node_types.ResourceUtilization
-	logsManager := utils.NewLogsManager()
 	if resourceId <= 0 {
 		msg := "invalid resource ID"
-		logsManager.Log("error", msg, "utilizations")
+		rum.lm.Log("error", msg, "utilizations")
 		return utilizations, errors.New(msg)
 	}
 
 	// Create a database connection
-	sqlManager := database.NewSQLiteManager()
-	db, err := sqlManager.CreateConnection()
+	db, err := rum.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "utilizations")
+		rum.lm.Log("error", msg, "utilizations")
 		return utilizations, err
 	}
 	defer db.Close()
@@ -51,7 +54,7 @@ func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId in
 		resourceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "utilizations")
+		rum.lm.Log("error", msg, "utilizations")
 		return utilizations, err
 	}
 	defer rows.Close()
@@ -60,7 +63,7 @@ func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId in
 		err = rows.Scan(&utilization)
 		if err != nil {
 			msg := err.Error()
-			logsManager.Log("error", msg, "utilizations")
+			rum.lm.Log("error", msg, "utilizations")
 			return utilizations, err
 		}
 		utilizations = append(utilizations, utilization)

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/adgsm/trustflow-node/cmd/currency"
+	"github.com/adgsm/trustflow-node/currency"
 	"github.com/spf13/cobra"
 )
 

@@ -1,4 +1,4 @@
-package shared
+package engine
 
 import (
 	"bytes"
@@ -16,10 +16,10 @@ import (
 
 	"slices"
 
-	blacklist_node "github.com/adgsm/trustflow-node/cmd/blacklist-node"
-	"github.com/adgsm/trustflow-node/cmd/settings"
+	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/settings"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -44,6 +44,7 @@ type P2PManager struct {
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
+	lm                 *utils.LogsManager
 }
 
 func NewP2PManager() *P2PManager {
@@ -55,6 +56,7 @@ func NewP2PManager() *P2PManager {
 		idht:               nil,
 		h:                  nil,
 		ctx:                nil,
+		lm:                 utils.NewLogsManager(),
 	}
 }
 
@@ -74,13 +76,19 @@ func (p2pm *P2PManager) SetHostContext(c context.Context, hst host.Host) {
 }
 
 func (p2pm *P2PManager) Start(port uint16, daemon bool) {
+
 	// Read configs
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
-	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "p2p")
+		p2pm.lm.Log("error", message, "p2p")
+		return
+	}
+
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+	if err != nil {
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return
 	}
 
@@ -111,7 +119,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	keystoreManager := keystore.NewKeyStoreManager()
 	priv, _, err := keystoreManager.ProvideKey()
 	if err != nil {
-		logsManager.Log("panic", err.Error(), "p2p")
+		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
 
@@ -146,17 +154,18 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		// This service is highly rate-limited and should not cause any
 		// performance issues.
 		libp2p.EnableNATService(),
+		libp2p.ConnectionGater(blacklistManager.Gater),
 	)
 	if err != nil {
-		logsManager.Log("panic", err.Error(), "p2p")
+		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
 
 	message := fmt.Sprintf("Node ID is %s", hst.ID())
-	logsManager.Log("info", message, "p2p")
+	p2pm.lm.Log("info", message, "p2p")
 	for _, ma := range hst.Addrs() {
 		message := fmt.Sprintf("Multiaddr is %s", ma.String())
-		logsManager.Log("info", message, "p2p")
+		p2pm.lm.Log("info", message, "p2p")
 	}
 
 	// Setup a stream handler.
@@ -164,7 +173,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	p2pm.h.SetStreamHandler(p2pm.protocolID, func(s network.Stream) {
 		message := fmt.Sprintf("Stream [protocol: %s] %s has been openned on node %s from node %s",
 			p2pm.protocolID, s.ID(), hst.ID(), s.Conn().RemotePeer().String())
-		logsManager.Log("info", message, "p2p")
+		p2pm.lm.Log("info", message, "p2p")
 		go p2pm.streamProposalResponse(s)
 	})
 
@@ -172,7 +181,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	ps, err := pubsub.NewGossipSub(cntx, hst)
 	if err != nil {
-		logsManager.Log("panic", err.Error(), "p2p")
+		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
 
@@ -181,7 +190,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	for _, completeTopicName := range p2pm.completeTopicNames {
 		_, topic, err := p2pm.joinSubscribeTopic(cntx, ps, completeTopicName)
 		if err != nil {
-			logsManager.Log("panic", err.Error(), "p2p")
+			p2pm.lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 
@@ -218,16 +227,15 @@ func (p2pm *P2PManager) Stop(pid int) error {
 }
 
 func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, completeTopicName string) (*pubsub.Subscription, *pubsub.Topic, error) {
-	logsManager := utils.NewLogsManager()
 	topic, err := ps.Join(completeTopicName)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, nil, err
 	}
 
 	sub, err := topic.Subscribe()
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, nil, err
 	}
 
@@ -240,7 +248,6 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 
 // Interactive menu loop
 func (p2pm *P2PManager) runMenu() {
-	logsManager := utils.NewLogsManager()
 	for {
 		prompt := promptui.Select{
 			Label: "Choose an option",
@@ -251,7 +258,7 @@ func (p2pm *P2PManager) runMenu() {
 		if err != nil {
 			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
 			fmt.Println(msg)
-			logsManager.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", msg, "p2p")
 			return
 		}
 
@@ -269,7 +276,7 @@ func (p2pm *P2PManager) runMenu() {
 			if err != nil {
 				msg := fmt.Sprintf("Entering service name failed: %s", err.Error())
 				fmt.Println(msg)
-				logsManager.Log("error", msg, "p2p")
+				p2pm.lm.Log("error", msg, "p2p")
 				return
 			}
 			serviceManager := NewServiceManager(p2pm)
@@ -286,13 +293,13 @@ func (p2pm *P2PManager) runMenu() {
 
 			data, err = json.Marshal(catalogueLookup)
 			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				continue
 			}
 
 			serviceCatalogue, err := p2pm.serviceLookup(data, true)
 			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				continue
 			}
 
@@ -300,22 +307,21 @@ func (p2pm *P2PManager) runMenu() {
 		case "Exit":
 			msg := "Exiting interactive mode..."
 			fmt.Println(msg)
-			logsManager.Log("info", msg, "p2p")
+			p2pm.lm.Log("info", msg, "p2p")
 			return
 		}
 	}
 }
 
 func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
-	logsManager := utils.NewLogsManager()
 	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, errors.New(err.Error())
 	}
 
 	if err = kademliaDHT.Bootstrap(p2pm.ctx); err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, errors.New(err.Error())
 	}
 
@@ -324,7 +330,7 @@ func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
 
 		go func() {
 			if err := p2pm.h.Connect(p2pm.ctx, *peerinfo); err != nil {
-				logsManager.Log("warn", err.Error(), "p2p")
+				p2pm.lm.Log("warn", err.Error(), "p2p")
 			}
 		}()
 	}
@@ -333,7 +339,6 @@ func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
 }
 
 func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
-	logsManager := utils.NewLogsManager()
 	//serviceManager := NewServiceManager(p2pm)
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
@@ -347,7 +352,7 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 		for _, completeTopicName := range p2pm.completeTopicNames {
 			peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
 			if err != nil {
-				logsManager.Log("warn", err.Error(), "p2p")
+				p2pm.lm.Log("warn", err.Error(), "p2p")
 				continue
 			}
 
@@ -360,7 +365,7 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 
 				skip, err := p2pm.ConnectNode(peer)
 				if err != nil {
-					//logsManager.Log("warn", err.Error(), "p2p")
+					//p2pm.lm.Log("warn", err.Error(), "p2p")
 					continue
 				}
 				if skip {
@@ -381,13 +386,13 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 
 					data, err = json.Marshal(catalogueLookup)
 					if err != nil {
-						logsManager.Log("error", err.Error(), "p2p")
+						p2pm.lm.Log("error", err.Error(), "p2p")
 						continue
 					}
 
 					serviceCatalogue, err := p2pm.serviceLookup(data, true)
 					if err != nil {
-						logsManager.Log("error", err.Error(), "p2p")
+						p2pm.lm.Log("error", err.Error(), "p2p")
 						continue
 					}
 
@@ -395,7 +400,7 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 					err = StreamData(p2pm, peer, &serviceCatalogue)
 					if err != nil {
 						msg := err.Error()
-						logsManager.Log("error", msg, "p2p")
+						p2pm.lm.Log("error", msg, "p2p")
 						continue
 					}
 
@@ -406,15 +411,14 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 		}
 	}
 	close(peerChannel)
-	logsManager.Log("debug", "Peer discovery complete", "p2p")
+	p2pm.lm.Log("debug", "Peer discovery complete", "p2p")
 }
 
 func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
-	logsManager := utils.NewLogsManager()
 	running := p2pm.IsHostRunning()
 	if !running {
 		msg := "host is not running"
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		err := errors.New(msg)
 		return false, err
 	}
@@ -430,34 +434,20 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 }
 
 func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
-	logsManager := utils.NewLogsManager()
 
 	connected, err := p2pm.IsNodeConnected(peer)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		return false, err
 	}
 	if connected {
 		msg := fmt.Sprintf("Node %s is already connected", peer.ID.String())
-		logsManager.Log("warn", msg, "p2p")
+		p2pm.lm.Log("warn", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 
 	if peer.ID == p2pm.h.ID() {
-		return true, nil // skip node but do not panic
-	}
-
-	blnManager := blacklist_node.NewBlacklistNodeManager()
-	err, blacklisted := blnManager.NodeBlacklisted(peer.ID.String())
-	if err != nil {
-		msg := err.Error()
-		logsManager.Log("error", msg, "p2p")
-		return false, err
-	}
-	if blacklisted {
-		msg := fmt.Sprintf("Node %s is blacklisted", peer.ID.String())
-		logsManager.Log("warn", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 
@@ -467,31 +457,30 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 		p2pm.h.Network().Peerstore().RemovePeer(peer.ID)
 		p2pm.h.Peerstore().ClearAddrs(peer.ID)
 		p2pm.h.Peerstore().RemovePeer(peer.ID)
-		logsManager.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
+		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
 
 		return false, err
 	}
 
-	logsManager.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
+	p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
 	for _, ma := range peer.Addrs {
-		logsManager.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
+		p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
 	}
 
 	return false, nil
 }
 
 func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int32) error {
-	logsManager := utils.NewLogsManager()
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		return err
 	}
 
 	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 		return err
 	} else {
@@ -505,17 +494,16 @@ func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int32) error {
 }
 
 func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
-	logsManager := utils.NewLogsManager()
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		return err
 	}
 
 	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return err
 	} else {
 		t := uint16(0)
@@ -532,7 +520,7 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
 			id = 0
 		default:
 			msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
-			logsManager.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", msg, "p2p")
 			s.Reset()
 			return errors.New(msg)
 		}
@@ -555,31 +543,28 @@ func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, 
 		PeerId: p,
 	}
 
-	logsManager := utils.NewLogsManager()
-
 	// Send stream data
 	if err := binary.Write(s, binary.BigEndian, streamData); err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
 	message := fmt.Sprintf("Sending stream proposal %d (%d) has ended in stream %s", streamData.Type, streamData.Id, s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 }
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
-	logsManager := utils.NewLogsManager()
 
 	// Prepare to read the stream data
 	var streamData node_types.StreamData
 	err := binary.Read(s, binary.BigEndian, &streamData)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
 
 	message := fmt.Sprintf("Received stream data type %d, id %d from %s in stream %s",
 		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 
 	// Check what the stream proposal is
 	switch streamData.Type {
@@ -606,7 +591,7 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		}
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is poposed", streamData.Type)
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 		s.Reset()
 	}
 }
@@ -614,7 +599,6 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	var accepted bool
 	settingsManager := settings.NewSettingsManager()
-	logsManager := utils.NewLogsManager()
 	// Check what the stream proposal is about
 	switch streamDataType {
 	case 0:
@@ -635,41 +619,39 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 		accepted = settingsManager.ReadBoolSetting("accept_file")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 		return false
 	}
 	if accepted {
 		message := fmt.Sprintf("As per local settings stream data type %d is accepted.", streamDataType)
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 	} else {
 		message := fmt.Sprintf("As per local settings stream data type %d is not accepted", streamDataType)
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 	}
 
 	return accepted
 }
 
 func (p2pm *P2PManager) streamAccepted(s network.Stream) {
-	logsManager := utils.NewLogsManager()
 	data := [7]byte{'T', 'F', 'R', 'E', 'A', 'D', 'Y'}
 	err := binary.Write(s, binary.BigEndian, data)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
 
 	message := fmt.Sprintf("Sending TFREADY ended %s", s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 }
 
 func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	var ready [7]byte
 	var expected [7]byte = [7]byte{'T', 'F', 'R', 'E', 'A', 'D', 'Y'}
-	logsManager := utils.NewLogsManager()
 
 	err := binary.Read(s, binary.BigEndian, &ready)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 		return
 	}
@@ -677,13 +659,13 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	// Check if received data matches TFREADY signal
 	if !bytes.Equal(expected[:], ready[:]) {
 		err := errors.New("did not get expected TFREADY signal")
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 		return
 	}
 
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 
 	var chunkSize uint64 = 4096
 	var pointer uint64 = 0
@@ -693,7 +675,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	config, err := configManager.ReadConfigs()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "p2p")
+		p2pm.lm.Log("error", message, "p2p")
 		return
 	}
 
@@ -702,28 +684,28 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	chunkSize, err = strconv.ParseUint(cs, 10, 64)
 	if err != nil {
 		message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
-		logsManager.Log("warn", message, "p2p")
+		p2pm.lm.Log("warn", message, "p2p")
 	}
 
 	switch v := any(data).(type) {
 	case *[]node_types.ServiceOffer:
 		b, err := json.Marshal(data)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
 		}
 
 		err = p2pm.sendStreamChunks(b, pointer, chunkSize, s)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
 		}
 	case *[]byte:
 		err = p2pm.sendStreamChunks(*v, pointer, chunkSize, s)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
 		}
@@ -736,7 +718,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 				if err == io.EOF {
 					break // End of file reached
 				}
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Reset()
 				return
 			}
@@ -747,12 +729,12 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 
 			err = binary.Write(s, binary.BigEndian, chunkSize)
 			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Reset()
 				return
 			}
 			message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
-			logsManager.Log("debug", message, "p2p")
+			p2pm.lm.Log("debug", message, "p2p")
 
 			if chunkSize == 0 {
 				break
@@ -760,28 +742,27 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 
 			err = binary.Write(s, binary.BigEndian, buffer[:n])
 			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Reset()
 				return
 			}
 			message = fmt.Sprintf("Sending chunk %v ended %s", buffer[:n], s.ID())
-			logsManager.Log("debug", message, "p2p")
+			p2pm.lm.Log("debug", message, "p2p")
 
 			pointer += chunkSize
 		}
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		s.Reset()
 		return
 	}
 
 	message = fmt.Sprintf("Sending ended %s", s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 }
 
 func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uint64, s network.Stream) error {
-	logsManager := utils.NewLogsManager()
 	for {
 		if len(b)-int(pointer) < int(chunkSize) {
 			chunkSize = uint64(len(b) - int(pointer))
@@ -789,11 +770,11 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 
 		err := binary.Write(s, binary.BigEndian, chunkSize)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
 		message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 
 		if chunkSize == 0 {
 			break
@@ -801,11 +782,11 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 
 		err = binary.Write(s, binary.BigEndian, (b)[pointer:pointer+chunkSize])
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
 		message = fmt.Sprintf("Sending chunk %v ended %s", (b)[pointer:pointer+chunkSize], s.ID())
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 
 		pointer += chunkSize
 	}
@@ -815,17 +796,16 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Prepare to read back the data
 	var data []byte
-	logsManager := utils.NewLogsManager()
 	for {
 		var chunkSize uint64
 		err := binary.Read(s, binary.BigEndian, &chunkSize)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 		}
 
 		message := fmt.Sprintf("Received chunk size %d from %s", chunkSize, s.ID())
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 
 		if chunkSize == 0 {
 			break
@@ -835,12 +815,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 		err = binary.Read(s, binary.BigEndian, &chunk)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 		}
 
 		message = fmt.Sprintf("Received %v of type %d id %d from %s", chunk, streamData.Type, streamData.Id, s.ID())
-		logsManager.Log("debug", message, "p2p")
+		p2pm.lm.Log("debug", message, "p2p")
 
 		// Concatenate receiving chunk
 		data = append(data, chunk...)
@@ -848,7 +828,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 	message := fmt.Sprintf("Received data %v type from %s is %d, id %d, node %s", data, s.ID(),
 		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")))
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 
 	// Determine data type
 	switch streamData.Type {
@@ -858,7 +838,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		err := json.Unmarshal(data, &serviceCatalogue)
 		if err != nil {
 			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
-			logsManager.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", msg, "p2p")
 		}
 		serviceManager := NewServiceManager(p2pm)
 		for i, service := range serviceCatalogue {
@@ -874,12 +854,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				services, err := serviceManager.GetServicesByNodeId(nodeId)
 				if err != nil {
 					msg := fmt.Sprintf("Error occured whilst looking for existing Service Catalogue of a foreign node %s.\n\n%s", nodeId, err.Error())
-					logsManager.Log("error", msg, "p2p")
+					p2pm.lm.Log("error", msg, "p2p")
 				}
 				for _, service := range services {
 					serviceManager.RemoveService(service.Id)
 					msg := fmt.Sprintf("Removing service %s of a foreign node %s.\n\n", service.Name, nodeId)
-					logsManager.Log("debug", msg, "p2p")
+					p2pm.lm.Log("debug", msg, "p2p")
 				}
 			}
 			// Store newly received Service Catalogue
@@ -893,17 +873,16 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		// Received a file from the remote peer
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is received", streamData.Type)
-		logsManager.Log("warn", message, "p2p")
+		p2pm.lm.Log("warn", message, "p2p")
 	}
 
 	message = fmt.Sprintf("Receiving ended %s", s.ID())
-	logsManager.Log("debug", message, "p2p")
+	p2pm.lm.Log("debug", message, "p2p")
 
 	s.Reset()
 }
 
 func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
-	logsManager := utils.NewLogsManager()
 
 	var m []byte
 	var err error
@@ -913,7 +892,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 	config, err := configManager.ReadConfigs()
 	if err != nil {
 		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		return err
 	}
 
@@ -921,7 +900,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 	case node_types.ServiceLookup:
 		m, err = json.Marshal(message)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
 
@@ -931,13 +910,13 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 		fmt.Printf("topicKey: %s,\ntopic: %v\ntopicsSubscribed: %v\n", topicKey, topic, p2pm.topicsSubscribed)
 	default:
 		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
-		logsManager.Log("error", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		err := errors.New(msg)
 		return err
 	}
 
 	if err := topic.Publish(p2pm.ctx, m); err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return err
 	}
 
@@ -947,50 +926,36 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
-	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "p2p")
+		p2pm.lm.Log("error", message, "p2p")
 		return
 	}
 
 	for {
 		m, err := sub.Next(ctx)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
-		}
-
-		blnManager := blacklist_node.NewBlacklistNodeManager()
-		err, blacklisted := blnManager.NodeBlacklisted(m.ReceivedFrom.String())
-		if err != nil {
-			msg := err.Error()
-			logsManager.Log("warn", msg, "p2p")
-			continue
-		}
-		if blacklisted {
-			msg := fmt.Sprintf("Node %s is blacklisted", m.ReceivedFrom.String())
-			logsManager.Log("warn", msg, "p2p")
-			continue // Do not comminicate with blacklisted nodes
+			p2pm.lm.Log("error", err.Error(), "p2p")
 		}
 
 		message := string(m.Message.Data)
 		fmt.Println(m.ReceivedFrom, " Data: ", message)
-		logsManager.Log("debug", fmt.Sprintf("Message %s received from %s", message, m.ReceivedFrom), "p2p")
+		p2pm.lm.Log("debug", fmt.Sprintf("Message %s received from %s", message, m.ReceivedFrom), "p2p")
 
 		topic := string(*m.Topic)
 		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
-		logsManager.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
+		p2pm.lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
 
 		peerId := m.ReceivedFrom
 		p := peerId.String()
 		fmt.Println(m.ReceivedFrom, " Peer: ", p)
-		logsManager.Log("debug", fmt.Sprintf("From peer %s", p), "p2p")
+		p2pm.lm.Log("debug", fmt.Sprintf("From peer %s", p), "p2p")
 
 		switch topic {
 		case config["topic_name_prefix"] + "lookup.service":
 			services, err := p2pm.serviceLookup(m.Message.Data, true)
 			if err != nil {
-				logsManager.Log("error", err.Error(), "p2p")
+				p2pm.lm.Log("error", err.Error(), "p2p")
 				continue
 			}
 
@@ -998,7 +963,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			peerAddrInfo, err := p2pm.GeneratePeerFromId(p)
 			if err != nil {
 				msg := err.Error()
-				logsManager.Log("error", msg, "p2p")
+				p2pm.lm.Log("error", msg, "p2p")
 				continue
 			}
 
@@ -1008,13 +973,13 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 				err = StreamData(p2pm, peerAddrInfo, &services)
 				if err != nil {
 					msg := err.Error()
-					logsManager.Log("error", msg, "p2p")
+					p2pm.lm.Log("error", msg, "p2p")
 					continue
 				}
 			}
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
-			logsManager.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", msg, "p2p")
 			continue
 		}
 	}
@@ -1023,10 +988,9 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
-	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "p2p")
+		p2pm.lm.Log("error", message, "p2p")
 		return nil, err
 	}
 
@@ -1039,7 +1003,7 @@ func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.Se
 
 	err = json.Unmarshal(data, &lookup)
 	if err != nil {
-		logsManager.Log("error", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, err
 	}
 
@@ -1067,7 +1031,7 @@ func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.Se
 	for {
 		servicesBatch, err := serviceManager.SearchServices(searchService, offset, limit)
 		if err != nil {
-			logsManager.Log("error", err.Error(), "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			break
 		}
 
@@ -1085,20 +1049,19 @@ func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.Se
 
 func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error) {
 	var p peer.AddrInfo
-	logsManager := utils.NewLogsManager()
 
 	// Convert the string to a peer.ID
 	pID, err := peer.Decode(peerId)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("warn", msg, "p2p")
+		p2pm.lm.Log("warn", msg, "p2p")
 		return p, err
 	}
 
 	addrInfo, err := p2pm.idht.FindPeer(p2pm.ctx, pID)
 	if err != nil {
 		msg := err.Error()
-		logsManager.Log("warn", msg, "p2p")
+		p2pm.lm.Log("warn", msg, "p2p")
 		return p, err
 	}
 

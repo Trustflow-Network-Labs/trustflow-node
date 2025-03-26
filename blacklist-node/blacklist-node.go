@@ -1,0 +1,216 @@
+package blacklist_node
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/adgsm/trustflow-node/database"
+	"github.com/adgsm/trustflow-node/utils"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/net/conngater"
+)
+
+type BlacklistNodeManager struct {
+	sm    *database.SQLiteManager
+	lm    *utils.LogsManager
+	Gater *conngater.BasicConnectionGater
+}
+
+func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
+	gater, err := conngater.NewBasicConnectionGater(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	blnm := &BlacklistNodeManager{
+		sm:    database.NewSQLiteManager(),
+		lm:    utils.NewLogsManager(),
+		Gater: gater,
+	}
+
+	err = blnm.loadBlacklist()
+	if err != nil {
+		return nil, err
+	}
+
+	return blnm, nil
+}
+
+// Load blacklist
+func (blnm *BlacklistNodeManager) loadBlacklist() error {
+	// Create a database connection
+	db, err := blnm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return err
+	}
+	defer db.Close()
+
+	// Load a blacklist
+	rows, err := db.QueryContext(context.Background(), "select node_id, reason, timestamp from blacklisted_nodes;")
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var nodeId string
+		if err := rows.Scan(&nodeId); err != nil {
+			blnm.lm.Log("error", err.Error(), "blacklist-node")
+			return err
+		}
+		peerId, err := peer.Decode(nodeId)
+		if err != nil {
+			blnm.lm.Log("error", err.Error(), "blacklist-node")
+			return err
+		}
+		err = blnm.Gater.BlockPeer(peerId)
+		if err != nil {
+			blnm.lm.Log("error", err.Error(), "blacklist-node")
+			return err
+		}
+	}
+
+	return rows.Err()
+}
+
+// Is node blacklisted
+func (blnm *BlacklistNodeManager) IsBlacklisted(nodeId string) (bool, error) {
+	if nodeId == "" {
+		msg := "invalid Node ID"
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return true, errors.New(msg)
+	}
+
+	peerId, err := peer.Decode(nodeId)
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return true, err
+	}
+
+	return blnm.Gater.InterceptPeerDial(peerId), nil
+}
+
+// List blacklisted nodes
+func (blnm *BlacklistNodeManager) List() ([]peer.ID, error) {
+	// Create a database connection
+	db, err := blnm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return nil, err
+	}
+	defer db.Close()
+
+	// Load a blacklist
+	rows, err := db.QueryContext(context.Background(), "select node_id, reason, timestamp from blacklisted_nodes;")
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []peer.ID
+	for rows.Next() {
+		var nodeId string
+		if err := rows.Scan(&nodeId); err == nil {
+			peerId, err := peer.Decode(nodeId)
+			if err == nil {
+				nodes = append(nodes, peerId)
+			}
+		}
+	}
+
+	return nodes, rows.Err()
+}
+
+// Blacklist a node
+func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
+	blacklisted, err := blnm.IsBlacklisted(nodeId)
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return err
+	}
+
+	// Create a database connection
+	db, err := blnm.sm.CreateConnection()
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return err
+	}
+	defer db.Close()
+
+	// Check if node is already blacklisted
+	if blacklisted {
+		msg := fmt.Sprintf("Node %s is already blacklisted", nodeId)
+		blnm.lm.Log("warn", msg, "blacklist-node")
+		return err
+	}
+
+	// Add node to blacklist
+	blnm.lm.Log("debug", fmt.Sprintf("add node %s to blacklist", nodeId), "blacklist-node")
+
+	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?)  ON CONFLICT(node_id) DO UPDATE SET "reason" = ?, "timestamp" = ?;`,
+		nodeId, reason, time.Now().Format(time.RFC3339), reason, time.Now().Format(time.RFC3339))
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return err
+	}
+
+	peerId, err := peer.Decode(nodeId)
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return err
+	}
+
+	return blnm.Gater.BlockPeer(peerId)
+}
+
+// Remove node from blacklist
+func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
+	blacklisted, err := blnm.IsBlacklisted(nodeId)
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return err
+	}
+
+	// Create a database connection
+	db, err := blnm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return err
+	}
+	defer db.Close()
+
+	// Check if node is already blacklisted
+	if !blacklisted {
+		msg := fmt.Sprintf("Node %s is not blacklisted", nodeId)
+		blnm.lm.Log("warn", msg, "blacklist-node")
+		return err
+	}
+
+	// Remove node from blacklist
+	blnm.lm.Log("debug", fmt.Sprintf("removing node %s from blacklist", nodeId), "blacklist-node")
+
+	_, err = db.ExecContext(context.Background(), "delete from blacklisted_nodes where node_id = ?;", nodeId)
+	if err != nil {
+		msg := err.Error()
+		blnm.lm.Log("error", msg, "blacklist-node")
+		return err
+	}
+
+	peerId, err := peer.Decode(nodeId)
+	if err != nil {
+		blnm.lm.Log("error", err.Error(), "blacklist-node")
+		return err
+	}
+
+	return blnm.Gater.UnblockPeer(peerId)
+}
