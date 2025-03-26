@@ -1,4 +1,4 @@
-package engine
+package node
 
 import (
 	"bytes"
@@ -33,7 +33,6 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	"github.com/manifoldco/promptui"
 )
 
 type P2PManager struct {
@@ -202,7 +201,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	if !daemon {
 		// Print interactive menu
-		p2pm.runMenu()
+		menuManager := NewMenuManager(p2pm)
+		menuManager.Run()
 	} else {
 		// Running as a daemon never ends
 		<-cntx.Done()
@@ -244,73 +244,6 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 	go p2pm.receivedMessage(cntx, sub)
 
 	return sub, topic, nil
-}
-
-// Interactive menu loop
-func (p2pm *P2PManager) runMenu() {
-	for {
-		prompt := promptui.Select{
-			Label: "Choose an option",
-			Items: []string{"Find remote services", "Find local services", "Exit"},
-		}
-
-		_, result, err := prompt.Run()
-		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			p2pm.lm.Log("error", msg, "p2p")
-			return
-		}
-
-		switch result {
-		case "Find remote services":
-			frsPrompt := promptui.Prompt{
-				Label:       "Service name",
-				Default:     "New service",
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			snResult, err := frsPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("Entering service name failed: %s", err.Error())
-				fmt.Println(msg)
-				p2pm.lm.Log("error", msg, "p2p")
-				return
-			}
-			serviceManager := NewServiceManager(p2pm)
-			serviceManager.LookupRemoteService(snResult, "", "", "", "")
-		case "Find local services":
-			var data []byte
-			var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
-				Name:        "",
-				Description: "",
-				NodeId:      "",
-				Type:        "",
-				Repo:        "",
-			}
-
-			data, err = json.Marshal(catalogueLookup)
-			if err != nil {
-				p2pm.lm.Log("error", err.Error(), "p2p")
-				continue
-			}
-
-			serviceCatalogue, err := p2pm.serviceLookup(data, true)
-			if err != nil {
-				p2pm.lm.Log("error", err.Error(), "p2p")
-				continue
-			}
-
-			fmt.Printf("%v\n", serviceCatalogue)
-		case "Exit":
-			msg := "Exiting interactive mode..."
-			fmt.Println(msg)
-			p2pm.lm.Log("info", msg, "p2p")
-			return
-		}
-	}
 }
 
 func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
@@ -390,7 +323,7 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 						continue
 					}
 
-					serviceCatalogue, err := p2pm.serviceLookup(data, true)
+					serviceCatalogue, err := p2pm.ServiceLookup(data, true)
 					if err != nil {
 						p2pm.lm.Log("error", err.Error(), "p2p")
 						continue
@@ -953,7 +886,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 
 		switch topic {
 		case config["topic_name_prefix"] + "lookup.service":
-			services, err := p2pm.serviceLookup(m.Message.Data, true)
+			services, err := p2pm.ServiceLookup(m.Message.Data, true)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				continue
@@ -985,7 +918,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 	}
 }
 
-func (p2pm *P2PManager) serviceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {
+func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
 	if err != nil {
