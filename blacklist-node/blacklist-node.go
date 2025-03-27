@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/adgsm/trustflow-node/database"
+	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/conngater"
@@ -50,7 +51,7 @@ func (blnm *BlacklistNodeManager) loadBlacklist() error {
 	defer db.Close()
 
 	// Load a blacklist
-	rows, err := db.QueryContext(context.Background(), "select node_id, reason, timestamp from blacklisted_nodes;")
+	rows, err := db.QueryContext(context.Background(), "select node_id from blacklisted_nodes;")
 	if err != nil {
 		blnm.lm.Log("error", err.Error(), "blacklist-node")
 		return err
@@ -96,7 +97,7 @@ func (blnm *BlacklistNodeManager) IsBlacklisted(nodeId string) (bool, error) {
 }
 
 // List blacklisted nodes
-func (blnm *BlacklistNodeManager) List() ([]peer.ID, error) {
+func (blnm *BlacklistNodeManager) List() ([]node_types.Blacklist, error) {
 	// Create a database connection
 	db, err := blnm.sm.CreateConnection()
 	if err != nil {
@@ -114,13 +115,23 @@ func (blnm *BlacklistNodeManager) List() ([]peer.ID, error) {
 	}
 	defer rows.Close()
 
-	var nodes []peer.ID
+	var nodes []node_types.Blacklist
 	for rows.Next() {
-		var nodeId string
-		if err := rows.Scan(&nodeId); err == nil {
-			peerId, err := peer.Decode(nodeId)
+		var nodeSQL node_types.BlacklistSQL
+		if err := rows.Scan(&nodeSQL.NodeId, &nodeSQL.Reason, &nodeSQL.Timestamp); err == nil {
+			peerId, err := peer.Decode(nodeSQL.NodeId)
 			if err == nil {
-				nodes = append(nodes, peerId)
+				t, err := time.Parse(time.RFC3339, nodeSQL.Timestamp)
+				if err != nil {
+					fmt.Println("Error parsing time:", err)
+					continue
+				}
+				var node node_types.Blacklist = node_types.Blacklist{
+					NodeId:    peerId,
+					Reason:    nodeSQL.Reason.String,
+					Timestamp: t,
+				}
+				nodes = append(nodes, node)
 			}
 		}
 	}

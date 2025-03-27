@@ -53,7 +53,6 @@ CREATE TABLE IF NOT EXISTS blacklisted_nodes (
 	"reason" TEXT DEFAULT NULL,
 	"timestamp" TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS blacklisted_nodes_id_idx ON blacklisted_nodes ("id");
 CREATE INDEX IF NOT EXISTS blacklisted_nodes_node_id_idx ON blacklisted_nodes ("node_id");
 `
 		_, err = db.ExecContext(context.Background(), createBlacklistedNodesTableSql)

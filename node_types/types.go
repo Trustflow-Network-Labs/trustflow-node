@@ -1,22 +1,29 @@
 package node_types
 
-import "time"
+import (
+	"time"
 
-/*
-// Declare node type
-type Node struct {
-	Id         int32  `json:"id"`
-	NodeId     string `json:"node_id"`
-	Multiaddrs string `json:"multiaddrs"`
-	Self       bool   `json:"self"`
-}
-*/
+	"github.com/libp2p/go-libp2p/core/peer"
+)
+
 // Declare key type
 type Key struct {
 	Id         int32  `json:"id"`
 	Identifier string `json:"identifier"`
 	Algorithm  string `json:"algorithm"`
 	Key        []byte `json:"key"`
+}
+
+// Declare blacklist type
+type BlacklistSQL struct {
+	NodeId    string     `json:"node_id"`
+	Reason    NullString `json:"reason"`
+	Timestamp string     `json:"timestamp"`
+}
+type Blacklist struct {
+	NodeId    peer.ID   `json:"node_id"`
+	Reason    string    `json:"reason"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // Declare stream data type
