@@ -11,7 +11,7 @@ func NewTextManager() *TextManager {
 	return &TextManager{}
 }
 
-func (tm *TextManager) ShortenString(s string, prefixLen, suffixLen int) string {
+func (tm *TextManager) Shorten(s string, prefixLen, suffixLen int) string {
 	if len(s) <= prefixLen+suffixLen {
 		return s // If the string is already short, return as is
 	}

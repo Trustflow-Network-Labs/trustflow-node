@@ -93,7 +93,7 @@ func (blnm *BlacklistNodeManager) IsBlacklisted(nodeId string) (bool, error) {
 		return true, err
 	}
 
-	return blnm.Gater.InterceptPeerDial(peerId), nil
+	return !blnm.Gater.InterceptPeerDial(peerId), nil
 }
 
 // List blacklisted nodes
@@ -165,8 +165,10 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 	// Add node to blacklist
 	blnm.lm.Log("debug", fmt.Sprintf("add node %s to blacklist", nodeId), "blacklist-node")
 
-	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?)  ON CONFLICT(node_id) DO UPDATE SET "reason" = ?, "timestamp" = ?;`,
-		nodeId, reason, time.Now().Format(time.RFC3339), reason, time.Now().Format(time.RFC3339))
+	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?);`,
+		nodeId, reason, time.Now().Format(time.RFC3339))
+	//	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?) ON CONFLICT(node_id) DO UPDATE SET "reason" = ?, "timestamp" = ?;`,
+	//nodeId, reason, time.Now().Format(time.RFC3339), reason, time.Now().Format(time.RFC3339))
 	if err != nil {
 		msg := err.Error()
 		blnm.lm.Log("error", msg, "blacklist-node")

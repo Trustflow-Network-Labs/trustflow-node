@@ -49,7 +49,7 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 		// Create DB structure if it's not existing
 		createBlacklistedNodesTableSql := `
 CREATE TABLE IF NOT EXISTS blacklisted_nodes (
-	"node_id" TEXT NOT NULL,
+	"node_id" TEXT PRIMARY KEY,
 	"reason" TEXT DEFAULT NULL,
 	"timestamp" TEXT NOT NULL
 );
