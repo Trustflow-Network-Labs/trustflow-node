@@ -208,7 +208,7 @@ func (mm *MenuManager) blacklist() {
 			}
 			nidResult, err := nidPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("Entering Node ID failed: %s", err.Error())
+				msg := fmt.Sprintf("\U00002757 Entering Node ID failed: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
@@ -225,7 +225,7 @@ func (mm *MenuManager) blacklist() {
 			}
 			rsResult, err := rsPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("Entering reason for blacklisting node failed: %s", err.Error())
+				msg := fmt.Sprintf("\U00002757 Entering reason for blacklisting node failed: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
@@ -233,7 +233,7 @@ func (mm *MenuManager) blacklist() {
 
 			blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
 			if err != nil {
-				fmt.Println(err.Error())
+				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
@@ -241,14 +241,15 @@ func (mm *MenuManager) blacklist() {
 			// Add node to blacklist
 			err = blacklistManager.Add(nidResult, rsResult)
 			if err != nil {
-				fmt.Println(err.Error())
+				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
+			fmt.Printf("\U00002705 Node %s is added to blacklist\n", nidResult)
 
 			nodes, err := blacklistManager.List()
 			if err != nil {
-				fmt.Println(err.Error())
+				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
@@ -262,8 +263,59 @@ func (mm *MenuManager) blacklist() {
 				table.Append(row)
 			}
 			table.Render() // Prints the table
-
 		case "Remove node":
+			validatorManager := utils.NewValidatorManager()
+			// Get node ID
+			nidPrompt := promptui.Prompt{
+				Label:   "Node ID",
+				Default: "",
+				//				Validate:    validatorManager.IsPeer,
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			nidResult, err := nidPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering Node ID failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			// Remove node from blacklist
+			err = blacklistManager.Remove(nidResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Node %s is removed from blacklist\n", nidResult)
+
+			nodes, err := blacklistManager.List()
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			// Draw table output
+			textManager := utils.NewTextManager()
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
+			for _, node := range nodes {
+				row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
+				table.Append(row)
+			}
+			table.Render() // Prints the table
 		case "Back":
 			return
 		}

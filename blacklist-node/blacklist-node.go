@@ -14,9 +14,11 @@ import (
 )
 
 type BlacklistNodeManager struct {
-	sm    *database.SQLiteManager
-	lm    *utils.LogsManager
-	Gater *conngater.BasicConnectionGater
+	shortenedKeys map[string]string
+	sm            *database.SQLiteManager
+	lm            *utils.LogsManager
+	tm            *utils.TextManager
+	Gater         *conngater.BasicConnectionGater
 }
 
 func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
@@ -26,9 +28,11 @@ func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
 	}
 
 	blnm := &BlacklistNodeManager{
-		sm:    database.NewSQLiteManager(),
-		lm:    utils.NewLogsManager(),
-		Gater: gater,
+		shortenedKeys: map[string]string{},
+		sm:            database.NewSQLiteManager(),
+		lm:            utils.NewLogsManager(),
+		tm:            utils.NewTextManager(),
+		Gater:         gater,
 	}
 
 	err = blnm.loadBlacklist()
@@ -74,6 +78,8 @@ func (blnm *BlacklistNodeManager) loadBlacklist() error {
 			blnm.lm.Log("error", err.Error(), "blacklist-node")
 			return err
 		}
+		key := blnm.tm.Shorten(nodeId, 6, 6)
+		blnm.shortenedKeys[key] = nodeId
 	}
 
 	return rows.Err()
@@ -157,8 +163,8 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 
 	// Check if node is already blacklisted
 	if blacklisted {
-		msg := fmt.Sprintf("Node %s is already blacklisted", nodeId)
-		blnm.lm.Log("warn", msg, "blacklist-node")
+		err = fmt.Errorf("node %s is already blacklisted", nodeId)
+		blnm.lm.Log("warn", err.Error(), "blacklist-node")
 		return err
 	}
 
@@ -167,8 +173,6 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 
 	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?);`,
 		nodeId, reason, time.Now().Format(time.RFC3339))
-	//	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?) ON CONFLICT(node_id) DO UPDATE SET "reason" = ?, "timestamp" = ?;`,
-	//nodeId, reason, time.Now().Format(time.RFC3339), reason, time.Now().Format(time.RFC3339))
 	if err != nil {
 		msg := err.Error()
 		blnm.lm.Log("error", msg, "blacklist-node")
@@ -181,11 +185,20 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 		return err
 	}
 
+	key := blnm.tm.Shorten(nodeId, 6, 6)
+	blnm.shortenedKeys[key] = nodeId
+
 	return blnm.Gater.BlockPeer(peerId)
 }
 
 // Remove node from blacklist
 func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
+	// Chek if we have shortened key provided
+	fullNodeId, found := blnm.shortenedKeys[nodeId]
+	if found {
+		nodeId = fullNodeId
+	}
+
 	blacklisted, err := blnm.IsBlacklisted(nodeId)
 	if err != nil {
 		msg := err.Error()
@@ -204,8 +217,8 @@ func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
 
 	// Check if node is already blacklisted
 	if !blacklisted {
-		msg := fmt.Sprintf("Node %s is not blacklisted", nodeId)
-		blnm.lm.Log("warn", msg, "blacklist-node")
+		err = fmt.Errorf("node %s is not blacklisted", nodeId)
+		blnm.lm.Log("warn", err.Error(), "blacklist-node")
 		return err
 	}
 
@@ -224,6 +237,9 @@ func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
 		blnm.lm.Log("error", err.Error(), "blacklist-node")
 		return err
 	}
+
+	key := blnm.tm.Shorten(nodeId, 6, 6)
+	delete(blnm.shortenedKeys, key)
 
 	return blnm.Gater.UnblockPeer(peerId)
 }
