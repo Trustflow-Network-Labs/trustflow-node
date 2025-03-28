@@ -82,19 +82,17 @@ CREATE INDEX IF NOT EXISTS keystore_algorithm_idx ON keystore ("algorithm");
 
 		createCurrenciesTableSql := `
 CREATE TABLE IF NOT EXISTS currencies (
-	"id" INTEGER PRIMARY KEY,
-	"currency" VARCHAR(255) NOT NULL,
-	"symbol" VARCHAR(255) NOT NULL
+	"symbol" VARCHAR(255) PRIMARY KEY,
+	"currency" VARCHAR(255) NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS currencies_id_idx ON currencies ("id");
-CREATE INDEX IF NOT EXISTS currencies_currency_idx ON currencies ("currency");
 CREATE INDEX IF NOT EXISTS currencies_symbol_idx ON currencies ("symbol");
+CREATE INDEX IF NOT EXISTS currencies_currency_idx ON currencies ("currency");
 
-INSERT INTO currencies ("currency", "symbol") VALUES ('BITCOIN', 'BTC');
-INSERT INTO currencies ("currency", "symbol") VALUES ('ETHER', 'ETH');
-INSERT INTO currencies ("currency", "symbol") VALUES ('US Dollar', 'USD');
-INSERT INTO currencies ("currency", "symbol") VALUES ('Euro', 'EUR');
-INSERT INTO currencies ("currency", "symbol") VALUES ('Dirham', 'AED');
+INSERT INTO currencies ("symbol", "currency") VALUES ('BTC', 'BITCOIN');
+INSERT INTO currencies ("symbol", "currency") VALUES ('ETH', 'ETHER');
+INSERT INTO currencies ("symbol", "currency") VALUES ('USD', 'US Dollar');
+INSERT INTO currencies ("symbol", "currency") VALUES ('EUR', 'Euro');
+INSERT INTO currencies ("symbol", "currency") VALUES ('AED', 'Dirham');
 `
 		_, err = db.ExecContext(context.Background(), createCurrenciesTableSql)
 		if err != nil {
@@ -155,10 +153,10 @@ CREATE TABLE IF NOT EXISTS prices (
 	"price" DOUBLE PRECISION DEFAULT 0.0,
 	"price_unit_normalizator" DOUBLE PRECISION DEFAULT 1.0,
 	"price_interval" DOUBLE PRECISION DEFAULT 0.0,
-	"currency_id" INTEGER NOT NULL,
+	"currency_symbol" VARCHAR(255) NOT NULL,
 	FOREIGN KEY("resource_id") REFERENCES resources("id"),
 	FOREIGN KEY("service_id") REFERENCES nodes("id"),
-	FOREIGN KEY("currency_id") REFERENCES currencies("id")
+	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 `

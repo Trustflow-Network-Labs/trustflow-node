@@ -35,9 +35,8 @@ type StreamData struct {
 
 // Declare currency type
 type Currency struct {
-	Id       int32  `json:"id"`
-	Currency string `json:"currency"`
 	Symbol   string `json:"symbol"`
+	Currency string `json:"currency"`
 }
 
 // Declare price type
@@ -45,7 +44,7 @@ type Price struct {
 	Id                    int32   `json:"id"`
 	ServiceId             int32   `json:"service_id"`
 	ResourceId            int32   `json:"resource_id"`
-	CurrencyId            int32   `json:"currency_id"`
+	Currency              string  `json:"currency"`
 	Price                 float64 `json:"price"`
 	PriceUnitNormalizator float64 `json:"price_unit_normalizator"`
 	PriceInterval         float64 `json:"price_interval"`

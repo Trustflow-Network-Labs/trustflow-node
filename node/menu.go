@@ -6,6 +6,7 @@ import (
 	"os"
 
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
+	"github.com/adgsm/trustflow-node/currency"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/manifoldco/promptui"
@@ -144,6 +145,7 @@ func (mm *MenuManager) configureNode() {
 		case "Blacklist":
 			mm.blacklist()
 		case "Currencies":
+			mm.currencies()
 		case "Resources":
 		case "Prices":
 		case "Services":
@@ -178,22 +180,11 @@ func (mm *MenuManager) blacklist() {
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
-			nodes, err := blacklistManager.List()
+			err = mm.printBlacklist(blacklistManager)
 			if err != nil {
-				fmt.Println(err.Error())
+				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
-				continue
 			}
-
-			// Draw table output
-			textManager := utils.NewTextManager()
-			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
-			for _, node := range nodes {
-				row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
-				table.Append(row)
-			}
-			table.Render() // Prints the table
 		case "Add node":
 			validatorManager := utils.NewValidatorManager()
 			// Get node ID
@@ -247,29 +238,17 @@ func (mm *MenuManager) blacklist() {
 			}
 			fmt.Printf("\U00002705 Node %s is added to blacklist\n", nidResult)
 
-			nodes, err := blacklistManager.List()
+			err = mm.printBlacklist(blacklistManager)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
-				continue
 			}
-
-			// Draw table output
-			textManager := utils.NewTextManager()
-			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
-			for _, node := range nodes {
-				row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
-				table.Append(row)
-			}
-			table.Render() // Prints the table
 		case "Remove node":
 			validatorManager := utils.NewValidatorManager()
 			// Get node ID
 			nidPrompt := promptui.Prompt{
-				Label:   "Node ID",
-				Default: "",
-				//				Validate:    validatorManager.IsPeer,
+				Label:       "Node ID",
+				Default:     "",
 				Validate:    validatorManager.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
@@ -300,24 +279,170 @@ func (mm *MenuManager) blacklist() {
 			}
 			fmt.Printf("\U00002705 Node %s is removed from blacklist\n", nidResult)
 
-			nodes, err := blacklistManager.List()
+			err = mm.printBlacklist(blacklistManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Back":
+			return
+		}
+	}
+}
+
+func (mm *MenuManager) printBlacklist(blnm *blacklist_node.BlacklistNodeManager) error {
+	nodes, err := blnm.List()
+	if err != nil {
+		return err
+	}
+
+	// Draw table output
+	textManager := utils.NewTextManager()
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
+	for _, node := range nodes {
+		row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
+		table.Append(row)
+	}
+	table.Render() // Prints the table
+
+	return nil
+}
+
+// Print currencies sub-menu
+func (mm *MenuManager) currencies() {
+	for {
+		prompt := promptui.Select{
+			Label: "Main \U000025B6 Configure node \U000025B6 Currencies",
+			Items: []string{"List currencies", "Add currency", "Remove currency", "Back"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			continue
+		}
+
+		switch result {
+		case "List currencies":
+			currenciesManager := currency.NewCurrencyManager()
+			err = mm.printCurrencies(currenciesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Add currency":
+			validatorManager := utils.NewValidatorManager()
+			// Get currency symbol
+			csPrompt := promptui.Prompt{
+				Label:       "Currency Symbol",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			csResult, err := csPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering currency symbol failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Get currency name
+			cnPrompt := promptui.Prompt{
+				Label:       "Currency name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			cnResult, err := cnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering currency name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			currenciesManager := currency.NewCurrencyManager()
+
+			// Add currency
+			err = currenciesManager.Add(cnResult, csResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
+			fmt.Printf("\U00002705 Currency %s (%s) is added\n", cnResult, csResult)
 
-			// Draw table output
-			textManager := utils.NewTextManager()
-			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
-			for _, node := range nodes {
-				row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
-				table.Append(row)
+			err = mm.printCurrencies(currenciesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
 			}
-			table.Render() // Prints the table
+		case "Remove currency":
+			validatorManager := utils.NewValidatorManager()
+			// Get currency symbol
+			csPrompt := promptui.Prompt{
+				Label:       "Currency Symbol",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			csResult, err := csPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering currency symbol failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			currenciesManager := currency.NewCurrencyManager()
+
+			// Remove currency
+			err = currenciesManager.Remove(csResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Currency %s is removed\n", csResult)
+
+			err = mm.printCurrencies(currenciesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
 		case "Back":
 			return
 		}
 	}
+}
+
+func (mm *MenuManager) printCurrencies(cm *currency.CurrencyManager) error {
+	currencies, err := cm.List()
+	if err != nil {
+		return err
+	}
+
+	// Draw table output
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Currency", "Symbol"})
+	for _, currency := range currencies {
+		row := []string{currency.Currency, currency.Symbol}
+		table.Append(row)
+	}
+	table.Render() // Prints the table
+
+	return nil
 }

@@ -21,13 +21,13 @@ func NewPriceManager() *PriceManager {
 	}
 }
 
-// Get prices by currency ID
-func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32) ([]node_types.Price, error) {
+// Get prices by currency
+func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
 
-	if currencyId <= 0 {
-		msg := "invalid currency ID"
+	if symbol == "" {
+		msg := "invalid currency"
 		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
 	}
@@ -51,8 +51,8 @@ func (pm *PriceManager) GetPricesByCurrencyId(currencyId int32, params ...uint32
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, currency_id, price, price_unit_normalizator, price_interval from prices where currency_id = ? limit ? offset ?;",
-		currencyId, limit, offset)
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, currency_symbol, price, price_unit_normalizator, price_interval from prices where currency_symbol = ? limit ? offset ?;",
+		symbol, limit, offset)
 	if err != nil {
 		msg := err.Error()
 		pm.lm.Log("error", msg, "prices")

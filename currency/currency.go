@@ -26,7 +26,7 @@ func NewCurrencyManager() *CurrencyManager {
 }
 
 // Currency already added?
-func (cm *CurrencyManager) CurrencyExists(symbol string) (error, bool) {
+func (cm *CurrencyManager) Exists(symbol string) (error, bool) {
 	if symbol == "" {
 		msg := "invalid currency symbol"
 		cm.lm.Log("error", msg, "currencies")
@@ -43,10 +43,10 @@ func (cm *CurrencyManager) CurrencyExists(symbol string) (error, bool) {
 	defer db.Close()
 
 	// Check if currency already existing
-	var id node_types.NullInt32
-	row := db.QueryRowContext(context.Background(), "select id from currencies where symbol = ?;", symbol)
+	var currency node_types.NullString
+	row := db.QueryRowContext(context.Background(), "select currency from currencies where symbol = ?;", symbol)
 
-	err = row.Scan(&id)
+	err = row.Scan(&currency)
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("debug", msg, "currencies")
@@ -57,7 +57,7 @@ func (cm *CurrencyManager) CurrencyExists(symbol string) (error, bool) {
 }
 
 // Get currency by symbol
-func (cm *CurrencyManager) GetCurrencyBySymbol(symbol string) (node_types.Currency, error) {
+func (cm *CurrencyManager) Get(symbol string) (node_types.Currency, error) {
 	var currency node_types.Currency
 	if symbol == "" {
 		msg := "invalid currency symbol"
@@ -75,9 +75,9 @@ func (cm *CurrencyManager) GetCurrencyBySymbol(symbol string) (node_types.Curren
 	defer db.Close()
 
 	// Search for a currency
-	row := db.QueryRowContext(context.Background(), "select id, currency, symbol from currencies where symbol = ?;", symbol)
+	row := db.QueryRowContext(context.Background(), "select symbol, currency from currencies where symbol = ?;", symbol)
 
-	err = row.Scan(&currency.Id, &currency.Currency, &currency.Symbol)
+	err = row.Scan(&currency.Symbol, &currency.Currency)
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("debug", msg, "currencies")
@@ -87,13 +87,50 @@ func (cm *CurrencyManager) GetCurrencyBySymbol(symbol string) (node_types.Curren
 	return currency, nil
 }
 
+// List currencies
+func (cm *CurrencyManager) List() ([]node_types.Currency, error) {
+	// Create a database connection
+	db, err := cm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		cm.lm.Log("error", msg, "currency")
+		return nil, err
+	}
+	defer db.Close()
+
+	// Load currencies
+	rows, err := db.QueryContext(context.Background(), "select symbol, currency from currencies;")
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "currency")
+		return nil, err
+	}
+	defer rows.Close()
+
+	var currencies []node_types.Currency
+	for rows.Next() {
+		var currency node_types.Currency
+		if err := rows.Scan(&currency.Symbol, &currency.Currency); err == nil {
+			currencies = append(currencies, currency)
+		}
+	}
+
+	return currencies, rows.Err()
+}
+
 // Add a currency
-func (cm *CurrencyManager) AddCurrency(currency string, symbol string) {
-	err, existing := cm.CurrencyExists(symbol)
+func (cm *CurrencyManager) Add(currency string, symbol string) error {
+	// Check if currency is already existing
+	err, existing := cm.Exists(symbol)
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
+	}
+
+	if existing {
+		err = fmt.Errorf("currency %s (%s) is already existing", currency, symbol)
+		cm.lm.Log("warn", err.Error(), "currencies")
+		return err
 	}
 
 	// Create a database connection
@@ -101,36 +138,37 @@ func (cm *CurrencyManager) AddCurrency(currency string, symbol string) {
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
 	}
 	defer db.Close()
-
-	// Check if currency is already existing
-	if existing {
-		msg := fmt.Sprintf("Currency %s (%s) is already existing", currency, symbol)
-		cm.lm.Log("warn", msg, "currencies")
-		return
-	}
 
 	// Add currency
 	cm.lm.Log("debug", fmt.Sprintf("add currency %s (%s)", currency, symbol), "currencies")
 
-	_, err = db.ExecContext(context.Background(), "insert into currencies (currency, symbol) values (?, ?);",
-		currency, symbol)
+	_, err = db.ExecContext(context.Background(), "insert into currencies (symbol, currency) values (?, ?);",
+		symbol, currency)
 	if err != nil {
-		msg := err.Error()
-		cm.lm.Log("error", msg, "currencies")
-		return
+		cm.lm.Log("error", err.Error(), "currencies")
+		return err
 	}
+
+	return nil
 }
 
 // Remove currency
-func (cm *CurrencyManager) RemoveCurrency(symbol string) {
-	err, existing := cm.CurrencyExists(symbol)
+func (cm *CurrencyManager) Remove(symbol string) error {
+	// Check if currency is already existing
+	err, existing := cm.Exists(symbol)
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
+	}
+
+	if !existing {
+		err = fmt.Errorf("currency %s is not existing in the database. Nothing to remove", symbol)
+		cm.lm.Log("warn", err.Error(), "currencies")
+		return err
 	}
 
 	// Create a database connection
@@ -138,35 +176,21 @@ func (cm *CurrencyManager) RemoveCurrency(symbol string) {
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
 	}
 	defer db.Close()
 
-	// Check if currency is already existing
-	if !existing {
-		msg := fmt.Sprintf("Currency %s is not existing in the database. Nothing to remove", symbol)
-		cm.lm.Log("warn", msg, "currencies")
-		return
-	}
-
 	// Check if there are existing prices defined using this currency
-	currency, err := cm.GetCurrencyBySymbol(symbol)
+	prices, err := cm.pm.GetPricesByCurrency(symbol)
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
-	}
-
-	prices, err := cm.pm.GetPricesByCurrencyId(currency.Id)
-	if err != nil {
-		msg := err.Error()
-		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
 	}
 	if len(prices) > 0 {
-		msg := fmt.Sprintf("Currency %s is used with %d pricings defined. Please remove pricings in this currency first", symbol, len(prices))
-		cm.lm.Log("warn", msg, "currencies")
-		return
+		err = fmt.Errorf("currency %s is used with %d pricings defined. Please remove pricings in this currency first", symbol, len(prices))
+		cm.lm.Log("warn", err.Error(), "currencies")
+		return err
 	}
 
 	// Remove currency
@@ -176,6 +200,8 @@ func (cm *CurrencyManager) RemoveCurrency(symbol string) {
 	if err != nil {
 		msg := err.Error()
 		cm.lm.Log("error", msg, "currencies")
-		return
+		return err
 	}
+
+	return nil
 }
