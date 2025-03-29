@@ -51,7 +51,7 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, currency_symbol, price, price_unit_normalizator, price_interval from prices where currency_symbol = ? limit ? offset ?;",
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where currency_symbol = ? limit ? offset ?;",
 		symbol, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -73,13 +73,13 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	return prices, nil
 }
 
-// Get prices by resource ID
-func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32) ([]node_types.Price, error) {
+// Get prices by resource
+func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
 
-	if resourceId <= 0 {
-		msg := "invalid resource ID"
+	if resource == "" {
+		msg := "invalid resource"
 		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
 	}
@@ -103,8 +103,8 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int32, params ...uint32
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, currency_id, price, price_unit_normalizator, price_interval from prices where resource_id = ? limit ? offset ?;",
-		resourceId, limit, offset)
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where resource = ? limit ? offset ?;",
+		resource, limit, offset)
 	if err != nil {
 		msg := err.Error()
 		pm.lm.Log("error", msg, "prices")
@@ -155,7 +155,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int32, params ...uint32) 
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, currency_id, price, price_unit_normalizator, price_interval from prices where service_id = ? limit ? offset ?;",
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where service_id = ? limit ? offset ?;",
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()

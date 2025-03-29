@@ -8,6 +8,7 @@ import (
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/currency"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/manifoldco/promptui"
 	"github.com/olekukonko/tablewriter"
@@ -147,6 +148,7 @@ func (mm *MenuManager) configureNode() {
 		case "Currencies":
 			mm.currencies()
 		case "Resources":
+			mm.resources()
 		case "Prices":
 		case "Services":
 		case "Settings":
@@ -440,6 +442,238 @@ func (mm *MenuManager) printCurrencies(cm *currency.CurrencyManager) error {
 	table.SetHeader([]string{"Currency", "Symbol"})
 	for _, currency := range currencies {
 		row := []string{currency.Currency, currency.Symbol}
+		table.Append(row)
+	}
+	table.Render() // Prints the table
+
+	return nil
+}
+
+// Print resources sub-menu
+func (mm *MenuManager) resources() {
+	for {
+		prompt := promptui.Select{
+			Label: "Main \U000025B6 Configure node \U000025B6 Resources",
+			Items: []string{"List resources", "Set resource active", "Set resource inactive", "Add resource", "Remove resource", "Back"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			continue
+		}
+
+		switch result {
+		case "List resources":
+			resourcesManager := resource.NewResourceManager()
+			err = mm.printResources(resourcesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Set resource active":
+			validatorManager := utils.NewValidatorManager()
+			// Get resource name
+			rnPrompt := promptui.Prompt{
+				Label:       "Resource name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set resource active
+			resourcesManager := resource.NewResourceManager()
+			err = resourcesManager.SetActive(rnResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource %s is setr to active\n", rnResult)
+
+			err = mm.printResources(resourcesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Set resource inactive":
+			validatorManager := utils.NewValidatorManager()
+			// Get resource name
+			rnPrompt := promptui.Prompt{
+				Label:       "Resource name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set resource active
+			resourcesManager := resource.NewResourceManager()
+			err = resourcesManager.SetInactive(rnResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource %s is setr to inactive\n", rnResult)
+
+			err = mm.printResources(resourcesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Add resource":
+			validatorManager := utils.NewValidatorManager()
+			// Get resource name
+			rnPrompt := promptui.Prompt{
+				Label:       "Resource name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Get resource description
+			rdPrompt := promptui.Prompt{
+				Label:       "Resource description",
+				Default:     "",
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rdResult, err := rdPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource description failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Get resource state
+			raPrompt := promptui.Prompt{
+				Label:       "Is active?",
+				Default:     "",
+				Validate:    validatorManager.IsBool,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			raResult, err := raPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource active flag failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			textManager := utils.NewTextManager()
+			active, err := textManager.ToBool(raResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			// Add resource
+			resourcesManager := resource.NewResourceManager()
+			err = resourcesManager.Add(rnResult, rdResult, active)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource %s is added\n", rnResult)
+
+			err = mm.printResources(resourcesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Remove resource":
+			validatorManager := utils.NewValidatorManager()
+			// Get resource name
+			rnPrompt := promptui.Prompt{
+				Label:       "Resource name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			resourcesManager := resource.NewResourceManager()
+
+			// Remove resource
+			err = resourcesManager.Remove(rnResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource %s is removed\n", rnResult)
+
+			err = mm.printResources(resourcesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Back":
+			return
+		}
+	}
+}
+
+func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
+	resources, err := rm.List()
+	if err != nil {
+		return err
+	}
+
+	// Draw table output
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Resource", "Description", "Active"})
+	for _, resource := range resources {
+		row := []string{resource.Resource, resource.Description.String, fmt.Sprintf("%t", resource.Active)}
 		table.Append(row)
 	}
 	table.Render() // Prints the table

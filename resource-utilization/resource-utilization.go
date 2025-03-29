@@ -21,12 +21,12 @@ func NewResourceUtilizationManager() *ResourceUtilizationManager {
 	}
 }
 
-// Get utilizations by resource ID
-func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId int32, params ...uint32) ([]node_types.ResourceUtilization, error) {
+// Get utilizations by resource
+func (rum *ResourceUtilizationManager) GetUtilizationsByResource(resource string, params ...uint32) ([]node_types.ResourceUtilization, error) {
 	var utilization node_types.ResourceUtilization
 	var utilizations []node_types.ResourceUtilization
-	if resourceId <= 0 {
-		msg := "invalid resource ID"
+	if resource == "" {
+		msg := "invalid resource name"
 		rum.lm.Log("error", msg, "utilizations")
 		return utilizations, errors.New(msg)
 	}
@@ -50,8 +50,8 @@ func (rum *ResourceUtilizationManager) GetUtilizationsByResourceId(resourceId in
 	}
 
 	// Search for resource utilizations
-	rows, err := db.QueryContext(context.Background(), "select id, job_id, resource_id, utilization, timestamp from resources_utilizations where resource_id = ? limit ? offset ?;",
-		resourceId, limit, offset)
+	rows, err := db.QueryContext(context.Background(), "select id, job_id, resource, utilization, timestamp from resources_utilizations where resource = ? limit ? offset ?;",
+		resource, limit, offset)
 	if err != nil {
 		msg := err.Error()
 		rum.lm.Log("error", msg, "utilizations")

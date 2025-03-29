@@ -43,7 +43,7 @@ type Currency struct {
 type Price struct {
 	Id                    int32   `json:"id"`
 	ServiceId             int32   `json:"service_id"`
-	ResourceId            int32   `json:"resource_id"`
+	Resource              string  `json:"resource"`
 	Currency              string  `json:"currency"`
 	Price                 float64 `json:"price"`
 	PriceUnitNormalizator float64 `json:"price_unit_normalizator"`
@@ -52,16 +52,16 @@ type Price struct {
 
 // Declare resource type
 type Resource struct {
-	Id     int32  `json:"id"`
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
+	Resource    string     `json:"resource"`
+	Description NullString `json:"description"`
+	Active      bool       `json:"active"`
 }
 
 // Declare resource utilization type
 type ResourceUtilization struct {
 	Id          int32   `json:"id"`
 	JobId       int32   `json:"job_id"`
-	ResourceId  int32   `json:"resource_id"`
+	Resource    string  `json:"resource"`
 	Utilization float64 `json:"utilization"`
 	Timestamp   string  `json:"timestamp"`
 }

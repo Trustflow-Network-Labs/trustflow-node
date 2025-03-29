@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -13,15 +14,23 @@ func NewValidatorManager() *ValidatorManager {
 	return &ValidatorManager{}
 }
 
-func (tm *ValidatorManager) NotEmpty(s string) error {
+func (vm *ValidatorManager) NotEmpty(s string) error {
 	if s == "" {
 		return fmt.Errorf("expected non empty input string")
 	}
 	return nil
 }
 
-func (tm *ValidatorManager) IsPeer(s string) error {
+func (vm *ValidatorManager) IsPeer(s string) error {
 	_, err := peer.Decode(s)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (vm *ValidatorManager) IsBool(s string) error {
+	_, err := strconv.ParseBool(s)
 	if err != nil {
 		return err
 	}

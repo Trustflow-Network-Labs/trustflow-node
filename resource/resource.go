@@ -25,7 +25,7 @@ func NewResourceManager() *ResourceManager {
 }
 
 // Resource already added?
-func (rm *ResourceManager) ResourceExists(name string) (error, bool) {
+func (rm *ResourceManager) Exists(name string) (error, bool) {
 	if name == "" {
 		msg := "invalid resource name"
 		rm.lm.Log("error", msg, "resources")
@@ -42,10 +42,10 @@ func (rm *ResourceManager) ResourceExists(name string) (error, bool) {
 	defer db.Close()
 
 	// Check if resource is already existing
-	var id node_types.NullInt32
-	row := db.QueryRowContext(context.Background(), "select id from resources where name = ?;", name)
+	var r node_types.NullString
+	row := db.QueryRowContext(context.Background(), "select resource from resources where resource = ?;", name)
 
-	err = row.Scan(&id)
+	err = row.Scan(&r)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("debug", msg, "resources")
@@ -55,8 +55,8 @@ func (rm *ResourceManager) ResourceExists(name string) (error, bool) {
 	return nil, true
 }
 
-// Get resource by name
-func (rm *ResourceManager) GetResourceByName(name string) (node_types.Resource, error) {
+// Get resource
+func (rm *ResourceManager) Get(name string) (node_types.Resource, error) {
 	var resource node_types.Resource
 	if name == "" {
 		msg := "invalid resource name"
@@ -74,9 +74,9 @@ func (rm *ResourceManager) GetResourceByName(name string) (node_types.Resource, 
 	defer db.Close()
 
 	// Search for a resource
-	row := db.QueryRowContext(context.Background(), "select id, name from resources where name = ?;", name)
+	row := db.QueryRowContext(context.Background(), "select resource, description, active from resources where resource = ?;", name)
 
-	err = row.Scan(&resource.Id, &resource.Name)
+	err = row.Scan(&resource.Resource, &resource.Description, &resource.Active)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("debug", msg, "resources")
@@ -86,13 +86,49 @@ func (rm *ResourceManager) GetResourceByName(name string) (node_types.Resource, 
 	return resource, nil
 }
 
-// Add a resource
-func (rm *ResourceManager) AddResource(name string) {
-	err, existing := rm.ResourceExists(name)
+// List resources
+func (rm *ResourceManager) List() ([]node_types.Resource, error) {
+	// Create a database connection
+	db, err := rm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return nil, err
+	}
+	defer db.Close()
+
+	// Load resources
+	rows, err := db.QueryContext(context.Background(), "select resource, description, active from resources;")
+	if err != nil {
+		rm.lm.Log("error", err.Error(), "resources")
+		return nil, err
+	}
+	defer rows.Close()
+
+	var resaources []node_types.Resource
+	for rows.Next() {
+		var resource node_types.Resource
+		if err := rows.Scan(&resource.Resource, &resource.Description, &resource.Active); err == nil {
+			resaources = append(resaources, resource)
+		}
+	}
+
+	return resaources, rows.Err()
+}
+
+// Add a resource
+func (rm *ResourceManager) Add(name string, description string, active bool) error {
+	// Check if resource is already existing
+	err, existing := rm.Exists(name)
+	if err != nil {
+		msg := err.Error()
+		rm.lm.Log("error", msg, "resources")
+		return err
+	}
+	if existing {
+		err = fmt.Errorf("resource %s is already existing", name)
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Create a database connection
@@ -100,35 +136,37 @@ func (rm *ResourceManager) AddResource(name string) {
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	defer db.Close()
-
-	// Check if resource is already existing
-	if existing {
-		msg := fmt.Sprintf("Resource %s is already existing", name)
-		rm.lm.Log("warn", msg, "resources")
-		return
-	}
 
 	// Add resource
 	rm.lm.Log("debug", fmt.Sprintf("add resource %s", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "insert into resources (name) values (?);", name)
+	_, err = db.ExecContext(context.Background(), "insert into resources (resource, description, active) values (?, ?, ?);",
+		name, description, active)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
+
+	return nil
 }
 
 // Remove resource
-func (rm *ResourceManager) RemoveResource(name string) {
-	err, existing := rm.ResourceExists(name)
+func (rm *ResourceManager) Remove(name string) error {
+	// Check if resource is already existing
+	err, existing := rm.Exists(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
+	}
+	if !existing {
+		err = fmt.Errorf("resource %s is not existing in the database. Nothing to remove", name)
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Create a database connection
@@ -136,71 +174,65 @@ func (rm *ResourceManager) RemoveResource(name string) {
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	defer db.Close()
 
-	// Check if resource is already existing
-	if !existing {
-		msg := fmt.Sprintf("Resource %s is not existing in the database. Nothing to remove", name)
-		rm.lm.Log("warn", msg, "resources")
-		return
-	}
-
 	// Check if there are existing previous resource utilizations
-	resource, err := rm.GetResourceByName(name)
-	if err != nil {
-		msg := err.Error()
-		rm.lm.Log("error", msg, "resources")
-		return
-	}
-
 	resourceUtilizationManager := resource_utilization.NewResourceUtilizationManager()
-	utilizations, err := resourceUtilizationManager.GetUtilizationsByResourceId(resource.Id)
+	utilizations, err := resourceUtilizationManager.GetUtilizationsByResource(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	if len(utilizations) > 0 {
-		msg := fmt.Sprintf("Resource %s was utilized in %d job(s) previously and it can not be deleted. You can set this resource inactive if you do not want to utilize it any more",
+		err = fmt.Errorf("resource %s was utilized in %d job(s) previously and it can not be deleted. You can set this resource inactive if you do not want to utilize it any more",
 			name, len(utilizations))
-		rm.lm.Log("warn", msg, "resources")
-		return
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Check if there are existing prices defined using this resource
 	priceManager := price.NewPriceManager()
-	prices, err := priceManager.GetPricesByResourceId(resource.Id)
+	prices, err := priceManager.GetPricesByResource(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	if len(prices) > 0 {
-		msg := fmt.Sprintf("Resource %s is used with %d pricings defined. Please remove pricings for this resource first", name, len(prices))
-		rm.lm.Log("warn", msg, "resources")
-		return
+		err = fmt.Errorf("resource %s is used with %d pricings defined. Please remove pricings for this resource first", name, len(prices))
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Remove resource
 	rm.lm.Log("debug", fmt.Sprintf("removing resource %s", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "delete from resources where name = ?;", name)
+	_, err = db.ExecContext(context.Background(), "delete from resources where resource = ?;", name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
+
+	return nil
 }
 
 // Set resource inactive
-func (rm *ResourceManager) SetResourceInactive(name string) {
-	err, existing := rm.ResourceExists(name)
+func (rm *ResourceManager) SetInactive(name string) error {
+	// Check if resource is already existing
+	err, existing := rm.Exists(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
+	}
+	if !existing {
+		err = fmt.Errorf("resource %s is not existing in the database. Nothing to set inactive", name)
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Create a database connection
@@ -208,57 +240,51 @@ func (rm *ResourceManager) SetResourceInactive(name string) {
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	defer db.Close()
 
-	// Check if resource is already existing
-	if !existing {
-		msg := fmt.Sprintf("Resource %s is not existing in the database. Nothing to set inactive", name)
-		rm.lm.Log("warn", msg, "resources")
-		return
-	}
-
 	// Check if there are existing prices defined using this resource
-	resource, err := rm.GetResourceByName(name)
-	if err != nil {
-		msg := err.Error()
-		rm.lm.Log("error", msg, "resources")
-		return
-	}
-
 	priceManager := price.NewPriceManager()
-	prices, err := priceManager.GetPricesByResourceId(resource.Id)
+	prices, err := priceManager.GetPricesByResource(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 
 	if len(prices) > 0 {
-		msg := fmt.Sprintf("Resource %s is used with %d pricings defined. Please remove pricings for this resource first", name, len(prices))
-		rm.lm.Log("warn", msg, "resources")
-		return
+		err = fmt.Errorf("resource %s is used with %d pricings defined. Please remove pricings for this resource first", name, len(prices))
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Set resource inactive
 	rm.lm.Log("debug", fmt.Sprintf("setting resource %s inactive", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "update resources set active = false where name = ?;", name)
+	_, err = db.ExecContext(context.Background(), "update resources set active = false where resource = ?;", name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
+
+	return nil
 }
 
 // Set resource active
-func (rm *ResourceManager) SetResourceActive(name string) {
-	err, existing := rm.ResourceExists(name)
+func (rm *ResourceManager) SetActive(name string) error {
+	// Check if resource is already existing
+	err, existing := rm.Exists(name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
+	}
+	if !existing {
+		err = fmt.Errorf("resource %s is not existing in the database. Nothing to set active", name)
+		rm.lm.Log("warn", err.Error(), "resources")
+		return err
 	}
 
 	// Create a database connection
@@ -266,24 +292,19 @@ func (rm *ResourceManager) SetResourceActive(name string) {
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
 	defer db.Close()
-
-	// Check if resource is already existing
-	if !existing {
-		msg := fmt.Sprintf("Resource %s is not existing in the database. Nothing to set active", name)
-		rm.lm.Log("warn", msg, "resources")
-		return
-	}
 
 	// Set resource active
 	rm.lm.Log("debug", fmt.Sprintf("setting resource %s active", name), "resources")
 
-	_, err = db.ExecContext(context.Background(), "update resources set active = true where name = ?;", name)
+	_, err = db.ExecContext(context.Background(), "update resources set active = true where resource = ?;", name)
 	if err != nil {
 		msg := err.Error()
 		rm.lm.Log("error", msg, "resources")
-		return
+		return err
 	}
+
+	return nil
 }

@@ -103,19 +103,18 @@ INSERT INTO currencies ("symbol", "currency") VALUES ('AED', 'Dirham');
 
 		createResourcesTableSql := `
 CREATE TABLE IF NOT EXISTS resources (
-	"id" INTEGER PRIMARY KEY,
-	"name" VARCHAR(255) NOT NULL,
+	"resource" VARCHAR(255) PRIMARY KEY,
+	"description" TEXT DEFAULT NULL,
 	"active" BOOLEAN DEFAULT TRUE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS resources_id_idx ON resources ("id");
-CREATE UNIQUE INDEX IF NOT EXISTS resources_name_idx ON resources ("name");
+CREATE UNIQUE INDEX IF NOT EXISTS resources_resource_idx ON resources ("resource");
 
-INSERT INTO resources ("name") VALUES ('Data');
-INSERT INTO resources ("name") VALUES ('CPU');
-INSERT INTO resources ("name") VALUES ('Memory');
-INSERT INTO resources ("name") VALUES ('Disk space');
-INSERT INTO resources ("name") VALUES ('Ingress');
-INSERT INTO resources ("name") VALUES ('Egress');
+INSERT INTO resources ("resource") VALUES ('Data');
+INSERT INTO resources ("resource") VALUES ('CPU');
+INSERT INTO resources ("resource") VALUES ('Memory');
+INSERT INTO resources ("resource") VALUES ('Disk space');
+INSERT INTO resources ("resource") VALUES ('Ingress');
+INSERT INTO resources ("resource") VALUES ('Egress');
 `
 		_, err = db.ExecContext(context.Background(), createResourcesTableSql)
 		if err != nil {
@@ -149,12 +148,12 @@ CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
 CREATE TABLE IF NOT EXISTS prices (
 	"id" INTEGER PRIMARY KEY,
 	"service_id" INTEGER NOT NULL,
-	"resource_id" INTEGER NOT NULL,
+	"resource" VARCHAR(255) NOT NULL,
 	"price" DOUBLE PRECISION DEFAULT 0.0,
 	"price_unit_normalizator" DOUBLE PRECISION DEFAULT 1.0,
 	"price_interval" DOUBLE PRECISION DEFAULT 0.0,
 	"currency_symbol" VARCHAR(255) NOT NULL,
-	FOREIGN KEY("resource_id") REFERENCES resources("id"),
+	FOREIGN KEY("resource") REFERENCES resources("resource"),
 	FOREIGN KEY("service_id") REFERENCES nodes("id"),
 	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol")
 );
@@ -190,10 +189,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"id" INTEGER PRIMARY KEY,
 	"job_id" INTEGER NOT NULL,
-	"resource_id" INTEGER NOT NULL,
+	"resource" VARCHAR(255) NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
 	"timestamp" TEXT NOT NULL,
-	FOREIGN KEY("resource_id") REFERENCES resources("id"),
+	FOREIGN KEY("resource") REFERENCES resources("resource"),
 	FOREIGN KEY("job_id") REFERENCES jobs("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_utilizations ("id");
