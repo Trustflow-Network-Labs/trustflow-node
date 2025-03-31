@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -273,8 +274,7 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 	// Create a database connection
 	db, err := sm.sm.CreateConnection()
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "services")
+		sm.lm.Log("error", err.Error(), "services")
 		return 0, err
 	}
 	defer db.Close()
@@ -282,10 +282,33 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 	// Add data service
 	sm.lm.Log("debug", fmt.Sprintf("add data service path %s to service ID %d", path, serviceId), "services")
 
-	// TODO, Add file/folder, compress it and make CID
+	// Add file/folder, compress it and make CID
+	// Compress (File/Folder)
+	rnd := "./local_storage/" + utils.RandomString(32)
+	err = utils.Compress(path, rnd)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return 0, err
+	}
+	fmt.Println("Compressed: ", rnd)
+
+	// Create CID
+	cid, err := utils.HashFileToCID(rnd)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return 0, err
+	}
+	fmt.Println("Generated CID:", cid)
+
+	err = os.Rename(rnd, "./local_storage/"+cid)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return 0, err
+	}
+	fmt.Println("File renamed successfully!")
 
 	result, err := db.ExecContext(context.Background(), "insert into data_service_details (service_id, path) values (?, ?);",
-		serviceId, path)
+		serviceId, cid)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")

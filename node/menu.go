@@ -810,6 +810,7 @@ func (mm *MenuManager) services() {
 					msg := fmt.Sprintf("\U00002757 Entering service file/folder/data path failed: %s", err.Error())
 					fmt.Println(msg)
 					mm.lm.Log("error", msg, "menu")
+					//					servicesManager.Remove(id)
 					continue
 				}
 
@@ -818,6 +819,7 @@ func (mm *MenuManager) services() {
 				if err != nil {
 					fmt.Printf("\U00002757 %s\n", err.Error())
 					mm.lm.Log("error", err.Error(), "menu")
+					// servicesManager.Remove(id)
 					continue
 				}
 			case "DOCKER EXECUTION ENVIRONMENT":

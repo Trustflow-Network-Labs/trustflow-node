@@ -42,3 +42,4 @@
 **/*.db
 **/trustflow-node*
 **/*.exe
+**/local_storage/
