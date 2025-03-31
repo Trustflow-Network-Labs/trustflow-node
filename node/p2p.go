@@ -790,13 +790,13 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 					p2pm.lm.Log("error", msg, "p2p")
 				}
 				for _, service := range services {
-					serviceManager.RemoveService(service.Id)
+					serviceManager.Remove(service.Id)
 					msg := fmt.Sprintf("Removing service %s of a foreign node %s.\n\n", service.Name, nodeId)
 					p2pm.lm.Log("debug", msg, "p2p")
 				}
 			}
 			// Store newly received Service Catalogue
-			serviceManager.AddService(service.Name, service.Description, service.NodeId, service.Type, service.Path, service.Repo, service.Active)
+			serviceManager.Add(service.Name, service.Description, service.Type, service.Active)
 		}
 	case 1:
 		// Sent data to the remote peer

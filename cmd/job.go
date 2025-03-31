@@ -1,10 +1,6 @@
 package cmd
 
-import (
-	"github.com/adgsm/trustflow-node/node"
-	"github.com/spf13/cobra"
-)
-
+/*
 var jobOrderingNodeId string
 var jobServiceId int32
 var jobStatus string
@@ -48,3 +44,4 @@ func init() {
 	runJobCmd.MarkFlagRequired("id")
 	rootCmd.AddCommand(runJobCmd)
 }
+*/

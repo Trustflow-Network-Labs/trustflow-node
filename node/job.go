@@ -302,7 +302,7 @@ func (jm *JobManager) StartJob(job node_types.Job) error {
 	// Check underlaying service
 	jm.lm.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
-	service, err := jm.sm.GetService(job.ServiceId)
+	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -352,7 +352,13 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Get data source path
-	service, err := jm.sm.GetService(job.ServiceId)
+	service, err := jm.sm.Get(job.ServiceId)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+	dataService, err := jm.sm.GetData(service.Id)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -360,7 +366,7 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Check if the file exists
-	_, err = os.Stat(service.Path)
+	_, err = os.Stat(dataService.Path)
 	if os.IsNotExist(err) {
 		msg := "file does not exist"
 		err := errors.New(msg)
@@ -373,7 +379,7 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Open the file for reading
-	file, err := os.Open(service.Path)
+	file, err := os.Open(dataService.Path)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err

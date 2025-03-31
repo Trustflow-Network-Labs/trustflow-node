@@ -71,11 +71,30 @@ type Service struct {
 	Id          int32  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	NodeId      string `json:"node_id"`
 	Type        string `json:"type"`
-	Path        string `json:"path"`
-	Repo        string `json:"repo"`
 	Active      bool   `json:"active"`
+}
+
+// Declare data service type
+type DataService struct {
+	Id        int32  `json:"id"`
+	ServiceId int32  `json:"service_id"`
+	Path      string `json:"path"`
+}
+
+// Declare docker service type
+type DockerService struct {
+	Id        int32  `json:"id"`
+	ServiceId int32  `json:"service_id"`
+	Repo      string `json:"repo"`
+	Image     string `json:"image"`
+}
+
+// Declare executable service type
+type ExecutableService struct {
+	Id        int32  `json:"id"`
+	ServiceId int32  `json:"service_id"`
+	Path      string `json:"path"`
 }
 
 // Declare search local service type

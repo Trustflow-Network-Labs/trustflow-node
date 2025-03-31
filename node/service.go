@@ -30,7 +30,7 @@ func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 }
 
 // Service already added?
-func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
+func (sm *ServiceManager) Exists(id int32) (error, bool) {
 	if id <= 0 {
 		msg := "invalid service id"
 		sm.lm.Log("error", msg, "servics")
@@ -61,7 +61,7 @@ func (sm *ServiceManager) ServiceExists(id int32) (error, bool) {
 }
 
 // Get Service by ID
-func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
+func (sm *ServiceManager) Get(id int32) (node_types.Service, error) {
 	var service node_types.Service
 	if id <= 0 {
 		msg := "invalid service id"
@@ -91,6 +91,37 @@ func (sm *ServiceManager) GetService(id int32) (node_types.Service, error) {
 	sm.services[id] = &service
 
 	return service, nil
+}
+
+// Get Data Service
+func (sm *ServiceManager) GetData(serviceId int32) (node_types.DataService, error) {
+	var dataService node_types.DataService
+	if serviceId <= 0 {
+		msg := "invalid service id"
+		sm.lm.Log("error", msg, "servics")
+		return dataService, errors.New(msg)
+	}
+
+	// Create a database connection
+	db, err := sm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "servics")
+		return dataService, err
+	}
+	defer db.Close()
+
+	// Get data service
+	row := db.QueryRowContext(context.Background(), "select id, nservice_id, path from data_service_details where service_id = ?;", serviceId)
+
+	err = row.Scan(&dataService)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("debug", msg, "servics")
+		return dataService, err
+	}
+
+	return dataService, nil
 }
 
 // Get Services by node ID
@@ -123,8 +154,8 @@ func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Servi
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&service.Id, &service.Name, &service.Description, &service.NodeId,
-			&service.Type, &service.Path, &service.Repo, &service.Active)
+		err = rows.Scan(&service.Id, &service.Name, &service.Description,
+			&service.Type, &service.Active)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -137,41 +168,143 @@ func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Servi
 	return services, nil
 }
 
-// Add a service
-func (sm *ServiceManager) AddService(name string, description string, nodeId string, serviceType string, servicePath string, serviceRepo string, active bool) {
+func (sm *ServiceManager) List(params ...uint32) ([]node_types.Service, error) {
+	var services []node_types.Service
+
+	// Read configs
+	configManager := utils.NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		sm.lm.Log("error", message, "services")
+		panic(err)
+	}
+
+	var offset uint32 = 0
+	var limit uint32 = 10
+	l := config["search_results"]
+	l64, err := strconv.ParseUint(l, 10, 32)
+	if err != nil {
+		limit = 10
+	} else {
+		limit = uint32(l64)
+	}
+
+	if len(params) == 1 {
+		offset = params[0]
+	} else if len(params) >= 2 {
+		offset = params[0]
+		limit = params[1]
+	}
+
+	sql := fmt.Sprintf("SELECT id, name, description, service_type, active FROM services limit %d offset %d;", limit, offset)
+
 	// Create a database connection
 	db, err := sm.sm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return nil, err
+	}
+	defer db.Close()
+
+	// Search for services
+	rows, err := db.QueryContext(context.Background(), sql)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var service node_types.Service
+
+		err = rows.Scan(&service.Id, &service.Name, &service.Description,
+			&service.Type, &service.Active)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return nil, err
+		}
+
+		services = append(services, service)
+	}
+
+	return services, nil
+}
+
+// Add a service
+func (sm *ServiceManager) Add(name string, description string, serviceType string, active bool) (int64, error) {
+	// Create a database connection
+	db, err := sm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
 	}
 	defer db.Close()
 
 	// Add service
 	sm.lm.Log("debug", fmt.Sprintf("add service %s", name), "services")
 
-	result, err := db.ExecContext(context.Background(), "insert into services (name, description, node_id, service_type, path, repo, active) values (?, ?, ?, ?, ?, ?, ?);",
-		name, description, nodeId, serviceType, servicePath, serviceRepo, active)
+	result, err := db.ExecContext(context.Background(), "insert into services (name, description, service_type, active) values (?, ?, ?, ?);",
+		name, description, serviceType, active)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return 0, err
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return 0, err
 	}
 
 	sm.services[int32(id)] = &node_types.Service{}
+
+	return id, nil
+}
+
+// Add a data service
+func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
+	// Create a database connection
+	db, err := sm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
+	}
+	defer db.Close()
+
+	// Add data service
+	sm.lm.Log("debug", fmt.Sprintf("add data service path %s to service ID %d", path, serviceId), "services")
+
+	// TODO, Add file/folder, compress it and make CID
+
+	result, err := db.ExecContext(context.Background(), "insert into data_service_details (service_id, path) values (?, ?);",
+		serviceId, path)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
+	}
+
+	return id, nil
 }
 
 // Remove service
-func (sm *ServiceManager) RemoveService(id int32) {
-	err, existing := sm.ServiceExists(id)
+func (sm *ServiceManager) Remove(id int32) {
+	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
@@ -236,8 +369,8 @@ func (sm *ServiceManager) RemoveService(id int32) {
 }
 
 // Set service inactive
-func (sm *ServiceManager) SetServiceInactive(id int32) {
-	err, existing := sm.ServiceExists(id)
+func (sm *ServiceManager) SetInactive(id int32) {
+	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
@@ -290,8 +423,8 @@ func (sm *ServiceManager) SetServiceInactive(id int32) {
 }
 
 // Set service active
-func (sm *ServiceManager) SetServiceActive(id int32) {
-	err, existing := sm.ServiceExists(id)
+func (sm *ServiceManager) SetActive(id int32) {
+	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
@@ -348,7 +481,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	config, err := configManager.ReadConfigs()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		sm.lm.Log("error", message, "p2p")
+		sm.lm.Log("error", message, "services")
 		panic(err)
 	}
 
@@ -369,7 +502,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		limit = params[1]
 	}
 
-	sql := `SELECT s.id, s.name, s.description, s.node_id, s.service_type, s.path, s.repo, s.active
+	sql := `SELECT s.id, s.name, s.description, s.service_type, s.active
 		FROM services s
 		WHERE 1`
 
@@ -495,8 +628,8 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	for rows.Next() {
 		var service node_types.Service
 		var serviceOffer node_types.ServiceOffer
-		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description, &serviceOffer.NodeId,
-			&serviceOffer.Type, &serviceOffer.Path, &serviceOffer.Repo, &serviceOffer.Active)
+		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description,
+			&serviceOffer.Type, &serviceOffer.Active)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -507,10 +640,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			Id:          serviceOffer.Id,
 			Name:        serviceOffer.Name,
 			Description: serviceOffer.Description,
-			NodeId:      serviceOffer.NodeId,
 			Type:        serviceOffer.Type,
-			Path:        serviceOffer.Path,
-			Repo:        serviceOffer.Repo,
 			Active:      serviceOffer.Active,
 		}
 

@@ -1,15 +1,6 @@
 package cmd
 
-import (
-	"fmt"
-	"strconv"
-
-	"github.com/adgsm/trustflow-node/node"
-	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/utils"
-	"github.com/spf13/cobra"
-)
-
+/*
 var serviceName string
 var serviceDescription string
 var serviceNodeId string
@@ -184,3 +175,4 @@ func init() {
 	serviceLookupCmd.Flags().StringVarP(&serviceRepo, "repo", "r", "", "Service repo (git repo) to lookup for (any repo address match, comma delimited)")
 	rootCmd.AddCommand(serviceLookupCmd)
 }
+*/

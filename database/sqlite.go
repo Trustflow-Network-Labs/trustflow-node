@@ -128,10 +128,7 @@ CREATE TABLE IF NOT EXISTS services (
 	"id" INTEGER PRIMARY KEY,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT '',
-	"node_id" TEXT NOT NULL,
-	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'WASM EXECUTION ENVIRONMENT') ) NOT NULL DEFAULT 'DATA',
-	"path" TEXT NOT NULL,
-	"repo" TEXT DEFAULT '',
+	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'STANDALONE EXECUTABLE') ) NOT NULL DEFAULT 'DATA',
 	"active" BOOLEAN DEFAULT TRUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS services_id_idx ON services ("id");
@@ -140,6 +137,55 @@ CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
 		_, err = db.ExecContext(context.Background(), createServicesTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `services` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createDataServiceDetailsTable := `
+CREATE TABLE IF NOT EXISTS data_service_details (
+	"id" INTEGER PRIMARY KEY,
+	"service_id" INTEGER NOT NULL,
+	"path" TEXT NOT NULL,
+	FOREIGN KEY("service_id") REFERENCES services("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS data_service_details_id_idx ON data_service_details ("id");
+`
+		_, err = db.ExecContext(context.Background(), createDataServiceDetailsTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `data_service_details` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createDockerServiceDetailsTable := `
+CREATE TABLE IF NOT EXISTS docker_service_details (
+	"id" INTEGER PRIMARY KEY,
+	"service_id" INTEGER NOT NULL,
+	"repo" TEXT DEFAULT '',
+	"image" TEXT NOT NULL,
+	FOREIGN KEY("service_id") REFERENCES services("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS docker_service_details_id_idx ON docker_service_details ("id");
+`
+		_, err = db.ExecContext(context.Background(), createDockerServiceDetailsTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `docker_service_details` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createExecutableServiceDetailsTable := `
+CREATE TABLE IF NOT EXISTS executable_service_details (
+	"id" INTEGER PRIMARY KEY,
+	"service_id" INTEGER NOT NULL,
+	"path" TEXT NOT NULL,
+	FOREIGN KEY("service_id") REFERENCES services("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS executable_service_details_id_idx ON executable_service_details ("id");
+`
+		_, err = db.ExecContext(context.Background(), createExecutableServiceDetailsTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `executable_service_details` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
@@ -154,7 +200,7 @@ CREATE TABLE IF NOT EXISTS prices (
 	"price_interval" DOUBLE PRECISION DEFAULT 0.0,
 	"currency_symbol" VARCHAR(255) NOT NULL,
 	FOREIGN KEY("resource") REFERENCES resources("resource"),
-	FOREIGN KEY("service_id") REFERENCES nodes("id"),
+	FOREIGN KEY("service_id") REFERENCES services("id"),
 	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
@@ -251,20 +297,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
 		_, err = db.ExecContext(context.Background(), createExecutionsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
-			logsManager.Log("error", message, "database")
-			return nil, err
-		}
-
-		createWhitelistedReposTableSql := `
-CREATE TABLE IF NOT EXISTS whitelisted_repos (
-	"id" INTEGER PRIMARY KEY,
-	"repo" TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS whitelisted_repos_id_idx ON whitelisted_repos ("id");
-`
-		_, err = db.ExecContext(context.Background(), createWhitelistedReposTableSql)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `whitelisted_repos` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}

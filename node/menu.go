@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/currency"
@@ -131,7 +132,7 @@ func (mm *MenuManager) configureNode() {
 	for {
 		prompt := promptui.Select{
 			Label: "Main \U000025B6 Configure node",
-			Items: []string{"Blacklist", "Currencies", "Resources", "Prices", "Services", "Settings", "Back"},
+			Items: []string{"Blacklist", "Currencies", "Resources", "Services", "Settings", "Back"},
 		}
 
 		_, result, err := prompt.Run()
@@ -149,8 +150,8 @@ func (mm *MenuManager) configureNode() {
 			mm.currencies()
 		case "Resources":
 			mm.resources()
-		case "Prices":
 		case "Services":
+			mm.services()
 		case "Settings":
 		case "Back":
 			return
@@ -501,7 +502,7 @@ func (mm *MenuManager) resources() {
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
-			fmt.Printf("\U00002705 Resource %s is setr to active\n", rnResult)
+			fmt.Printf("\U00002705 Resource %s is set to active\n", rnResult)
 
 			err = mm.printResources(resourcesManager)
 			if err != nil {
@@ -536,7 +537,7 @@ func (mm *MenuManager) resources() {
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
-			fmt.Printf("\U00002705 Resource %s is setr to inactive\n", rnResult)
+			fmt.Printf("\U00002705 Resource %s is set to inactive\n", rnResult)
 
 			err = mm.printResources(resourcesManager)
 			if err != nil {
@@ -677,6 +678,227 @@ func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
 		table.Append(row)
 	}
 	table.Render() // Prints the table
+
+	return nil
+}
+
+// Print services sub-menu
+func (mm *MenuManager) services() {
+	servicesManager := NewServiceManager(mm.p2pm)
+	validatorManager := utils.NewValidatorManager()
+	textManager := utils.NewTextManager()
+	for {
+		prompt := promptui.Select{
+			Label: "Main \U000025B6 Configure node \U000025B6 Services",
+			Items: []string{"List services", "Show service details", "Set service active", "Set service inactive", "Add service", "Remove service", "Back"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			continue
+		}
+
+		switch result {
+		case "List services":
+			err = mm.printServices(servicesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Show service details":
+		case "Set service active":
+		case "Set service inactive":
+		case "Add service":
+			// Get service name
+			snPrompt := promptui.Prompt{
+				Label:       "Service name",
+				Default:     "",
+				Validate:    validatorManager.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			snResult, err := snPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Get service description
+			sdPrompt := promptui.Prompt{
+				Label:       "Service description",
+				Default:     "",
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			sdResult, err := sdPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service description failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Get service state
+			raPrompt := promptui.Prompt{
+				Label:       "Is active?",
+				Default:     "",
+				Validate:    validatorManager.IsBool,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			raResult, err := raPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service active flag failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			active, err := textManager.ToBool(raResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			stPrompt := promptui.Select{
+				Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Service Type",
+				Items: []string{"DATA", "DOCKER EXECUTION ENVIRONMENT", "STANDALONE EXECUTABLE"},
+			}
+
+			_, stResult, err := stPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Add service
+			id, err := servicesManager.Add(snResult, sdResult, stResult, active)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			switch stResult {
+			case "DATA":
+				// Get file/folder/data path
+				dpPrompt := promptui.Prompt{
+					Label:       "Path",
+					Default:     "",
+					Validate:    validatorManager.NotEmpty,
+					AllowEdit:   true,
+					HideEntered: false,
+					IsConfirm:   false,
+					IsVimMode:   false,
+				}
+				dpResult, err := dpPrompt.Run()
+				if err != nil {
+					msg := fmt.Sprintf("\U00002757 Entering service file/folder/data path failed: %s", err.Error())
+					fmt.Println(msg)
+					mm.lm.Log("error", msg, "menu")
+					continue
+				}
+
+				// Add data service
+				_, err = servicesManager.AddData(id, dpResult)
+				if err != nil {
+					fmt.Printf("\U00002757 %s\n", err.Error())
+					mm.lm.Log("error", err.Error(), "menu")
+					continue
+				}
+			case "DOCKER EXECUTION ENVIRONMENT":
+			case "STANDALONE EXECUTABLE":
+			}
+
+			fmt.Printf("\U00002705 Service %s is added\n", snResult)
+
+			err = mm.printServices(servicesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Remove service":
+		case "Back":
+			return
+		}
+	}
+}
+
+func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error {
+	var offset uint32 = 0
+	var limit uint32 = 10
+
+	// Read configs
+	configManager := utils.NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		sm.lm.Log("error", message, "menu")
+		panic(err)
+	}
+
+	l := config["search_results"]
+	l64, err := strconv.ParseUint(l, 10, 32)
+	if err != nil {
+		limit = 10
+	} else {
+		limit = uint32(l64)
+	}
+
+	if len(params) == 1 {
+		offset = params[0]
+	} else if len(params) >= 2 {
+		offset = params[0]
+		limit = params[1]
+	}
+
+	services, err := sm.List(offset, limit)
+	if err != nil {
+		return err
+	}
+
+	// Draw table output
+	textManager := utils.NewTextManager()
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"ID", "Name", "Type", "Active"})
+	for _, service := range services {
+		row := []string{fmt.Sprintf("%d", service.Id), textManager.Shorten(service.Name, 17, 0), service.Type, fmt.Sprintf("%t", service.Active)}
+		table.Append(row)
+	}
+	table.Render() // Prints the table
+
+	if len(services) >= int(limit) {
+		// Print "load more" prompt
+		lmPrompt := promptui.Prompt{
+			Label:     "Load more?",
+			IsConfirm: true,
+		}
+
+		lmResult, err := lmPrompt.Run()
+
+		if err != nil {
+			fmt.Printf("Prompt failed %v\n", err)
+			return err
+		}
+
+		if lmResult == "y" {
+			mm.printServices(sm, offset+limit, limit)
+		}
+	}
 
 	return nil
 }
