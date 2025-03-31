@@ -17,7 +17,7 @@ import (
 type ServiceManager struct {
 	sm       *database.SQLiteManager
 	lm       *utils.LogsManager
-	services map[int32]*node_types.Service
+	services map[int64]*node_types.Service
 	p2pm     *P2PManager
 }
 
@@ -25,13 +25,13 @@ func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		sm:       database.NewSQLiteManager(),
 		lm:       utils.NewLogsManager(),
-		services: make(map[int32]*node_types.Service),
+		services: make(map[int64]*node_types.Service),
 		p2pm:     p2pm,
 	}
 }
 
 // Service already added?
-func (sm *ServiceManager) Exists(id int32) (error, bool) {
+func (sm *ServiceManager) Exists(id int64) (error, bool) {
 	if id <= 0 {
 		msg := "invalid service id"
 		sm.lm.Log("error", msg, "servics")
@@ -62,7 +62,7 @@ func (sm *ServiceManager) Exists(id int32) (error, bool) {
 }
 
 // Get Service by ID
-func (sm *ServiceManager) Get(id int32) (node_types.Service, error) {
+func (sm *ServiceManager) Get(id int64) (node_types.Service, error) {
 	var service node_types.Service
 	if id <= 0 {
 		msg := "invalid service id"
@@ -95,7 +95,7 @@ func (sm *ServiceManager) Get(id int32) (node_types.Service, error) {
 }
 
 // Get Data Service
-func (sm *ServiceManager) GetData(serviceId int32) (node_types.DataService, error) {
+func (sm *ServiceManager) GetData(serviceId int64) (node_types.DataService, error) {
 	var dataService node_types.DataService
 	if serviceId <= 0 {
 		msg := "invalid service id"
@@ -264,7 +264,7 @@ func (sm *ServiceManager) Add(name string, description string, serviceType strin
 		return 0, err
 	}
 
-	sm.services[int32(id)] = &node_types.Service{}
+	sm.services[id] = &node_types.Service{}
 
 	return id, nil
 }
@@ -287,25 +287,24 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 	rnd := "./local_storage/" + utils.RandomString(32)
 	err = utils.Compress(path, rnd)
 	if err != nil {
+		os.RemoveAll(rnd)
 		sm.lm.Log("error", err.Error(), "services")
 		return 0, err
 	}
-	fmt.Println("Compressed: ", rnd)
 
 	// Create CID
 	cid, err := utils.HashFileToCID(rnd)
 	if err != nil {
+		os.RemoveAll(rnd)
 		sm.lm.Log("error", err.Error(), "services")
 		return 0, err
 	}
-	fmt.Println("Generated CID:", cid)
 
 	err = os.Rename(rnd, "./local_storage/"+cid)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")
 		return 0, err
 	}
-	fmt.Println("File renamed successfully!")
 
 	result, err := db.ExecContext(context.Background(), "insert into data_service_details (service_id, path) values (?, ?);",
 		serviceId, cid)
@@ -326,7 +325,7 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 }
 
 // Remove service
-func (sm *ServiceManager) Remove(id int32) {
+func (sm *ServiceManager) Remove(id int64) {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
@@ -381,6 +380,26 @@ func (sm *ServiceManager) Remove(id int32) {
 	// Remove service
 	sm.lm.Log("debug", fmt.Sprintf("removing service %d", id), "services")
 
+	// Get service type
+	service, err := sm.Get(id)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return
+	}
+
+	switch service.Type {
+	case "DATA":
+		data, err := sm.GetData(id)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "services")
+			return
+		}
+
+		sm.removeData(data.Id)
+	case "DOCKER EXECUTION ENVIRONMENT":
+	case "STANDALONE EXECUTABLE":
+	}
+
 	_, err = db.ExecContext(context.Background(), "delete from services where id = ?;", id)
 	if err != nil {
 		msg := err.Error()
@@ -391,8 +410,43 @@ func (sm *ServiceManager) Remove(id int32) {
 	delete(sm.services, id)
 }
 
+// Remove data service
+func (sm *ServiceManager) removeData(id int64) {
+	// Create a database connection
+	db, err := sm.sm.CreateConnection()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return
+	}
+	defer db.Close()
+
+	// Remove data service
+	sm.lm.Log("debug", fmt.Sprintf("removing data service %d", id), "services")
+
+	// Get data service
+	data, err := sm.GetData(id)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return
+	}
+
+	err = os.RemoveAll("./local_storage/" + data.Path)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return
+	}
+
+	_, err = db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return
+	}
+}
+
 // Set service inactive
-func (sm *ServiceManager) SetInactive(id int32) {
+func (sm *ServiceManager) SetInactive(id int64) {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
@@ -446,7 +500,7 @@ func (sm *ServiceManager) SetInactive(id int32) {
 }
 
 // Set service active
-func (sm *ServiceManager) SetActive(id int32) {
+func (sm *ServiceManager) SetActive(id int64) {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()

@@ -126,7 +126,7 @@ func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) (
 }
 
 // Get prices by service ID
-func (pm *PriceManager) GetPricesByServiceId(serviceId int32, params ...uint32) ([]node_types.Price, error) {
+func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
 

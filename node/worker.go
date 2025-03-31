@@ -10,7 +10,7 @@ import (
 
 // Worker represents a managed goroutine
 type Worker struct {
-	ID        int32
+	ID        int64
 	ctx       context.Context
 	cancel    context.CancelFunc
 	finished  chan struct{}
@@ -21,20 +21,20 @@ type Worker struct {
 
 // WorkerManager handles multiple workers
 type WorkerManager struct {
-	workers map[int32]*Worker
+	workers map[int64]*Worker
 	mu      sync.RWMutex
 	p2pm    *P2PManager
 }
 
 func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 	return &WorkerManager{
-		workers: make(map[int32]*Worker),
+		workers: make(map[int64]*Worker),
 		p2pm:    p2pManager,
 	}
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(id int32, job node_types.Job) error {
+func (wm *WorkerManager) StartWorker(id int64, job node_types.Job) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -61,7 +61,7 @@ func (wm *WorkerManager) StartWorker(id int32, job node_types.Job) error {
 }
 
 // StopWorker stops a specific worker
-func (wm *WorkerManager) StopWorker(id int32) error {
+func (wm *WorkerManager) StopWorker(id int64) error {
 	wm.mu.RLock()
 	worker, exists := wm.workers[id]
 	wm.mu.RUnlock()
@@ -80,11 +80,11 @@ func (wm *WorkerManager) StopWorker(id int32) error {
 }
 
 // ListWorkers returns IDs of all active workers
-func (wm *WorkerManager) ListWorkers() []int32 {
+func (wm *WorkerManager) ListWorkers() []int64 {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
 
-	ids := make([]int32, 0, len(wm.workers))
+	ids := make([]int64, 0, len(wm.workers))
 	for id := range wm.workers {
 		ids = append(ids, id)
 	}

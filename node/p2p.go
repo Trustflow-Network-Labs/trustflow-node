@@ -403,7 +403,7 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
-func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int32) error {
+func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int64) error {
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
@@ -440,7 +440,7 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
 		return err
 	} else {
 		t := uint16(0)
-		id := int32(0)
+		id := int64(0)
 		switch v := any(data).(type) {
 		case *[]node_types.ServiceOffer:
 			t = 0
@@ -468,7 +468,7 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
 	return nil
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, id int32) {
+func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, id int64) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
 		Type:   t,

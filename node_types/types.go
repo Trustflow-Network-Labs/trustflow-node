@@ -29,7 +29,7 @@ type Blacklist struct {
 // Declare stream data type
 type StreamData struct {
 	Type   uint16
-	Id     int32
+	Id     int64
 	PeerId [255]byte
 }
 
@@ -41,8 +41,8 @@ type Currency struct {
 
 // Declare price type
 type Price struct {
-	Id                    int32   `json:"id"`
-	ServiceId             int32   `json:"service_id"`
+	Id                    int64   `json:"id"`
+	ServiceId             int64   `json:"service_id"`
 	Resource              string  `json:"resource"`
 	Currency              string  `json:"currency"`
 	Price                 float64 `json:"price"`
@@ -59,8 +59,8 @@ type Resource struct {
 
 // Declare resource utilization type
 type ResourceUtilization struct {
-	Id          int32   `json:"id"`
-	JobId       int32   `json:"job_id"`
+	Id          int64   `json:"id"`
+	JobId       int64   `json:"job_id"`
 	Resource    string  `json:"resource"`
 	Utilization float64 `json:"utilization"`
 	Timestamp   string  `json:"timestamp"`
@@ -68,7 +68,7 @@ type ResourceUtilization struct {
 
 // Declare service type
 type Service struct {
-	Id          int32  `json:"id"`
+	Id          int64  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Type        string `json:"type"`
@@ -77,23 +77,23 @@ type Service struct {
 
 // Declare data service type
 type DataService struct {
-	Id        int32  `json:"id"`
-	ServiceId int32  `json:"service_id"`
+	Id        int64  `json:"id"`
+	ServiceId int64  `json:"service_id"`
 	Path      string `json:"path"`
 }
 
 // Declare docker service type
 type DockerService struct {
-	Id        int32  `json:"id"`
-	ServiceId int32  `json:"service_id"`
+	Id        int64  `json:"id"`
+	ServiceId int64  `json:"service_id"`
 	Repo      string `json:"repo"`
 	Image     string `json:"image"`
 }
 
 // Declare executable service type
 type ExecutableService struct {
-	Id        int32  `json:"id"`
-	ServiceId int32  `json:"service_id"`
+	Id        int64  `json:"id"`
+	ServiceId int64  `json:"service_id"`
 	Path      string `json:"path"`
 }
 
@@ -128,7 +128,7 @@ type ServiceResourcesWithPricing struct {
 
 // Declare service offer type
 type ServiceOffer struct {
-	Id                int32                         `json:"id"`
+	Id                int64                         `json:"id"`
 	Name              string                        `json:"name"`
 	Description       string                        `json:"description"`
 	NodeId            string                        `json:"node_id"`
@@ -141,9 +141,9 @@ type ServiceOffer struct {
 
 // Declare job type
 type Job struct {
-	Id             int32     `json:"id"`
+	Id             int64     `json:"id"`
 	OrderingNodeId string    `json:"ordering_node_id"`
-	ServiceId      int32     `json:"service_id"`
+	ServiceId      int64     `json:"service_id"`
 	Status         string    `json:"status"`
 	Started        time.Time `json:"started"`
 	Ended          time.Time `json:"ended"`

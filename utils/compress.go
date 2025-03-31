@@ -9,14 +9,11 @@ import (
 	"path/filepath"
 )
 
-// compress compresses a file or directory into a .tar.gz archive.
+// Compress compresses a file or directory into a .tar.gz archive.
 func Compress(sourcePath, outputFile string) error {
-	// Ensure the directory exists
 	dir := filepath.Dir(outputFile)
-	err := os.MkdirAll(dir, 0755)
-	if err != nil {
-		fmt.Println("Error creating directories:", err)
-		return err
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error creating directories: %w", err)
 	}
 
 	outFile, err := os.Create(outputFile)
@@ -35,48 +32,55 @@ func Compress(sourcePath, outputFile string) error {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	// If it's a file, compress just that one
-	if !info.IsDir() {
-		return addFileToTar(tarWriter, sourcePath, info)
+	baseDir := filepath.Dir(sourcePath)
+	if info.IsDir() {
+		baseDir = filepath.Clean(sourcePath)
 	}
 
-	// Otherwise, compress the whole directory
+	// Walk through all files in the directory
 	err = filepath.Walk(sourcePath, func(file string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if fi.IsDir() {
-			return nil // Skip directories
-		}
-		return addFileToTar(tarWriter, file, fi)
+		return addFileToTar(tarWriter, file, fi, baseDir)
 	})
 
 	return err
 }
 
-// addFileToTar adds a file to the tar archive
-func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo) error {
+// addFileToTar adds a file or directory to the tar archive
+func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir string) error {
+	relPath, err := filepath.Rel(baseDir, filePath)
+	if err != nil {
+		return err
+	}
+
+	header, err := tar.FileInfoHeader(fi, filePath)
+	if err != nil {
+		return err
+	}
+	header.Name = relPath // Ensure relative path is stored
+
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+
+	// If directory, no need to copy contents
+	if fi.IsDir() {
+		return nil
+	}
+
 	srcFile, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	header, err := tar.FileInfoHeader(fi, filePath)
-	if err != nil {
-		return err
-	}
-	header.Name, _ = filepath.Rel(filepath.Dir(filePath), filePath)
-
-	if err := tw.WriteHeader(header); err != nil {
-		return err
-	}
-
 	_, err = io.Copy(tw, srcFile)
 	return err
 }
 
-// uncompress extracts a .tar.gz archive to a target directory
+// Uncompress extracts a .tar.gz archive to a target directory
 func Uncompress(archivePath, targetDir string) error {
 	inFile, err := os.Open(archivePath)
 	if err != nil {
@@ -95,30 +99,32 @@ func Uncompress(archivePath, targetDir string) error {
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
-			break // End of archive
+			break
 		}
 		if err != nil {
 			return fmt.Errorf("error reading tar: %w", err)
 		}
 
-		// Determine file/folder path
 		targetPath := filepath.Join(targetDir, header.Name)
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			// Create directory if needed
-			if err := os.MkdirAll(targetPath, os.ModePerm); err != nil {
+			// Ensure the directory exists
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
-			// Extract file
+			// Ensure parent directories exist
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directories: %w", err)
+			}
+
 			outFile, err := os.Create(targetPath)
 			if err != nil {
 				return fmt.Errorf("failed to create file: %w", err)
 			}
 			defer outFile.Close()
 
-			// Stream file contents
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				return fmt.Errorf("failed to write file: %w", err)
 			}

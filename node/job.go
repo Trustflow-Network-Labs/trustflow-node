@@ -16,7 +16,7 @@ type JobManager struct {
 	lm   *utils.LogsManager
 	sm   *ServiceManager
 	wm   *WorkerManager
-	jobs map[int32]*node_types.Job
+	jobs map[int64]*node_types.Job
 	p2pm *P2PManager
 }
 
@@ -26,13 +26,13 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		lm:   utils.NewLogsManager(),
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),
-		jobs: make(map[int32]*node_types.Job),
+		jobs: make(map[int64]*node_types.Job),
 		p2pm: p2pm,
 	}
 }
 
 // Job exists?
-func (jm *JobManager) JobExists(id int32) (error, bool) {
+func (jm *JobManager) JobExists(id int64) (error, bool) {
 	if id <= 0 {
 		msg := "invalid job id"
 		jm.lm.Log("error", msg, "jobs")
@@ -63,7 +63,7 @@ func (jm *JobManager) JobExists(id int32) (error, bool) {
 }
 
 // Get job by id
-func (jm *JobManager) GetJob(id int32) (node_types.Job, error) {
+func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	var job node_types.Job
 
 	// Check if job exists in a queue
@@ -105,7 +105,7 @@ func (jm *JobManager) GetJob(id int32) (node_types.Job, error) {
 }
 
 // Get jobs by service ID
-func (jm *JobManager) GetJobsByServiceId(serviceId int32, params ...uint32) ([]node_types.Job, error) {
+func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]node_types.Job, error) {
 	var job node_types.Job
 	var jobs []node_types.Job
 
@@ -158,7 +158,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int32, params ...uint32) ([]n
 }
 
 // Change job status
-func (jm *JobManager) UpdateJobStatus(id int32, status string) error {
+func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	// Check if job exists in a queue
 	err, exists := jm.JobExists(id)
 	if err != nil {
@@ -199,7 +199,7 @@ func (jm *JobManager) UpdateJobStatus(id int32, status string) error {
 }
 
 // Create new job
-func (jm *JobManager) CreateJob(orderingNodeId string, serviceId int32) {
+func (jm *JobManager) CreateJob(orderingNodeId string, serviceId int64) {
 	// Create a database connection
 	db, err := jm.sqlm.CreateConnection()
 	if err != nil {
@@ -228,17 +228,17 @@ func (jm *JobManager) CreateJob(orderingNodeId string, serviceId int32) {
 	}
 
 	job := node_types.Job{
-		Id:             int32(id),
+		Id:             id,
 		OrderingNodeId: orderingNodeId,
 		ServiceId:      serviceId,
 		Status:         "IDLE",
 	}
 
-	jm.jobs[int32(id)] = &job
+	jm.jobs[id] = &job
 }
 
 // Run job from a queue
-func (jm *JobManager) RunJob(jobId int32) error {
+func (jm *JobManager) RunJob(jobId int64) error {
 	// Get job from a queue
 	job, err := jm.GetJob(jobId)
 	if err != nil {
