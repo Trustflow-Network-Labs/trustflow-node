@@ -80,9 +80,9 @@ func (sm *ServiceManager) Get(id int64) (node_types.Service, error) {
 	defer db.Close()
 
 	// Get service
-	row := db.QueryRowContext(context.Background(), "select id, name, description, node_id, service_type, active from services where id = ?;", id)
+	row := db.QueryRowContext(context.Background(), "select id, name, description, service_type, active from services where id = ?;", id)
 
-	err = row.Scan(&service)
+	err = row.Scan(&service.Id, &service.Name, &service.Description, &service.Type, &service.Active)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("debug", msg, "servics")
@@ -113,9 +113,9 @@ func (sm *ServiceManager) GetData(serviceId int64) (node_types.DataService, erro
 	defer db.Close()
 
 	// Get data service
-	row := db.QueryRowContext(context.Background(), "select id, nservice_id, path from data_service_details where service_id = ?;", serviceId)
+	row := db.QueryRowContext(context.Background(), "select id, service_id, path from data_service_details where service_id = ?;", serviceId)
 
-	err = row.Scan(&dataService)
+	err = row.Scan(&dataService.Id, &dataService.ServiceId, &dataService.Path)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("debug", msg, "servics")
@@ -392,10 +392,9 @@ func (sm *ServiceManager) Remove(id int64) {
 		data, err := sm.GetData(id)
 		if err != nil {
 			sm.lm.Log("error", err.Error(), "services")
-			return
+		} else {
+			sm.removeData(data.Id)
 		}
-
-		sm.removeData(data.Id)
 	case "DOCKER EXECUTION ENVIRONMENT":
 	case "STANDALONE EXECUTABLE":
 	}
