@@ -25,6 +25,18 @@ func NewCurrencyManager() *CurrencyManager {
 	}
 }
 
+func (cm *CurrencyManager) IsCurrency(s string) error {
+	err, b := cm.Exists(s)
+	if err != nil {
+		return err
+	}
+	if !b {
+		err = fmt.Errorf("%s is not an existing currency", s)
+		return err
+	}
+	return nil
+}
+
 // Currency already added?
 func (cm *CurrencyManager) Exists(symbol string) (error, bool) {
 	if symbol == "" {

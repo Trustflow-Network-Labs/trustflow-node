@@ -9,6 +9,7 @@ import (
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/currency"
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/price"
 	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/manifoldco/promptui"
@@ -18,12 +19,24 @@ import (
 type MenuManager struct {
 	lm   *utils.LogsManager
 	p2pm *P2PManager
+	sm   *ServiceManager
+	vm   *utils.ValidatorManager
+	tm   *utils.TextManager
+	pm   *price.PriceManager
+	rm   *resource.ResourceManager
+	cm   *currency.CurrencyManager
 }
 
 func NewMenuManager(p2pm *P2PManager) *MenuManager {
 	return &MenuManager{
 		lm:   utils.NewLogsManager(),
 		p2pm: p2pm,
+		sm:   NewServiceManager(p2pm),
+		vm:   utils.NewValidatorManager(),
+		tm:   utils.NewTextManager(),
+		pm:   price.NewPriceManager(),
+		rm:   resource.NewResourceManager(),
+		cm:   currency.NewCurrencyManager(),
 	}
 }
 
@@ -96,8 +109,7 @@ func (mm *MenuManager) findServices() {
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
-			serviceManager := NewServiceManager(mm.p2pm)
-			serviceManager.LookupRemoteService(snResult, "", "", "", "")
+			mm.sm.LookupRemoteService(snResult, "", "", "", "")
 		case "List local services":
 			var data []byte
 			var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
@@ -189,12 +201,11 @@ func (mm *MenuManager) blacklist() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Add node":
-			validatorManager := utils.NewValidatorManager()
 			// Get node ID
 			nidPrompt := promptui.Prompt{
 				Label:       "Node ID",
 				Default:     "",
-				Validate:    validatorManager.IsPeer,
+				Validate:    mm.vm.IsPeer,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -247,12 +258,11 @@ func (mm *MenuManager) blacklist() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove node":
-			validatorManager := utils.NewValidatorManager()
 			// Get node ID
 			nidPrompt := promptui.Prompt{
 				Label:       "Node ID",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -300,11 +310,10 @@ func (mm *MenuManager) printBlacklist(blnm *blacklist_node.BlacklistNodeManager)
 	}
 
 	// Draw table output
-	textManager := utils.NewTextManager()
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
 	for _, node := range nodes {
-		row := []string{textManager.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
+		row := []string{mm.tm.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
 		table.Append(row)
 	}
 	table.Render() // Prints the table
@@ -330,19 +339,17 @@ func (mm *MenuManager) currencies() {
 
 		switch result {
 		case "List currencies":
-			currenciesManager := currency.NewCurrencyManager()
-			err = mm.printCurrencies(currenciesManager)
+			err = mm.printCurrencies(mm.cm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Add currency":
-			validatorManager := utils.NewValidatorManager()
 			// Get currency symbol
 			csPrompt := promptui.Prompt{
 				Label:       "Currency Symbol",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -360,7 +367,7 @@ func (mm *MenuManager) currencies() {
 			cnPrompt := promptui.Prompt{
 				Label:       "Currency name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -374,10 +381,8 @@ func (mm *MenuManager) currencies() {
 				continue
 			}
 
-			currenciesManager := currency.NewCurrencyManager()
-
 			// Add currency
-			err = currenciesManager.Add(cnResult, csResult)
+			err = mm.cm.Add(cnResult, csResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -385,18 +390,17 @@ func (mm *MenuManager) currencies() {
 			}
 			fmt.Printf("\U00002705 Currency %s (%s) is added\n", cnResult, csResult)
 
-			err = mm.printCurrencies(currenciesManager)
+			err = mm.printCurrencies(mm.cm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove currency":
-			validatorManager := utils.NewValidatorManager()
 			// Get currency symbol
 			csPrompt := promptui.Prompt{
 				Label:       "Currency Symbol",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -410,10 +414,8 @@ func (mm *MenuManager) currencies() {
 				continue
 			}
 
-			currenciesManager := currency.NewCurrencyManager()
-
 			// Remove currency
-			err = currenciesManager.Remove(csResult)
+			err = mm.cm.Remove(csResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -421,7 +423,7 @@ func (mm *MenuManager) currencies() {
 			}
 			fmt.Printf("\U00002705 Currency %s is removed\n", csResult)
 
-			err = mm.printCurrencies(currenciesManager)
+			err = mm.printCurrencies(mm.cm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -468,19 +470,17 @@ func (mm *MenuManager) resources() {
 
 		switch result {
 		case "List resources":
-			resourcesManager := resource.NewResourceManager()
-			err = mm.printResources(resourcesManager)
+			err = mm.printResources(mm.rm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set resource active":
-			validatorManager := utils.NewValidatorManager()
 			// Get resource name
 			rnPrompt := promptui.Prompt{
 				Label:       "Resource name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -495,8 +495,7 @@ func (mm *MenuManager) resources() {
 			}
 
 			// Set resource active
-			resourcesManager := resource.NewResourceManager()
-			err = resourcesManager.SetActive(rnResult)
+			err = mm.rm.SetActive(rnResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -504,18 +503,17 @@ func (mm *MenuManager) resources() {
 			}
 			fmt.Printf("\U00002705 Resource %s is set to active\n", rnResult)
 
-			err = mm.printResources(resourcesManager)
+			err = mm.printResources(mm.rm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set resource inactive":
-			validatorManager := utils.NewValidatorManager()
 			// Get resource name
 			rnPrompt := promptui.Prompt{
 				Label:       "Resource name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -530,8 +528,7 @@ func (mm *MenuManager) resources() {
 			}
 
 			// Set resource active
-			resourcesManager := resource.NewResourceManager()
-			err = resourcesManager.SetInactive(rnResult)
+			err = mm.rm.SetInactive(rnResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -539,18 +536,17 @@ func (mm *MenuManager) resources() {
 			}
 			fmt.Printf("\U00002705 Resource %s is set to inactive\n", rnResult)
 
-			err = mm.printResources(resourcesManager)
+			err = mm.printResources(mm.rm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Add resource":
-			validatorManager := utils.NewValidatorManager()
 			// Get resource name
 			rnPrompt := promptui.Prompt{
 				Label:       "Resource name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -585,7 +581,7 @@ func (mm *MenuManager) resources() {
 			raPrompt := promptui.Prompt{
 				Label:       "Is active?",
 				Default:     "",
-				Validate:    validatorManager.IsBool,
+				Validate:    mm.vm.IsBool,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -599,8 +595,7 @@ func (mm *MenuManager) resources() {
 				continue
 			}
 
-			textManager := utils.NewTextManager()
-			active, err := textManager.ToBool(raResult)
+			active, err := mm.tm.ToBool(raResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -608,8 +603,7 @@ func (mm *MenuManager) resources() {
 			}
 
 			// Add resource
-			resourcesManager := resource.NewResourceManager()
-			err = resourcesManager.Add(rnResult, rdResult, active)
+			err = mm.rm.Add(rnResult, rdResult, active)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -617,18 +611,17 @@ func (mm *MenuManager) resources() {
 			}
 			fmt.Printf("\U00002705 Resource %s is added\n", rnResult)
 
-			err = mm.printResources(resourcesManager)
+			err = mm.printResources(mm.rm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove resource":
-			validatorManager := utils.NewValidatorManager()
 			// Get resource name
 			rnPrompt := promptui.Prompt{
 				Label:       "Resource name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -642,10 +635,8 @@ func (mm *MenuManager) resources() {
 				continue
 			}
 
-			resourcesManager := resource.NewResourceManager()
-
 			// Remove resource
-			err = resourcesManager.Remove(rnResult)
+			err = mm.rm.Remove(rnResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -653,7 +644,7 @@ func (mm *MenuManager) resources() {
 			}
 			fmt.Printf("\U00002705 Resource %s is removed\n", rnResult)
 
-			err = mm.printResources(resourcesManager)
+			err = mm.printResources(mm.rm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -684,9 +675,6 @@ func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
 
 // Print services sub-menu
 func (mm *MenuManager) services() {
-	servicesManager := NewServiceManager(mm.p2pm)
-	validatorManager := utils.NewValidatorManager()
-	textManager := utils.NewTextManager()
 	for {
 		prompt := promptui.Select{
 			Label: "Main \U000025B6 Configure node \U000025B6 Services",
@@ -703,7 +691,7 @@ func (mm *MenuManager) services() {
 
 		switch result {
 		case "List services":
-			err = mm.printServices(servicesManager)
+			err = mm.printServices(mm.sm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -714,7 +702,7 @@ func (mm *MenuManager) services() {
 			rnPrompt := promptui.Prompt{
 				Label:       "Service Id",
 				Default:     "",
-				Validate:    validatorManager.IsInt64,
+				Validate:    mm.vm.IsInt64,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -729,14 +717,14 @@ func (mm *MenuManager) services() {
 			}
 
 			// Set service active
-			id, err := textManager.ToInt64(rnResult)
+			id, err := mm.tm.ToInt64(rnResult)
 			if err != nil {
 				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
-			err = servicesManager.SetActive(id)
+			err = mm.sm.SetActive(id)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -744,7 +732,7 @@ func (mm *MenuManager) services() {
 			}
 			fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
 
-			err = mm.printServices(servicesManager)
+			err = mm.printServices(mm.sm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -754,7 +742,7 @@ func (mm *MenuManager) services() {
 			rnPrompt := promptui.Prompt{
 				Label:       "Service Id",
 				Default:     "",
-				Validate:    validatorManager.IsInt64,
+				Validate:    mm.vm.IsInt64,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -769,14 +757,14 @@ func (mm *MenuManager) services() {
 			}
 
 			// Set service active
-			id, err := textManager.ToInt64(rnResult)
+			id, err := mm.tm.ToInt64(rnResult)
 			if err != nil {
 				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
-			err = servicesManager.SetInactive(id)
+			err = mm.sm.SetInactive(id)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -784,7 +772,7 @@ func (mm *MenuManager) services() {
 			}
 			fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
 
-			err = mm.printServices(servicesManager)
+			err = mm.printServices(mm.sm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -794,7 +782,7 @@ func (mm *MenuManager) services() {
 			snPrompt := promptui.Prompt{
 				Label:       "Service name",
 				Default:     "",
-				Validate:    validatorManager.NotEmpty,
+				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -829,7 +817,7 @@ func (mm *MenuManager) services() {
 			raPrompt := promptui.Prompt{
 				Label:       "Is active?",
 				Default:     "",
-				Validate:    validatorManager.IsBool,
+				Validate:    mm.vm.IsBool,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -843,7 +831,7 @@ func (mm *MenuManager) services() {
 				continue
 			}
 
-			active, err := textManager.ToBool(raResult)
+			active, err := mm.tm.ToBool(raResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -864,7 +852,7 @@ func (mm *MenuManager) services() {
 			}
 
 			// Add service
-			id, err := servicesManager.Add(snResult, sdResult, stResult, active)
+			id, err := mm.sm.Add(snResult, sdResult, stResult, active)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -877,7 +865,7 @@ func (mm *MenuManager) services() {
 				dpPrompt := promptui.Prompt{
 					Label:       "Path",
 					Default:     "",
-					Validate:    validatorManager.NotEmpty,
+					Validate:    mm.vm.NotEmpty,
 					AllowEdit:   true,
 					HideEntered: false,
 					IsConfirm:   false,
@@ -888,25 +876,50 @@ func (mm *MenuManager) services() {
 					msg := fmt.Sprintf("\U00002757 Entering service file/folder/data path failed: %s", err.Error())
 					fmt.Println(msg)
 					mm.lm.Log("error", msg, "menu")
-					servicesManager.Remove(id)
+					mm.sm.Remove(id)
 					continue
 				}
 
 				// Add data service
-				_, err = servicesManager.AddData(id, dpResult)
+				_, err = mm.sm.AddData(id, dpResult)
 				if err != nil {
 					fmt.Printf("\U00002757 %s\n", err.Error())
 					mm.lm.Log("error", err.Error(), "menu")
-					servicesManager.Remove(id)
+					mm.sm.Remove(id)
 					continue
 				}
 			case "DOCKER EXECUTION ENVIRONMENT":
 			case "STANDALONE EXECUTABLE":
 			}
 
+			// Print free or paid service prompt
+			sfcPrompt := promptui.Prompt{
+				Label:     "Is this service free of charge",
+				IsConfirm: true,
+			}
+			sfcResult, err := sfcPrompt.Run()
+			if err != nil && sfcResult != "N" && sfcResult != "y" {
+				fmt.Printf("Prompt failed %v\n", err)
+				mm.lm.Log("error", err.Error(), "menu")
+				mm.sm.Remove(id)
+				continue
+			}
+			if sfcResult == "N" {
+				// Add service price
+				err = mm.addServicePrice(id)
+				if err != nil {
+					fmt.Println(err.Error())
+					mm.lm.Log("error", err.Error(), "menu")
+					mm.sm.Remove(id)
+					continue
+				}
+			}
+
+			// Service is added
 			fmt.Printf("\U00002705 Service %s is added\n", snResult)
 
-			err = mm.printServices(servicesManager)
+			// Print service table
+			err = mm.printServices(mm.sm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -916,7 +929,7 @@ func (mm *MenuManager) services() {
 			rnPrompt := promptui.Prompt{
 				Label:       "Service Id",
 				Default:     "",
-				Validate:    validatorManager.IsInt64,
+				Validate:    mm.vm.IsInt64,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -931,14 +944,14 @@ func (mm *MenuManager) services() {
 			}
 
 			// Remove service
-			id, err := textManager.ToInt64(rnResult)
+			id, err := mm.tm.ToInt64(rnResult)
 			if err != nil {
 				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
-			err = servicesManager.Remove(id)
+			err = mm.sm.Remove(id)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -946,7 +959,7 @@ func (mm *MenuManager) services() {
 			}
 			fmt.Printf("\U00002705 Service %s is removed\n", rnResult)
 
-			err = mm.printServices(servicesManager)
+			err = mm.printServices(mm.sm)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -1006,17 +1019,134 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 			Label:     "Load more?",
 			IsConfirm: true,
 		}
-
 		lmResult, err := lmPrompt.Run()
-
-		if err != nil {
+		if err != nil && lmResult != "N" && lmResult != "y" {
 			fmt.Printf("Prompt failed %v\n", err)
 			return err
 		}
-
 		if lmResult == "y" {
 			mm.printServices(sm, offset+limit, limit)
 		}
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) addServicePrice(id int64) error {
+	fmt.Println("Please add service resource price")
+	// Get resource
+	var rItems []string
+	resources, err := mm.rm.List()
+	if err != nil {
+		return err
+	}
+	for _, resource := range resources {
+		rItems = append(rItems, resource.Resource)
+	}
+	rPrompt := promptui.Select{
+		Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Resource",
+		Items: rItems,
+	}
+	_, rResult, err := rPrompt.Run()
+	if err != nil {
+		err = fmt.Errorf("prompt failed: %s", err.Error())
+		return err
+	}
+
+	// Get resource price
+	rpPrompt := promptui.Prompt{
+		Label:       "Service resource price",
+		Default:     "",
+		Validate:    mm.vm.IsFloat64,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	rpResult, err := rpPrompt.Run()
+	if err != nil {
+		err = fmt.Errorf("\U00002757 Entering service resource price failed: %s", err.Error())
+		return err
+	}
+	rp, err := mm.tm.ToFloat64(rpResult)
+	if err != nil {
+		return err
+	}
+
+	// Get resource price charging interval in hours
+	rpcPrompt := promptui.Prompt{
+		Label:       "Service resource charging interval [hours]",
+		Default:     "",
+		Validate:    mm.vm.IsFloat64,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	rpcResult, err := rpcPrompt.Run()
+	if err != nil {
+		err = fmt.Errorf("\U00002757 Entering service resource price charging interval failed: %s", err.Error())
+		return err
+	}
+	rpc, err := mm.tm.ToFloat64(rpcResult)
+	if err != nil {
+		return err
+	}
+
+	// Get resource price normalization factor
+	rpnPrompt := promptui.Prompt{
+		Label:       "Service resource price normalization factor (default 1.00)",
+		Default:     "",
+		Validate:    mm.vm.IsFloat64,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	rpnResult, err := rpnPrompt.Run()
+	if err != nil {
+		err = fmt.Errorf("\U00002757 Entering service resource price normalization factor failed: %s", err.Error())
+		return err
+	}
+	rpn, err := mm.tm.ToFloat64(rpnResult)
+	if err != nil {
+		return err
+	}
+
+	// Get currency
+	var cItems []string
+	currencies, err := mm.cm.List()
+	if err != nil {
+		return err
+	}
+	for _, currency := range currencies {
+		cItems = append(cItems, currency.Symbol)
+	}
+	rscPrompt := promptui.Select{
+		Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Currency",
+		Items: cItems,
+	}
+	_, rscResult, err := rscPrompt.Run()
+	if err != nil {
+		err = fmt.Errorf("prompt failed: %s", err.Error())
+		return err
+	}
+
+	mm.pm.Add(id, rResult, rp, rpc, rpn, rscResult)
+
+	// Add more resource prices prompt
+	srmPrompt := promptui.Prompt{
+		Label:     "Add more service resource prices?",
+		IsConfirm: true,
+	}
+	srmResult, err := srmPrompt.Run()
+	if err != nil && srmResult != "N" && srmResult != "y" {
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	if srmResult == "y" {
+		// Add another service price
+		return mm.addServicePrice(id)
 	}
 
 	return nil

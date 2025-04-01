@@ -44,3 +44,11 @@ func (vm *ValidatorManager) IsInt64(s string) error {
 	}
 	return nil
 }
+
+func (vm *ValidatorManager) IsFloat64(s string) error {
+	_, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	return nil
+}

@@ -3,6 +3,7 @@ package price
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
@@ -175,4 +176,34 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 	}
 
 	return prices, nil
+}
+
+// Add a price
+func (pm *PriceManager) Add(serviceId int64, resource string, price float64, priceUnitNormalizator float64, priceInterval float64, currency string) (int64, error) {
+	// Create a database connection
+	db, err := pm.sm.CreateConnection()
+	if err != nil {
+		pm.lm.Log("error", err.Error(), "prices")
+		return 0, err
+	}
+	defer db.Close()
+
+	// Add price
+	pm.lm.Log("debug", fmt.Sprintf("add price %.02f %s (each %.02f normalized by %.02f) for service Id %d and service resource %s",
+		price, currency, priceInterval, priceUnitNormalizator, serviceId, resource), "prices")
+
+	result, err := db.ExecContext(context.Background(), "insert into prices (service_id, resource, price, price_unit_normalizator, price_interval, currency_symbol) values (?, ?, ?, ?, ?, ?);",
+		serviceId, resource, price, priceUnitNormalizator, priceInterval, currency)
+	if err != nil {
+		pm.lm.Log("error", err.Error(), "prices")
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		pm.lm.Log("error", err.Error(), "prices")
+		return 0, err
+	}
+
+	return id, nil
 }

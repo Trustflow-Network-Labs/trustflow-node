@@ -24,6 +24,18 @@ func NewResourceManager() *ResourceManager {
 	}
 }
 
+func (rm *ResourceManager) IsResource(s string) error {
+	err, b := rm.Exists(s)
+	if err != nil {
+		return err
+	}
+	if !b {
+		err = fmt.Errorf("%s is not an existing resource", s)
+		return err
+	}
+	return nil
+}
+
 // Resource already added?
 func (rm *ResourceManager) Exists(name string) (error, bool) {
 	if name == "" {
