@@ -358,7 +358,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 	if len(jobs) > 0 {
-		err = fmt.Errorf("Service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
+		err = fmt.Errorf("service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
 		sm.lm.Log("warn", err.Error(), "services")
 		return err
 	}
@@ -372,7 +372,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 	if len(prices) > 0 {
-		err = fmt.Errorf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
+		err = fmt.Errorf("service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
 		sm.lm.Log("warn", err.Error(), "services")
 		return err
 	}
@@ -451,12 +451,12 @@ func (sm *ServiceManager) removeData(id int64) error {
 }
 
 // Set service inactive
-func (sm *ServiceManager) SetInactive(id int64) {
+func (sm *ServiceManager) SetInactive(id int64) error {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	// Create a database connection
@@ -464,15 +464,15 @@ func (sm *ServiceManager) SetInactive(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	defer db.Close()
 
 	// Check if service is already existing
 	if !existing {
-		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to set inactive", id)
-		sm.lm.Log("warn", msg, "services")
-		return
+		err = fmt.Errorf("service id %d is not existing in the database. Nothing to set inactive", id)
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Check if there are existing prices defined using this service
@@ -481,12 +481,12 @@ func (sm *ServiceManager) SetInactive(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	if len(prices) > 0 {
-		msg := fmt.Sprintf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
-		sm.lm.Log("warn", msg, "services")
-		return
+		err = fmt.Errorf("service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Set service inactive
@@ -496,21 +496,23 @@ func (sm *ServiceManager) SetInactive(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	if _, exists := sm.services[id]; exists {
 		sm.services[id].Active = false
 	}
+
+	return nil
 }
 
 // Set service active
-func (sm *ServiceManager) SetActive(id int64) {
+func (sm *ServiceManager) SetActive(id int64) error {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	// Create a database connection
@@ -518,15 +520,15 @@ func (sm *ServiceManager) SetActive(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	defer db.Close()
 
 	// Check if service is already existing
 	if !existing {
-		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to set active", id)
-		sm.lm.Log("warn", msg, "services")
-		return
+		err := fmt.Errorf("service id %d is not existing in the database. Nothing to set active", id)
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Set service active
@@ -536,12 +538,14 @@ func (sm *ServiceManager) SetActive(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	if _, exists := sm.services[id]; exists {
 		sm.services[id].Active = true
 	}
+
+	return nil
 }
 
 func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescription string, serviceNodeId string, serviceType string, serviceRepo string) {

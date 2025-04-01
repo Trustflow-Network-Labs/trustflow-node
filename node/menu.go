@@ -710,7 +710,85 @@ func (mm *MenuManager) services() {
 			}
 		case "Show service details":
 		case "Set service active":
+			// Get service Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Service Id",
+				Default:     "",
+				Validate:    validatorManager.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set service active
+			id, err := textManager.ToInt64(rnResult)
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+			err = servicesManager.SetActive(id)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
+
+			err = mm.printServices(servicesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
 		case "Set service inactive":
+			// Get service Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Service Id",
+				Default:     "",
+				Validate:    validatorManager.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set service active
+			id, err := textManager.ToInt64(rnResult)
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+			err = servicesManager.SetInactive(id)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
+
+			err = mm.printServices(servicesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
 		case "Add service":
 			// Get service name
 			snPrompt := promptui.Prompt{
@@ -851,8 +929,6 @@ func (mm *MenuManager) services() {
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
-
-			servicesManager := NewServiceManager(mm.p2pm)
 
 			// Remove service
 			id, err := textManager.ToInt64(rnResult)
