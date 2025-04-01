@@ -834,6 +834,47 @@ func (mm *MenuManager) services() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove service":
+			// Get service Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Service Id",
+				Default:     "",
+				Validate:    validatorManager.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			servicesManager := NewServiceManager(mm.p2pm)
+
+			// Remove service
+			id, err := textManager.ToInt64(rnResult)
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+			err = servicesManager.Remove(id)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Service %s is removed\n", rnResult)
+
+			err = mm.printServices(servicesManager)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
 		case "Back":
 			return
 		}

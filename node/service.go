@@ -325,12 +325,12 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 }
 
 // Remove service
-func (sm *ServiceManager) Remove(id int64) {
+func (sm *ServiceManager) Remove(id int64) error {
 	err, existing := sm.Exists(id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	// Create a database connection
@@ -338,15 +338,15 @@ func (sm *ServiceManager) Remove(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	defer db.Close()
 
 	// Check if service is already existing
 	if !existing {
-		msg := fmt.Sprintf("Service id %d is not existing in the database. Nothing to remove", id)
-		sm.lm.Log("warn", msg, "services")
-		return
+		err = fmt.Errorf("service id %d is not existing in the database. Nothing to remove", id)
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Check if there are jobs executed using this service
@@ -355,12 +355,12 @@ func (sm *ServiceManager) Remove(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	if len(jobs) > 0 {
-		msg := fmt.Sprintf("Service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
-		sm.lm.Log("warn", msg, "services")
-		return
+		err = fmt.Errorf("Service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Check if there are existing prices defined using this service
@@ -369,12 +369,12 @@ func (sm *ServiceManager) Remove(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 	if len(prices) > 0 {
-		msg := fmt.Sprintf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
-		sm.lm.Log("warn", msg, "services")
-		return
+		err = fmt.Errorf("Service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
+		sm.lm.Log("warn", err.Error(), "services")
+		return err
 	}
 
 	// Remove service
@@ -384,7 +384,7 @@ func (sm *ServiceManager) Remove(id int64) {
 	service, err := sm.Get(id)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")
-		return
+		return err
 	}
 
 	switch service.Type {
@@ -393,7 +393,10 @@ func (sm *ServiceManager) Remove(id int64) {
 		if err != nil {
 			sm.lm.Log("error", err.Error(), "services")
 		} else {
-			sm.removeData(data.Id)
+			err = sm.removeData(data.Id)
+			if err != nil {
+				sm.lm.Log("error", err.Error(), "services")
+			}
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
 	case "STANDALONE EXECUTABLE":
@@ -403,20 +406,21 @@ func (sm *ServiceManager) Remove(id int64) {
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
 
 	delete(sm.services, id)
+
+	return nil
 }
 
 // Remove data service
-func (sm *ServiceManager) removeData(id int64) {
+func (sm *ServiceManager) removeData(id int64) error {
 	// Create a database connection
 	db, err := sm.sm.CreateConnection()
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "services")
-		return
+		sm.lm.Log("error", err.Error(), "services")
+		return err
 	}
 	defer db.Close()
 
@@ -427,21 +431,23 @@ func (sm *ServiceManager) removeData(id int64) {
 	data, err := sm.GetData(id)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")
-		return
+		return err
 	}
 
 	err = os.RemoveAll("./local_storage/" + data.Path)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")
-		return
+		return err
 	}
 
 	_, err = db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
-		return
+		return err
 	}
+
+	return nil
 }
 
 // Set service inactive

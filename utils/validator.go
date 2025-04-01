@@ -36,3 +36,11 @@ func (vm *ValidatorManager) IsBool(s string) error {
 	}
 	return nil
 }
+
+func (vm *ValidatorManager) IsInt64(s string) error {
+	_, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	return nil
+}

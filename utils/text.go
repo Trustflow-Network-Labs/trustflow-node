@@ -26,3 +26,11 @@ func (tm *TextManager) ToBool(s string) (bool, error) {
 	}
 	return b, nil
 }
+
+func (tm *TextManager) ToInt64(s string) (int64, error) {
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
