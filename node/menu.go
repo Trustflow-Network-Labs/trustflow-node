@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/currency"
@@ -898,7 +899,7 @@ func (mm *MenuManager) services() {
 				IsConfirm: true,
 			}
 			sfcResult, err := sfcPrompt.Run()
-			if err != nil && sfcResult != "N" && sfcResult != "y" {
+			if err != nil && strings.ToLower(sfcResult) != "n" && strings.ToLower(sfcResult) != "y" {
 				fmt.Printf("Prompt failed %v\n", err)
 				mm.lm.Log("error", err.Error(), "menu")
 				mm.sm.Remove(id)
@@ -1020,7 +1021,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 			IsConfirm: true,
 		}
 		lmResult, err := lmPrompt.Run()
-		if err != nil && lmResult != "N" && lmResult != "y" {
+		if err != nil && strings.ToLower(lmResult) != "n" && strings.ToLower(lmResult) != "y" {
 			fmt.Printf("Prompt failed %v\n", err)
 			return err
 		}
@@ -1140,7 +1141,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		IsConfirm: true,
 	}
 	srmResult, err := srmPrompt.Run()
-	if err != nil && srmResult != "N" && srmResult != "y" {
+	if err != nil && strings.ToLower(srmResult) != "n" && strings.ToLower(srmResult) != "y" {
 		mm.lm.Log("error", err.Error(), "menu")
 		return err
 	}

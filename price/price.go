@@ -62,7 +62,7 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -114,7 +114,7 @@ func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) (
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -166,7 +166,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -206,4 +206,26 @@ func (pm *PriceManager) Add(serviceId int64, resource string, price float64, pri
 	}
 
 	return id, nil
+}
+
+// Remove prices defined for a service
+func (pm *PriceManager) RemoveForService(serviceId int64) error {
+	// Create a database connection
+	db, err := pm.sm.CreateConnection()
+	if err != nil {
+		pm.lm.Log("error", err.Error(), "prices")
+		return err
+	}
+	defer db.Close()
+
+	// Remove prices
+	pm.lm.Log("debug", fmt.Sprintf("remove prices for service Id %d", serviceId), "prices")
+
+	_, err = db.ExecContext(context.Background(), "delete from prices where service_id = ?;", serviceId)
+	if err != nil {
+		pm.lm.Log("error", err.Error(), "prices")
+		return err
+	}
+
+	return nil
 }

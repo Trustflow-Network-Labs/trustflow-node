@@ -349,31 +349,11 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 
-	// Check if there are jobs executed using this service
-	jobManager := NewJobManager(sm.p2pm)
-	jobs, err := jobManager.GetJobsByServiceId(id)
-	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "services")
-		return err
-	}
-	if len(jobs) > 0 {
-		err = fmt.Errorf("service id %d was used with %d jobs executed. You can not remove this service but you can set it service inactive", id, len(jobs))
-		sm.lm.Log("warn", err.Error(), "services")
-		return err
-	}
-
-	// Check if there are existing prices defined using this service
+	// Delete prices defined for this service (if any)
 	priceManager := price.NewPriceManager()
-	prices, err := priceManager.GetPricesByServiceId(id)
+	err = priceManager.RemoveForService(id)
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "services")
-		return err
-	}
-	if len(prices) > 0 {
-		err = fmt.Errorf("service id %d is used with %d prices defined. Please remove prices for this service first", id, len(prices))
-		sm.lm.Log("warn", err.Error(), "services")
+		sm.lm.Log("error", err.Error(), "services")
 		return err
 	}
 

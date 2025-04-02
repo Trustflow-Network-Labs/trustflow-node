@@ -8,7 +8,6 @@ import (
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/price"
-	resource_utilization "github.com/adgsm/trustflow-node/resource-utilization"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -189,21 +188,6 @@ func (rm *ResourceManager) Remove(name string) error {
 		return err
 	}
 	defer db.Close()
-
-	// Check if there are existing previous resource utilizations
-	resourceUtilizationManager := resource_utilization.NewResourceUtilizationManager()
-	utilizations, err := resourceUtilizationManager.GetUtilizationsByResource(name)
-	if err != nil {
-		msg := err.Error()
-		rm.lm.Log("error", msg, "resources")
-		return err
-	}
-	if len(utilizations) > 0 {
-		err = fmt.Errorf("resource %s was utilized in %d job(s) previously and it can not be deleted. You can set this resource inactive if you do not want to utilize it any more",
-			name, len(utilizations))
-		rm.lm.Log("warn", err.Error(), "resources")
-		return err
-	}
 
 	// Check if there are existing prices defined using this resource
 	priceManager := price.NewPriceManager()

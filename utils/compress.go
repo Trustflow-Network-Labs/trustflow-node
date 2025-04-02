@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Compress compresses a file or directory into a .tar.gz archive.
@@ -50,23 +51,25 @@ func Compress(sourcePath, outputFile string) error {
 
 // addFileToTar adds a file or directory to the tar archive
 func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir string) error {
-	relPath, err := filepath.Rel(baseDir, filePath)
+	var link string
+	if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
+		var err error
+		if link, err = os.Readlink(filePath); err != nil {
+			return err
+		}
+	}
+
+	header, err := tar.FileInfoHeader(fi, link)
 	if err != nil {
 		return err
 	}
 
-	header, err := tar.FileInfoHeader(fi, filePath)
-	if err != nil {
-		return err
-	}
-	header.Name = relPath // Ensure relative path is stored
-
+	header.Name = filepath.Join(baseDir, strings.TrimPrefix(filePath, baseDir))
 	if err := tw.WriteHeader(header); err != nil {
 		return err
 	}
 
-	// If directory, no need to copy contents
-	if fi.IsDir() {
+	if !fi.Mode().IsRegular() { // Skip non-regular files (directories, symlinks, etc.)
 		return nil
 	}
 
@@ -76,7 +79,9 @@ func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir strin
 	}
 	defer srcFile.Close()
 
-	_, err = io.Copy(tw, srcFile)
+	// Create a buffer for io.CopyBuffer()
+	buf := make([]byte, 32*1024)
+	_, err = io.CopyBuffer(tw, srcFile, buf)
 	return err
 }
 
