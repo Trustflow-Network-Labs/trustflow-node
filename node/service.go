@@ -414,10 +414,23 @@ func (sm *ServiceManager) removeData(id int64) error {
 		return err
 	}
 
-	err = os.RemoveAll("./local_storage/" + data.Path)
+	// Check if same data is used by other services
+	var no int64 = 0
+	row := db.QueryRowContext(context.Background(), "select count(id) from data_service_details where path = ?;", data.Path)
+
+	err = row.Scan(&no)
 	if err != nil {
-		sm.lm.Log("error", err.Error(), "services")
+		sm.lm.Log("debug", err.Error(), "servics")
 		return err
+	}
+
+	if no == 1 {
+		// Delete the data only if this is the only service using the data
+		err = os.RemoveAll("./local_storage/" + data.Path)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "services")
+			return err
+		}
 	}
 
 	_, err = db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)

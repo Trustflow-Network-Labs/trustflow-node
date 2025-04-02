@@ -905,7 +905,7 @@ func (mm *MenuManager) services() {
 				mm.sm.Remove(id)
 				continue
 			}
-			if sfcResult == "N" {
+			if strings.ToLower(sfcResult) == "n" {
 				// Add service price
 				err = mm.addServicePrice(id)
 				if err != nil {
@@ -1025,7 +1025,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 			fmt.Printf("Prompt failed %v\n", err)
 			return err
 		}
-		if lmResult == "y" {
+		if strings.ToLower(lmResult) == "y" {
 			mm.printServices(sm, offset+limit, limit)
 		}
 	}
@@ -1057,7 +1057,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 	// Get resource price
 	rpPrompt := promptui.Prompt{
 		Label:       "Service resource price",
-		Default:     "",
+		Default:     "1.00",
 		Validate:    mm.vm.IsFloat64,
 		AllowEdit:   true,
 		HideEntered: false,
@@ -1077,7 +1077,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 	// Get resource price charging interval in hours
 	rpcPrompt := promptui.Prompt{
 		Label:       "Service resource charging interval [hours]",
-		Default:     "",
+		Default:     "0.00",
 		Validate:    mm.vm.IsFloat64,
 		AllowEdit:   true,
 		HideEntered: false,
@@ -1096,8 +1096,8 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 
 	// Get resource price normalization factor
 	rpnPrompt := promptui.Prompt{
-		Label:       "Service resource price normalization factor (default 1.00)",
-		Default:     "",
+		Label:       "Service resource price normalization factor",
+		Default:     "1.00",
 		Validate:    mm.vm.IsFloat64,
 		AllowEdit:   true,
 		HideEntered: false,
@@ -1145,7 +1145,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		mm.lm.Log("error", err.Error(), "menu")
 		return err
 	}
-	if srmResult == "y" {
+	if strings.ToLower(srmResult) == "y" {
 		// Add another service price
 		return mm.addServicePrice(id)
 	}
