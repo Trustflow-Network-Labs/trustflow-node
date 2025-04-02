@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Compress compresses a file or directory into a .tar.gz archive.
@@ -36,6 +35,7 @@ func Compress(sourcePath, outputFile string) error {
 	baseDir := filepath.Dir(sourcePath)
 	if info.IsDir() {
 		baseDir = filepath.Clean(sourcePath)
+		sourcePath = filepath.Clean(sourcePath) // Ensure sourcePath is properly set
 	}
 
 	// Walk through all files in the directory
@@ -64,7 +64,12 @@ func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir strin
 		return err
 	}
 
-	header.Name = filepath.Join(baseDir, strings.TrimPrefix(filePath, baseDir))
+	relPath, err := filepath.Rel(filepath.Dir(baseDir), filePath)
+	if err != nil {
+		return err
+	}
+	header.Name = relPath
+
 	if err := tw.WriteHeader(header); err != nil {
 		return err
 	}
@@ -118,7 +123,8 @@ func Uncompress(archivePath, targetDir string) error {
 			if err := os.MkdirAll(targetPath, 0755); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
-		case tar.TypeReg:
+		case tar.TypeReg, tar.TypeSymlink:
+
 			// Ensure parent directories exist
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return fmt.Errorf("failed to create parent directories: %w", err)
