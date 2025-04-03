@@ -103,18 +103,40 @@ INSERT INTO currencies ("symbol", "currency") VALUES ('AED', 'Dirham');
 
 		createResourcesTableSql := `
 CREATE TABLE IF NOT EXISTS resources (
-	"resource" VARCHAR(255) PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY,
+	"resource_group" VARCHAR(255) NOT NULL,
+	"resource" VARCHAR(255) NOT NULL,
+	"resource_unit" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT NULL,
 	"active" BOOLEAN DEFAULT TRUE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS resources_resource_idx ON resources ("resource");
+CREATE UNIQUE INDEX IF NOT EXISTS resources_id_idx ON resources ("id");
 
-INSERT INTO resources ("resource") VALUES ('Data');
-INSERT INTO resources ("resource") VALUES ('CPU');
-INSERT INTO resources ("resource") VALUES ('Memory');
-INSERT INTO resources ("resource") VALUES ('Disk space');
-INSERT INTO resources ("resource") VALUES ('Ingress');
-INSERT INTO resources ("resource") VALUES ('Egress');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'vCPU (Virtual CPU)', 'core-second');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'vCPU (Virtual CPU)', 'core-minute');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'vCPU (Virtual CPU)', 'core-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'GPU (Graphics Processing Unit)', 'GPU-second');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'GPU (Graphics Processing Unit)', 'GPU-minute');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Compute Resources (CPU & GPU)', 'GPU (Graphics Processing Unit)', 'GPU-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Memory (RAM)', 'RAM (Random Access Memory)', 'MB-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Memory (RAM)', 'RAM (Random Access Memory)', 'GB-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Storage', 'Block Storage (SSD, HDD)', 'GB-month');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Storage', 'Block Storage (SSD, HDD)', 'GB-year');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Storage', 'Object Storage (S3-like storage)', 'GB-month');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Storage', 'Object Storage (S3-like storage)', 'GB-year');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Network Traffic', 'Ingress', 'GB');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Network Traffic', 'Egress', 'GB');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Execution Time', 'Docker Container Execution', 'container-second');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Execution Time', 'Docker Container Execution', 'container-minute');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Execution Time', 'Docker Container Execution', 'container-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Execution Time', 'WASM Execution / Standalone executable', 'millisecond');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Execution Time', 'WASM Execution / Standalone executable', 'second');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Data Transactions', 'Files, Data Retrieval (Documents, API calls, smart contract queries, etc.)', 'request');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Data Transactions', 'Data Hosting (Data made available for a certain time)', 'GB-hour');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Data Transactions', 'Data Hosting (Data made available for a certain time)', 'GB-day');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Data Transactions', 'Data Hosting (Data made available for a certain time)', 'GB-month');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Data Transactions', 'Data Hosting (Data made available for a certain time)', 'GB-year');
+INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('Energy Consumption', 'Power/Energy Usage', 'kWh');
 `
 		_, err = db.ExecContext(context.Background(), createResourcesTableSql)
 		if err != nil {
@@ -194,12 +216,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS executable_service_details_id_idx ON executabl
 CREATE TABLE IF NOT EXISTS prices (
 	"id" INTEGER PRIMARY KEY,
 	"service_id" INTEGER NOT NULL,
-	"resource" VARCHAR(255) NOT NULL,
+	"resource_id" INTEGER NOT NULL,
 	"price" DOUBLE PRECISION DEFAULT 0.0,
-	"price_unit_normalizator" DOUBLE PRECISION DEFAULT 1.0,
-	"price_interval" DOUBLE PRECISION DEFAULT 0.0,
 	"currency_symbol" VARCHAR(255) NOT NULL,
-	FOREIGN KEY("resource") REFERENCES resources("resource"),
+	FOREIGN KEY("resource_id") REFERENCES resources("id"),
 	FOREIGN KEY("service_id") REFERENCES services("id"),
 	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol")
 );
@@ -235,10 +255,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"id" INTEGER PRIMARY KEY,
 	"job_id" INTEGER NOT NULL,
-	"resource" VARCHAR(255) NOT NULL,
+	"resource_id" INTEGER NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
 	"timestamp" TEXT NOT NULL,
-	FOREIGN KEY("resource") REFERENCES resources("resource"),
+	FOREIGN KEY("resource_id") REFERENCES resources("id"),
 	FOREIGN KEY("job_id") REFERENCES jobs("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_utilizations ("id");

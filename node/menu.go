@@ -477,11 +477,11 @@ func (mm *MenuManager) resources() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set resource active":
-			// Get resource name
+			// Get resource Id
 			rnPrompt := promptui.Prompt{
-				Label:       "Resource name",
+				Label:       "Resource Id",
 				Default:     "",
-				Validate:    mm.vm.NotEmpty,
+				Validate:    mm.vm.IsInt64,
 				AllowEdit:   true,
 				HideEntered: false,
 				IsConfirm:   false,
@@ -489,20 +489,27 @@ func (mm *MenuManager) resources() {
 			}
 			rnResult, err := rnPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				msg := fmt.Sprintf("\U00002757 Entering resource Id failed: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
 
-			// Set resource active
-			err = mm.rm.SetActive(rnResult)
+			rn, err := mm.tm.ToInt64(rnResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
-			fmt.Printf("\U00002705 Resource %s is set to active\n", rnResult)
+
+			// Set resource active
+			err = mm.rm.SetActive(rn)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource id %d is set to active\n", rn)
 
 			err = mm.printResources(mm.rm)
 			if err != nil {
@@ -510,6 +517,64 @@ func (mm *MenuManager) resources() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set resource inactive":
+			// Get resource Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Resource Id",
+				Default:     "",
+				Validate:    mm.vm.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			rn, err := mm.tm.ToInt64(rnResult)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+
+			// Set resource active
+			err = mm.rm.SetInactive(rn)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource id %d is set to inactive\n", rn)
+
+			err = mm.printResources(mm.rm)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Add resource":
+			// Get resource group name
+			rgPrompt := promptui.Prompt{
+				Label:       "Resource group",
+				Default:     "",
+				Validate:    mm.vm.NotEmpty,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rgResult, err := rgPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering resource group name failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
 			// Get resource name
 			rnPrompt := promptui.Prompt{
 				Label:       "Resource name",
@@ -528,24 +593,9 @@ func (mm *MenuManager) resources() {
 				continue
 			}
 
-			// Set resource active
-			err = mm.rm.SetInactive(rnResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Resource %s is set to inactive\n", rnResult)
-
-			err = mm.printResources(mm.rm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-			}
-		case "Add resource":
-			// Get resource name
-			rnPrompt := promptui.Prompt{
-				Label:       "Resource name",
+			// Get resource unit name
+			ruPrompt := promptui.Prompt{
+				Label:       "Resource unit",
 				Default:     "",
 				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
@@ -553,9 +603,9 @@ func (mm *MenuManager) resources() {
 				IsConfirm:   false,
 				IsVimMode:   false,
 			}
-			rnResult, err := rnPrompt.Run()
+			ruResult, err := ruPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				msg := fmt.Sprintf("\U00002757 Entering resource unit name failed: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
@@ -604,7 +654,7 @@ func (mm *MenuManager) resources() {
 			}
 
 			// Add resource
-			err = mm.rm.Add(rnResult, rdResult, active)
+			err = mm.rm.Add(rgResult, rnResult, ruResult, rdResult, active)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -618,9 +668,9 @@ func (mm *MenuManager) resources() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove resource":
-			// Get resource name
+			// Get resource id
 			rnPrompt := promptui.Prompt{
-				Label:       "Resource name",
+				Label:       "Resource Id",
 				Default:     "",
 				Validate:    mm.vm.NotEmpty,
 				AllowEdit:   true,
@@ -630,20 +680,27 @@ func (mm *MenuManager) resources() {
 			}
 			rnResult, err := rnPrompt.Run()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
+				msg := fmt.Sprintf("\U00002757 Entering resource Id failed: %s", err.Error())
 				fmt.Println(msg)
 				mm.lm.Log("error", msg, "menu")
 				continue
 			}
 
-			// Remove resource
-			err = mm.rm.Remove(rnResult)
+			rn, err := mm.tm.ToInt64(rnResult)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 				continue
 			}
-			fmt.Printf("\U00002705 Resource %s is removed\n", rnResult)
+
+			// Remove resource
+			err = mm.rm.Remove(rn)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Resource id %d is removed\n", rn)
 
 			err = mm.printResources(mm.rm)
 			if err != nil {
@@ -664,9 +721,9 @@ func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
 
 	// Draw table output
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Resource", "Description", "Active"})
+	table.SetHeader([]string{"Id", "Resource Group", "Resource", "Resource Unit", "Active"})
 	for _, resource := range resources {
-		row := []string{resource.Resource, resource.Description.String, fmt.Sprintf("%t", resource.Active)}
+		row := []string{strconv.FormatInt(resource.Id, 10), resource.ResourceGroup, resource.Resource, resource.ResourceUnit, fmt.Sprintf("%t", resource.Active)}
 		table.Append(row)
 	}
 	table.Render() // Prints the table
@@ -679,7 +736,7 @@ func (mm *MenuManager) services() {
 	for {
 		prompt := promptui.Select{
 			Label: "Main \U000025B6 Configure node \U000025B6 Services",
-			Items: []string{"List services", "Show service details", "Set service active", "Set service inactive", "Add service", "Remove service", "Back"},
+			Items: []string{"List services", "Show service details", "Add service", "Set service active", "Set service inactive", "Remove service", "Back"},
 		}
 
 		_, result, err := prompt.Run()
@@ -698,86 +755,6 @@ func (mm *MenuManager) services() {
 				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Show service details":
-		case "Set service active":
-			// Get service Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Service Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Set service active
-			id, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			err = mm.sm.SetActive(id)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
-
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-			}
-		case "Set service inactive":
-			// Get service Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Service Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Set service active
-			id, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			err = mm.sm.SetInactive(id)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
-
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-			}
 		case "Add service":
 			// Get service name
 			snPrompt := promptui.Prompt{
@@ -925,6 +902,86 @@ func (mm *MenuManager) services() {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
 			}
+		case "Set service active":
+			// Get service Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Service Id",
+				Default:     "",
+				Validate:    mm.vm.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set service active
+			id, err := mm.tm.ToInt64(rnResult)
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+			err = mm.sm.SetActive(id)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
+
+			err = mm.printServices(mm.sm)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
+		case "Set service inactive":
+			// Get service Id
+			rnPrompt := promptui.Prompt{
+				Label:       "Service Id",
+				Default:     "",
+				Validate:    mm.vm.IsInt64,
+				AllowEdit:   true,
+				HideEntered: false,
+				IsConfirm:   false,
+				IsVimMode:   false,
+			}
+			rnResult, err := rnPrompt.Run()
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+
+			// Set service active
+			id, err := mm.tm.ToInt64(rnResult)
+			if err != nil {
+				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
+				continue
+			}
+			err = mm.sm.SetInactive(id)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+				continue
+			}
+			fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
+
+			err = mm.printServices(mm.sm)
+			if err != nil {
+				fmt.Printf("\U00002757 %s\n", err.Error())
+				mm.lm.Log("error", err.Error(), "menu")
+			}
 		case "Remove service":
 			// Get service Id
 			rnPrompt := promptui.Prompt{
@@ -1037,12 +1094,15 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 	fmt.Println("Please add service resource price")
 	// Get resource
 	var rItems []string
+	rItemsMap := make(map[string]int64)
 	resources, err := mm.rm.List()
 	if err != nil {
 		return err
 	}
 	for _, resource := range resources {
-		rItems = append(rItems, resource.Resource)
+		key := fmt.Sprintf("%s [%s]", resource.Resource, resource.ResourceUnit)
+		rItems = append(rItems, key)
+		rItemsMap[key] = resource.Id
 	}
 	rPrompt := promptui.Select{
 		Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Resource",
@@ -1053,6 +1113,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		err = fmt.Errorf("prompt failed: %s", err.Error())
 		return err
 	}
+	r := rItemsMap[rResult]
 
 	// Get resource price
 	rpPrompt := promptui.Prompt{
@@ -1070,46 +1131,6 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		return err
 	}
 	rp, err := mm.tm.ToFloat64(rpResult)
-	if err != nil {
-		return err
-	}
-
-	// Get resource price charging interval in hours
-	rpcPrompt := promptui.Prompt{
-		Label:       "Service resource charging interval [hours]",
-		Default:     "0.00",
-		Validate:    mm.vm.IsFloat64,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	rpcResult, err := rpcPrompt.Run()
-	if err != nil {
-		err = fmt.Errorf("\U00002757 Entering service resource price charging interval failed: %s", err.Error())
-		return err
-	}
-	rpc, err := mm.tm.ToFloat64(rpcResult)
-	if err != nil {
-		return err
-	}
-
-	// Get resource price normalization factor
-	rpnPrompt := promptui.Prompt{
-		Label:       "Service resource price normalization factor",
-		Default:     "1.00",
-		Validate:    mm.vm.IsFloat64,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	rpnResult, err := rpnPrompt.Run()
-	if err != nil {
-		err = fmt.Errorf("\U00002757 Entering service resource price normalization factor failed: %s", err.Error())
-		return err
-	}
-	rpn, err := mm.tm.ToFloat64(rpnResult)
 	if err != nil {
 		return err
 	}
@@ -1133,7 +1154,7 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		return err
 	}
 
-	mm.pm.Add(id, rResult, rp, rpc, rpn, rscResult)
+	mm.pm.Add(id, r, rp, rscResult)
 
 	// Add more resource prices prompt
 	srmPrompt := promptui.Prompt{

@@ -52,7 +52,7 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where currency_symbol = ? limit ? offset ?;",
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where currency_symbol = ? limit ? offset ?;",
 		symbol, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -62,7 +62,7 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.ResourceId, &price.Price, &price.Currency)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -75,11 +75,11 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 }
 
 // Get prices by resource
-func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) ([]node_types.Price, error) {
+func (pm *PriceManager) GetPricesByResourceId(resourceId int64, params ...uint32) ([]node_types.Price, error) {
 	var price node_types.Price
 	var prices []node_types.Price
 
-	if resource == "" {
+	if resourceId <= 0 {
 		msg := "invalid resource"
 		pm.lm.Log("error", msg, "prices")
 		return prices, errors.New(msg)
@@ -104,8 +104,8 @@ func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) (
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where resource = ? limit ? offset ?;",
-		resource, limit, offset)
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where resource_id = ? limit ? offset ?;",
+		resourceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
 		pm.lm.Log("error", msg, "prices")
@@ -114,7 +114,7 @@ func (pm *PriceManager) GetPricesByResource(resource string, params ...uint32) (
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.ResourceId, &price.Price, &price.Currency)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -156,7 +156,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource, currency_symbol, price, price_unit_normalizator, price_interval from prices where service_id = ? limit ? offset ?;",
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where service_id = ? limit ? offset ?;",
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -166,7 +166,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&price.Id, &price.ServiceId, &price.Resource, &price.Currency, &price.Price, &price.PriceUnitNormalizator, &price.PriceInterval)
+		err = rows.Scan(&price.Id, &price.ServiceId, &price.ResourceId, &price.Price, &price.Currency)
 		if err != nil {
 			msg := err.Error()
 			pm.lm.Log("error", msg, "prices")
@@ -179,7 +179,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 }
 
 // Add a price
-func (pm *PriceManager) Add(serviceId int64, resource string, price float64, priceUnitNormalizator float64, priceInterval float64, currency string) (int64, error) {
+func (pm *PriceManager) Add(serviceId int64, resourceId int64, price float64, currency string) (int64, error) {
 	// Create a database connection
 	db, err := pm.sm.CreateConnection()
 	if err != nil {
@@ -189,11 +189,11 @@ func (pm *PriceManager) Add(serviceId int64, resource string, price float64, pri
 	defer db.Close()
 
 	// Add price
-	pm.lm.Log("debug", fmt.Sprintf("add price %.02f %s (each %.02f normalized by %.02f) for service Id %d and service resource %s",
-		price, currency, priceInterval, priceUnitNormalizator, serviceId, resource), "prices")
+	pm.lm.Log("debug", fmt.Sprintf("add price %.02f %s for service Id %d and service resource id %d",
+		price, currency, serviceId, resourceId), "prices")
 
-	result, err := db.ExecContext(context.Background(), "insert into prices (service_id, resource, price, price_unit_normalizator, price_interval, currency_symbol) values (?, ?, ?, ?, ?, ?);",
-		serviceId, resource, price, priceUnitNormalizator, priceInterval, currency)
+	result, err := db.ExecContext(context.Background(), "insert into prices (service_id, resource_id, price, currency_symbol) values (?, ?, ?, ?);",
+		serviceId, resourceId, price, currency)
 	if err != nil {
 		pm.lm.Log("error", err.Error(), "prices")
 		return 0, err
