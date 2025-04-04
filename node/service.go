@@ -541,13 +541,10 @@ func (sm *ServiceManager) SetActive(id int64) error {
 	return nil
 }
 
-func (sm *ServiceManager) LookupRemoteService(serviceName string, serviceDescription string, serviceNodeId string, serviceType string, serviceRepo string) {
+func (sm *ServiceManager) LookupRemoteService(searchPhrases string, serviceType string) {
 	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
-		Name:        serviceName,
-		Description: serviceDescription,
-		NodeId:      serviceNodeId,
-		Type:        serviceType,
-		Repo:        serviceRepo,
+		Phrases: searchPhrases,
+		Type:    serviceType,
 	}
 	BroadcastMessage(sm.p2pm, serviceLookup)
 }
@@ -585,59 +582,21 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		FROM services s
 		WHERE 1`
 
-	// Parse service names (comma delimited) to search for
-	serviceNames := strings.Split(searchService.Name, ",")
-	for i, serviceName := range serviceNames {
-		serviceName = strings.TrimSpace(serviceName)
+	// Parse search phrases (comma delimited) to search for
+	searchPhrases := strings.Split(searchService.Phrases, ",")
+	for i, searchPhrase := range searchPhrases {
+		searchPhrase = strings.TrimSpace(searchPhrase)
 		// Skip if empty string
-		if serviceName == "" {
+		if searchPhrase == "" {
 			continue
 		}
 		// Query for each name provided
 		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (LOWER(s.name) LIKE LOWER('%s')", "%"+serviceName+"%")
+			sql = sql + fmt.Sprintf(" AND (LOWER(s.name) LIKE LOWER('%s') OR LOWER(s.description) LIKE LOWER('%s')", "%"+searchPhrase+"%", "%"+searchPhrase+"%")
 		} else {
-			sql = sql + fmt.Sprintf(" OR LOWER(s.name) LIKE LOWER('%s')", "%"+serviceName+"%")
+			sql = sql + fmt.Sprintf(" OR LOWER(s.name) LIKE LOWER('%s') OR LOWER(s.description) LIKE LOWER('%s')", "%"+searchPhrase+"%", "%"+searchPhrase+"%")
 		}
-		if i >= len(serviceNames)-1 {
-			sql = sql + ")"
-		}
-	}
-
-	// Parse service descriptions (comma delimited) to search for
-	serviceDescriptions := strings.Split(searchService.Description, ",")
-	for i, serviceDescription := range serviceDescriptions {
-		serviceDescription = strings.TrimSpace(serviceDescription)
-		// Skip if empty string
-		if serviceDescription == "" {
-			continue
-		}
-		// Query for each description provided
-		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (LOWER(s.description) LIKE LOWER('%s')", "%"+serviceDescription+"%")
-		} else {
-			sql = sql + fmt.Sprintf(" OR LOWER(s.description) LIKE LOWER('%s')", "%"+serviceDescription+"%")
-		}
-		if i >= len(serviceDescriptions)-1 {
-			sql = sql + ")"
-		}
-	}
-
-	// Parse service identity nodes (comma delimited) to search for
-	serviceNodeIds := strings.Split(searchService.NodeId, ",")
-	for i, serviceNodeId := range serviceNodeIds {
-		serviceNodeId = strings.TrimSpace(serviceNodeId)
-		// Skip if empty string
-		if serviceNodeId == "" {
-			continue
-		}
-		// Query for each node ID provided
-		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (s.node_id = '%s'", serviceNodeId)
-		} else {
-			sql = sql + fmt.Sprintf(" OR s.node_id = '%s'", serviceNodeId)
-		}
-		if i >= len(serviceNodeIds)-1 {
+		if i >= len(searchPhrases)-1 {
 			sql = sql + ")"
 		}
 	}
@@ -657,25 +616,6 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			sql = sql + fmt.Sprintf(" OR s.service_type = '%s'", serviceType)
 		}
 		if i >= len(serviceTypes)-1 {
-			sql = sql + ")"
-		}
-	}
-
-	// Parse repos (comma delimited) to search for
-	serviceRepos := strings.Split(searchService.Repo, ",")
-	for i, serviceRepo := range serviceRepos {
-		serviceRepo = strings.TrimSpace(serviceRepo)
-		// Skip if empty string
-		if serviceRepo == "" {
-			continue
-		}
-		// Query for each repo provided
-		if i == 0 {
-			sql = sql + fmt.Sprintf(" AND (LOWER(s.repo) LIKE LOWER('%s')", "%"+serviceRepo+"%")
-		} else {
-			sql = sql + fmt.Sprintf(" OR LOWER(s.repo) LIKE LOWER('%s')", "%"+serviceRepo+"%")
-		}
-		if i >= len(serviceRepos)-1 {
 			sql = sql + ")"
 		}
 	}
@@ -705,7 +645,6 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	defer rows.Close()
 
 	for rows.Next() {
-		var service node_types.Service
 		var serviceOffer node_types.ServiceOffer
 		err = rows.Scan(&serviceOffer.Id, &serviceOffer.Name, &serviceOffer.Description,
 			&serviceOffer.Type, &serviceOffer.Active)
@@ -715,21 +654,11 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			return nil, err
 		}
 
-		service = node_types.Service{
-			Id:          serviceOffer.Id,
-			Name:        serviceOffer.Name,
-			Description: serviceOffer.Description,
-			Type:        serviceOffer.Type,
-			Active:      serviceOffer.Active,
-		}
-
-		sm.services[service.Id] = &service
-
 		// Query service resources with prices
-		sql = fmt.Sprintf(`SELECT r.name, p.price, p.price_unit_normalizator, p.price_interval, c.currency, c.symbol
+		sql = fmt.Sprintf(`SELECT r.resource_group, r.resource, r.resource_unit, r.description, p.price, c.currency, c.symbol
 			FROM prices p
 			INNER JOIN resources r ON p.resource_id = r.id
-			INNER JOIN currencies c ON p.currency_id = c.id
+			INNER JOIN currencies c ON p.currency_symbol = c.symbol
 			WHERE p.service_id = %d and r.active = true`, serviceOffer.Id)
 
 		rrows, err := db.QueryContext(context.Background(), sql)
@@ -740,12 +669,15 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		}
 		defer rrows.Close()
 
+		// Service host node Id
+		serviceOffer.NodeId = sm.p2pm.h.ID().String()
+
 		var serviceResources []node_types.ServiceResourcesWithPricing
 
 		for rrows.Next() {
 			var serviceResource node_types.ServiceResourcesWithPricing
-			err = rrows.Scan(&serviceResource.ResourceName, &serviceResource.Price, &serviceResource.PriceUnitNormalizator,
-				&serviceResource.PriceInterval, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
+			err = rrows.Scan(&serviceResource.ResourceGroup, &serviceResource.ResourceName, &serviceResource.ResourceUnit, &serviceResource.ResourceDescription,
+				&serviceResource.Price, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
 			if err != nil {
 				msg := err.Error()
 				sm.lm.Log("warn", msg, "services")

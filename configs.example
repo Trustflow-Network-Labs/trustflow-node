@@ -20,3 +20,4 @@ keystore_passphrase = KEYSTORE_PASSPHRASE
 [misc]
 chunk_size = 2048
 pid_path = ./trustflow.pid
+phrase_min_len = 3

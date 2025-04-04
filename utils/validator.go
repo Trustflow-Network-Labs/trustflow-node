@@ -8,15 +8,34 @@ import (
 )
 
 type ValidatorManager struct {
+	cm *ConfigManager
 }
 
 func NewValidatorManager() *ValidatorManager {
-	return &ValidatorManager{}
+	return &ValidatorManager{
+		cm: NewConfigManager(""),
+	}
 }
 
 func (vm *ValidatorManager) NotEmpty(s string) error {
 	if s == "" {
 		return fmt.Errorf("expected non empty input string")
+	}
+	return nil
+}
+
+func (vm *ValidatorManager) MinLen(s string) error {
+	config, err := vm.cm.ReadConfigs()
+	if err != nil {
+		return err
+	}
+	sl := config["phrase_min_len"]
+	il, err := strconv.ParseInt(sl, 10, 64)
+	if err != nil {
+		return err
+	}
+	if len(s) < int(il) {
+		return fmt.Errorf("expected non empty input string of min length %d (got %d)", int(il), len(s))
 	}
 	return nil
 }

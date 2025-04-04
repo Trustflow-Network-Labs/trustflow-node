@@ -100,31 +100,26 @@ type ExecutableService struct {
 
 // Declare search local service type
 type SearchService struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	NodeId      string `json:"node_id"`
-	Type        string `json:"type"`
-	Repo        string `json:"repo"`
-	Active      bool   `json:"active"`
+	Phrases string `json:"phrases"`
+	Type    string `json:"type"`
+	Active  bool   `json:"active"`
 }
 
 // Declare remote service lookup type
 type ServiceLookup struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	NodeId      string `json:"node_id"`
-	Type        string `json:"type"`
-	Repo        string `json:"repo"`
+	Phrases string `json:"phrases"`
+	Type    string `json:"type"`
 }
 
 // Declare service price model type
 type ServiceResourcesWithPricing struct {
-	ResourceName          string  `json:"resource_name"`
-	Price                 float64 `json:"price"`
-	PriceUnitNormalizator float64 `json:"price_unit_normalizator"`
-	PriceInterval         float64 `json:"price_interval"`
-	CurrencyName          string  `json:"currency_name"`
-	CurrencySymbol        string  `json:"currency_symbol"`
+	ResourceGroup       string  `json:"resource_group"`
+	ResourceName        string  `json:"resource_name"`
+	ResourceUnit        string  `json:"resource_unit"`
+	ResourceDescription string  `json:"resource_description"`
+	Price               float64 `json:"price"`
+	CurrencyName        string  `json:"currency_name"`
+	CurrencySymbol      string  `json:"currency_symbol"`
 }
 
 // Declare service offer type
@@ -134,8 +129,6 @@ type ServiceOffer struct {
 	Description       string                        `json:"description"`
 	NodeId            string                        `json:"node_id"`
 	Type              string                        `json:"type"`
-	Path              string                        `json:"path"`
-	Repo              string                        `json:"repo"`
 	Active            bool                          `json:"active"`
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
 }

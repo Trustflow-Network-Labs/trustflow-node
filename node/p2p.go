@@ -941,12 +941,9 @@ func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.Se
 	}
 
 	var searchService node_types.SearchService = node_types.SearchService{
-		Name:        lookup.Name,
-		Description: lookup.Description,
-		NodeId:      lookup.NodeId,
-		Type:        lookup.Type,
-		Repo:        lookup.Repo,
-		Active:      active,
+		Phrases: lookup.Phrases,
+		Type:    lookup.Type,
+		Active:  active,
 	}
 
 	// Search services
