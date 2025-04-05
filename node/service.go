@@ -672,8 +672,6 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		// Service host node Id
 		serviceOffer.NodeId = sm.p2pm.h.ID().String()
 
-		var serviceResources []node_types.ServiceResourcesWithPricing
-
 		for rrows.Next() {
 			var serviceResource node_types.ServiceResourcesWithPricing
 			err = rrows.Scan(&serviceResource.ResourceGroup, &serviceResource.ResourceName, &serviceResource.ResourceUnit, &serviceResource.ResourceDescription,
@@ -683,10 +681,8 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 				sm.lm.Log("warn", msg, "services")
 				continue
 			}
-			serviceResources = append(serviceResources, serviceResource)
+			serviceOffer.ServicePriceModel = append(serviceOffer.ServicePriceModel, serviceResource)
 		}
-
-		serviceOffer.ServicePriceModel = serviceResources
 
 		services = append(services, serviceOffer)
 	}

@@ -113,13 +113,13 @@ type ServiceLookup struct {
 
 // Declare service price model type
 type ServiceResourcesWithPricing struct {
-	ResourceGroup       string  `json:"resource_group"`
-	ResourceName        string  `json:"resource_name"`
-	ResourceUnit        string  `json:"resource_unit"`
-	ResourceDescription string  `json:"resource_description"`
-	Price               float64 `json:"price"`
-	CurrencyName        string  `json:"currency_name"`
-	CurrencySymbol      string  `json:"currency_symbol"`
+	ResourceGroup       string     `json:"resource_group"`
+	ResourceName        string     `json:"resource_name"`
+	ResourceUnit        string     `json:"resource_unit"`
+	ResourceDescription NullString `json:"resource_description"`
+	Price               float64    `json:"price"`
+	CurrencyName        string     `json:"currency_name"`
+	CurrencySymbol      string     `json:"currency_symbol"`
 }
 
 // Declare service offer type

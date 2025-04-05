@@ -33,6 +33,7 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	"github.com/olekukonko/tablewriter"
 )
 
 type P2PManager struct {
@@ -666,7 +667,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 				s.Reset()
 				return
 			}
-			message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
+			message := fmt.Sprintf("Sending chunk size %d completed %s", chunkSize, s.ID())
 			p2pm.lm.Log("debug", message, "p2p")
 
 			if chunkSize == 0 {
@@ -679,7 +680,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 				s.Reset()
 				return
 			}
-			message = fmt.Sprintf("Sending chunk %v ended %s", buffer[:n], s.ID())
+			message = fmt.Sprintf("Sending chunk size %d completed %s", len(buffer[:n]), s.ID())
 			p2pm.lm.Log("debug", message, "p2p")
 
 			pointer += chunkSize
@@ -706,7 +707,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
-		message := fmt.Sprintf("Sending chunk size %d ended %s", chunkSize, s.ID())
+		message := fmt.Sprintf("Sending chunk size %d completed %s", chunkSize, s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		if chunkSize == 0 {
@@ -718,7 +719,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
-		message = fmt.Sprintf("Sending chunk %v ended %s", (b)[pointer:pointer+chunkSize], s.ID())
+		message = fmt.Sprintf("Sending chunk %d completed %s", len((b)[pointer:pointer+chunkSize]), s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		pointer += chunkSize
@@ -752,14 +753,14 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			s.Reset()
 		}
 
-		message = fmt.Sprintf("Received %v of type %d id %d from %s", chunk, streamData.Type, streamData.Id, s.ID())
+		message = fmt.Sprintf("Received chunk size %d of type %d id %d from %s", len(chunk), streamData.Type, streamData.Id, s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		// Concatenate receiving chunk
 		data = append(data, chunk...)
 	}
 
-	message := fmt.Sprintf("Received data %v type from %s is %d, id %d, node %s", data, s.ID(),
+	message := fmt.Sprintf("Received data size %d type from %s is %d, id %d, node %s", len(data), s.ID(),
 		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")))
 	p2pm.lm.Log("debug", message, "p2p")
 
@@ -773,8 +774,11 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
 			p2pm.lm.Log("error", msg, "p2p")
 		}
-		serviceManager := NewServiceManager(p2pm)
-		for i, service := range serviceCatalogue {
+
+		//		serviceManager := NewServiceManager(p2pm)
+		// Draw table output
+		textManager := utils.NewTextManager()
+		for _, service := range serviceCatalogue {
 			// Remote node ID
 			nodeId := service.NodeId
 			localNodeId := s.Conn().LocalPeer().String()
@@ -782,22 +786,30 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			if localNodeId == nodeId {
 				continue
 			}
-			// Delete currently stored service catalogue (if existing)
-			if i == 0 {
-				services, err := serviceManager.GetServicesByNodeId(nodeId)
-				if err != nil {
-					msg := fmt.Sprintf("Error occured whilst looking for existing Service Catalogue of a foreign node %s.\n\n%s", nodeId, err.Error())
-					p2pm.lm.Log("error", msg, "p2p")
+			// If we are in interactive mode print Service Catalogue to CLI
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"Service Id", "Name", "Type"})
+			tableP := tablewriter.NewWriter(os.Stdout)
+			tableP.SetHeader([]string{"Resource", "Resource Unit", "Price", "Currency"})
+			row := []string{fmt.Sprintf("%s-%d", service.NodeId, service.Id), textManager.Shorten(service.Name, 17, 0), service.Type}
+			table.Append(row)
+			table.Render() // Prints the table
+			fmt.Printf("Description: %s\n", service.Description)
+			if len(service.ServicePriceModel) > 0 {
+				fmt.Println("Price model:")
+				for i, priceComponent := range service.ServicePriceModel {
+					fmt.Printf("%d. Resource: %s\n   Resource Unit: %s\n   Price: %.02f %s\n\n",
+						i+1, priceComponent.ResourceName, priceComponent.ResourceUnit, priceComponent.Price, priceComponent.CurrencySymbol)
 				}
-				for _, service := range services {
-					serviceManager.Remove(service.Id)
-					msg := fmt.Sprintf("Removing service %s of a foreign node %s.\n\n", service.Name, nodeId)
-					p2pm.lm.Log("debug", msg, "p2p")
-				}
+			} else {
+				fmt.Println("Price: FREE")
 			}
-			// Store newly received Service Catalogue
-			serviceManager.Add(service.Name, service.Description, service.Type, service.Active)
+			fmt.Print("---\n\n")
+
+			// TODO, Otherwise, if we are connected with other client (web, gui) push message
+
 		}
+
 	case 1:
 		// Sent data to the remote peer
 	case 2:
@@ -840,7 +852,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 		topicKey := config["topic_name_prefix"] + "lookup.service"
 		topic = p2pm.topicsSubscribed[topicKey]
 
-		fmt.Printf("topicKey: %s,\ntopic: %v\ntopicsSubscribed: %v\n", topicKey, topic, p2pm.topicsSubscribed)
+		// /fmt.Printf("topicKey: %s,\ntopic: %v\ntopicsSubscribed: %v\n", topicKey, topic, p2pm.topicsSubscribed)
 	default:
 		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -872,16 +884,16 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 		}
 
 		message := string(m.Message.Data)
-		fmt.Println(m.ReceivedFrom, " Data: ", message)
+		//		fmt.Println(m.ReceivedFrom, " Data: ", message)
 		p2pm.lm.Log("debug", fmt.Sprintf("Message %s received from %s", message, m.ReceivedFrom), "p2p")
 
 		topic := string(*m.Topic)
-		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
+		//		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
 		p2pm.lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
 
 		peerId := m.ReceivedFrom
 		p := peerId.String()
-		fmt.Println(m.ReceivedFrom, " Peer: ", p)
+		//		fmt.Println(m.ReceivedFrom, " Peer: ", p)
 		p2pm.lm.Log("debug", fmt.Sprintf("From peer %s", p), "p2p")
 
 		switch topic {
