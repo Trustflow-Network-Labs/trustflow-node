@@ -33,10 +33,10 @@ import (
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	"github.com/olekukonko/tablewriter"
 )
 
 type P2PManager struct {
+	daemon             bool
 	topicNames         []string
 	completeTopicNames []string
 	topicsSubscribed   map[string]*pubsub.Topic
@@ -49,6 +49,7 @@ type P2PManager struct {
 
 func NewP2PManager() *P2PManager {
 	return &P2PManager{
+		daemon:             false,
 		topicNames:         []string{"lookup.service", "dummy.service"},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
@@ -76,6 +77,7 @@ func (p2pm *P2PManager) SetHostContext(c context.Context, hst host.Host) {
 }
 
 func (p2pm *P2PManager) Start(port uint16, daemon bool) {
+	p2pm.daemon = daemon
 
 	// Read configs
 	configManager := utils.NewConfigManager("")
@@ -775,9 +777,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			p2pm.lm.Log("error", msg, "p2p")
 		}
 
-		//		serviceManager := NewServiceManager(p2pm)
 		// Draw table output
-		textManager := utils.NewTextManager()
 		for _, service := range serviceCatalogue {
 			// Remote node ID
 			nodeId := service.NodeId
@@ -787,27 +787,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				continue
 			}
 			// If we are in interactive mode print Service Catalogue to CLI
-			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"Service Id", "Name", "Type"})
-			tableP := tablewriter.NewWriter(os.Stdout)
-			tableP.SetHeader([]string{"Resource", "Resource Unit", "Price", "Currency"})
-			row := []string{fmt.Sprintf("%s-%d", service.NodeId, service.Id), textManager.Shorten(service.Name, 17, 0), service.Type}
-			table.Append(row)
-			table.Render() // Prints the table
-			fmt.Printf("Description: %s\n", service.Description)
-			if len(service.ServicePriceModel) > 0 {
-				fmt.Println("Price model:")
-				for i, priceComponent := range service.ServicePriceModel {
-					fmt.Printf("%d. Resource: %s\n   Resource Unit: %s\n   Price: %.02f %s\n\n",
-						i+1, priceComponent.ResourceName, priceComponent.ResourceUnit, priceComponent.Price, priceComponent.CurrencySymbol)
-				}
+			if !p2pm.daemon {
+				menuManager := NewMenuManager(p2pm)
+				menuManager.printOfferedService(service)
 			} else {
-				fmt.Println("Price: FREE")
+				// TODO, Otherwise, if we are connected with other client (web, gui) push message
 			}
-			fmt.Print("---\n\n")
-
-			// TODO, Otherwise, if we are connected with other client (web, gui) push message
-
 		}
 
 	case 1:
@@ -884,17 +869,11 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 		}
 
 		message := string(m.Message.Data)
-		//		fmt.Println(m.ReceivedFrom, " Data: ", message)
-		p2pm.lm.Log("debug", fmt.Sprintf("Message %s received from %s", message, m.ReceivedFrom), "p2p")
+		peerId := m.GetFrom()
+		p2pm.lm.Log("debug", fmt.Sprintf("Message %s received from %s via %s", message, peerId.String(), m.ReceivedFrom), "p2p")
 
 		topic := string(*m.Topic)
-		//		fmt.Println(m.ReceivedFrom, " Topic: ", topic)
 		p2pm.lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
-
-		peerId := m.ReceivedFrom
-		p := peerId.String()
-		//		fmt.Println(m.ReceivedFrom, " Peer: ", p)
-		p2pm.lm.Log("debug", fmt.Sprintf("From peer %s", p), "p2p")
 
 		switch topic {
 		case config["topic_name_prefix"] + "lookup.service":
@@ -905,7 +884,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			}
 
 			// Retrieve known multiaddresses from the peerstore
-			peerAddrInfo, err := p2pm.GeneratePeerFromId(p)
+			peerAddrInfo, err := p2pm.GeneratePeerFromId(peerId.String())
 			if err != nil {
 				msg := err.Error()
 				p2pm.lm.Log("error", msg, "p2p")

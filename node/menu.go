@@ -8,6 +8,7 @@ import (
 
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
 	"github.com/adgsm/trustflow-node/currency"
+	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/price"
 	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
@@ -76,7 +77,7 @@ func (mm *MenuManager) main() {
 }
 
 // Print find services sub-menu
-func (mm *MenuManager) findServices() {
+func (mm *MenuManager) findServices() error {
 	frsPrompt := promptui.Prompt{
 		Label:       "Search phrases: (comma-separated)",
 		Default:     "",
@@ -91,7 +92,7 @@ func (mm *MenuManager) findServices() {
 		msg := fmt.Sprintf("Entering search phrases failed: %s", err.Error())
 		fmt.Println(msg)
 		mm.lm.Log("error", msg, "menu")
-		return
+		return err
 	}
 
 	fmt.Println("Select service type:")
@@ -103,13 +104,35 @@ func (mm *MenuManager) findServices() {
 	_, rResult, err := rPrompt.Run()
 	if err != nil {
 		fmt.Printf("prompt failed: %s\n", err.Error())
-		return
+		return err
 	}
 	if rResult == "ANY" {
 		rResult = ""
 	}
 
-	mm.sm.LookupRemoteService(snResult, rResult)
+	return mm.sm.LookupRemoteService(snResult, rResult)
+}
+
+func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
+	fmt.Printf("\n")
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Service Id", "Name", "Type"})
+	tableP := tablewriter.NewWriter(os.Stdout)
+	tableP.SetHeader([]string{"Resource", "Resource Unit", "Price", "Currency"})
+	row := []string{fmt.Sprintf("%s-%d", service.NodeId, service.Id), mm.tm.Shorten(service.Name, 17, 0), service.Type}
+	table.Append(row)
+	table.Render() // Prints the table
+	fmt.Printf("---\nDescription: %s\n", service.Description)
+	fmt.Print("---\nPrice model:")
+	if len(service.ServicePriceModel) > 0 {
+		for i, priceComponent := range service.ServicePriceModel {
+			fmt.Printf("\n%d. %s\n   %.02f %s / per %s",
+				i+1, priceComponent.ResourceName, priceComponent.Price, priceComponent.CurrencySymbol, priceComponent.ResourceUnit)
+		}
+	} else {
+		fmt.Println(" FREE")
+	}
+	fmt.Print("\n------------\nPress any key to continue...\n")
 }
 
 // Print configure node sub-menu

@@ -541,12 +541,12 @@ func (sm *ServiceManager) SetActive(id int64) error {
 	return nil
 }
 
-func (sm *ServiceManager) LookupRemoteService(searchPhrases string, serviceType string) {
+func (sm *ServiceManager) LookupRemoteService(searchPhrases string, serviceType string) error {
 	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
 		Phrases: searchPhrases,
 		Type:    serviceType,
 	}
-	BroadcastMessage(sm.p2pm, serviceLookup)
+	return BroadcastMessage(sm.p2pm, serviceLookup)
 }
 
 func (sm *ServiceManager) SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
