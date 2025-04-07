@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"slices"
 
@@ -406,12 +407,22 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
-func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int64) error {
+func (p2pm *P2PManager) RequestService(peer peer.AddrInfo, serviceId int64, inputNodeIds []string, outputNodeIds []string, constr string, constrDet string) error {
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
 		p2pm.lm.Log("error", msg, "p2p")
 		return err
+	}
+
+	serviceRequest := node_types.ServiceRequest{
+		NodeId:                    peer.ID.String(),
+		ServiceId:                 serviceId,
+		OrderingNodeId:            p2pm.h.ID().String(),
+		InputNodeIds:              inputNodeIds,
+		OutputNodeIds:             outputNodeIds,
+		ExecutionConstraint:       constr,
+		ExecutionConstraintDetail: constrDet,
 	}
 
 	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
@@ -420,62 +431,106 @@ func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int64) error {
 		s.Reset()
 		return err
 	} else {
-		var str []byte = []byte(p2pm.h.ID().String())
-		var str255 [255]byte
-		copy(str255[:], str)
-		go p2pm.streamProposal(s, str255, 1, jobId)
+		err = StreamData(p2pm, peer, &serviceRequest, nil)
+		if err != nil {
+			msg := err.Error()
+			p2pm.lm.Log("error", msg, "p2p")
+			return err
+		}
 	}
 
 	return nil
 }
 
-func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T) error {
-	_, err := p2pm.ConnectNode(peer)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
+/*
+	func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int64) error {
+		_, err := p2pm.ConnectNode(peer)
+		if err != nil {
+			msg := err.Error()
+			p2pm.lm.Log("error", msg, "p2p")
+			return err
+		}
 
-	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
+		s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return err
+		} else {
+			var str []byte = []byte(p2pm.h.ID().String())
+			var str255 [255]byte
+			copy(str255[:], str)
+			go p2pm.streamProposal(s, str255, 1)
+		}
+
+		return nil
+	}
+*/
+func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStream network.Stream) error {
+	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return err
-	} else {
-		t := uint16(0)
-		id := int64(0)
-		switch v := any(data).(type) {
-		case *[]node_types.ServiceOffer:
-			t = 0
-			id = 0
-		case *[]byte:
-			t = 2
-			id = 0
-		case *os.File:
-			t = 3
-			id = 0
-		default:
-			msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
-			p2pm.lm.Log("error", msg, "p2p")
-			s.Reset()
-			return errors.New(msg)
-		}
-
-		var str []byte = []byte(p2pm.h.ID().String())
-		var str255 [255]byte
-		copy(str255[:], str)
-		go p2pm.streamProposal(s, str255, t, id)
-		go sendStream(p2pm, s, data)
 	}
+
+	var s network.Stream
+
+	if existingStream != nil {
+		// Try writing a ping to see if stream is alive
+		existingStream.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+		_, err := existingStream.Write([]byte{})
+		existingStream.SetWriteDeadline(time.Time{}) // reset deadline
+
+		if err == nil {
+			// Stream is alive, reuse it
+			s = existingStream
+			p2pm.lm.Log("debug", fmt.Sprintf("Reusing existing stream with %s", peer.ID), "p2p")
+		} else {
+			// Stream is broken, discard and create a new one
+			p2pm.lm.Log("debug", fmt.Sprintf("Existing stream with %s is not usable: %v", peer.ID, err), "p2p")
+		}
+	}
+
+	if s == nil {
+		s, err = p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			return err
+		}
+	}
+
+	t := uint16(0)
+	switch v := any(data).(type) {
+	case *[]node_types.ServiceOffer:
+		t = 0
+	case *[]byte:
+		t = 2
+	case *os.File:
+		t = 3
+	case *node_types.ServiceRequest:
+		t = 4
+	case *node_types.ServiceResponse:
+		t = 5
+	default:
+		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
+		p2pm.lm.Log("error", msg, "p2p")
+		s.Reset()
+		return errors.New(msg)
+	}
+
+	var str []byte = []byte(p2pm.h.ID().String())
+	var str255 [255]byte
+	copy(str255[:], str)
+	go p2pm.streamProposal(s, str255, t)
+	go sendStream(p2pm, s, data)
 
 	return nil
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, id int64) {
+func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
 		Type:   t,
-		Id:     id,
 		PeerId: p,
 	}
 
@@ -484,12 +539,11 @@ func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, 
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
-	message := fmt.Sprintf("Sending stream proposal %d (%d) has ended in stream %s", streamData.Type, streamData.Id, s.ID())
+	message := fmt.Sprintf("Sending stream proposal type %d is completed in stream %s", streamData.Type, s.ID())
 	p2pm.lm.Log("debug", message, "p2p")
 }
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
-
 	// Prepare to read the stream data
 	var streamData node_types.StreamData
 	err := binary.Read(s, binary.BigEndian, &streamData)
@@ -498,14 +552,14 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		s.Reset()
 	}
 
-	message := fmt.Sprintf("Received stream data type %d, id %d from %s in stream %s",
-		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
+	message := fmt.Sprintf("Received stream data type %d from %s in stream %s",
+		streamData.Type, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
 	p2pm.lm.Log("debug", message, "p2p")
 
 	// Check what the stream proposal is
 	switch streamData.Type {
-	case 0, 2, 3:
-		// Request to receive a Service Catalogue from the remote peer
+	case 0, 2, 3, 4, 5:
+		// Request to receive a Service Offer from the remote peer
 		// Check settings, do we want to accept receiving service catalogues and updates
 		accepted := p2pm.streamProposalAssessment(streamData.Type)
 		if accepted {
@@ -519,8 +573,8 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		// Check settings, do we want to accept sending data
 		accepted := p2pm.streamProposalAssessment(streamData.Type)
 		if accepted {
-			jobManager := NewJobManager(p2pm)
-			go jobManager.RunJob(streamData.Id)
+			//			jobManager := NewJobManager(p2pm)
+			//			go jobManager.RunJob(streamData.Id)
 			s.Reset()
 		} else {
 			s.Reset()
@@ -553,6 +607,14 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 		// Request to receive a file from the remote peer
 		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_file")
+	case 4:
+		// Request to receive a Service Request from the remote peer
+		// Check settings
+		accepted = settingsManager.ReadBoolSetting("accept_service_request")
+	case 5:
+		// Request to receive a Service Response from the remote peer
+		// Check settings
+		accepted = settingsManager.ReadBoolSetting("accept_service_response")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		p2pm.lm.Log("debug", message, "p2p")
@@ -624,7 +686,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	}
 
 	switch v := any(data).(type) {
-	case *[]node_types.ServiceOffer:
+	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse:
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
@@ -755,30 +817,32 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			s.Reset()
 		}
 
-		message = fmt.Sprintf("Received chunk size %d of type %d id %d from %s", len(chunk), streamData.Type, streamData.Id, s.ID())
+		message = fmt.Sprintf("Received chunk size %d of type %d from %s", len(chunk), streamData.Type, s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		// Concatenate receiving chunk
 		data = append(data, chunk...)
 	}
 
-	message := fmt.Sprintf("Received data size %d type from %s is %d, id %d, node %s", len(data), s.ID(),
-		streamData.Type, streamData.Id, string(bytes.Trim(streamData.PeerId[:], "\x00")))
+	message := fmt.Sprintf("Received complete data size %d in stream %s of type %d from %s", len(data), s.ID(),
+		streamData.Type, string(bytes.Trim(streamData.PeerId[:], "\x00")))
 	p2pm.lm.Log("debug", message, "p2p")
 
 	// Determine data type
 	switch streamData.Type {
 	case 0:
-		// Received a Service Catalogue from the remote peer
-		var serviceCatalogue []node_types.ServiceOffer
-		err := json.Unmarshal(data, &serviceCatalogue)
+		// Received a Service Offer from the remote peer
+		var serviceOffer []node_types.ServiceOffer
+		err := json.Unmarshal(data, &serviceOffer)
 		if err != nil {
-			msg := fmt.Sprintf("Could not load received binary stream into a Service Catalogue struct.\n\n%s", err.Error())
+			msg := fmt.Sprintf("Could not load received binary stream into a Service Offer struct.\n\n%s", err.Error())
 			p2pm.lm.Log("error", msg, "p2p")
+			s.Reset()
+			return
 		}
 
 		// Draw table output
-		for _, service := range serviceCatalogue {
+		for _, service := range serviceOffer {
 			// Remote node ID
 			nodeId := service.NodeId
 			localNodeId := s.Conn().LocalPeer().String()
@@ -786,7 +850,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			if localNodeId == nodeId {
 				continue
 			}
-			// If we are in interactive mode print Service Catalogue to CLI
+			// If we are in interactive mode print Service Offer to CLI
 			if !p2pm.daemon {
 				menuManager := NewMenuManager(p2pm)
 				menuManager.printOfferedService(service)
@@ -801,6 +865,137 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		// Received binary stream from the remote peer
 	case 3:
 		// Received a file from the remote peer
+	case 4:
+		// Received a Service Request from the remote peer
+		var serviceRequest node_types.ServiceRequest
+
+		peerId := s.Conn().RemotePeer()
+		peer, err := p2pm.GeneratePeerFromId(peerId.String())
+		if err != nil {
+			msg := err.Error()
+			p2pm.lm.Log("error", msg, "p2p")
+			s.Close()
+			return
+		}
+
+		err = json.Unmarshal(data, &serviceRequest)
+		if err != nil {
+			msg := fmt.Sprintf("Could not load received binary stream into a Service Request struct.\n\n%s", err.Error())
+			p2pm.lm.Log("error", msg, "p2p")
+			s.Close()
+			return
+		}
+
+		serviceResponse := node_types.ServiceResponse{
+			JobId:                     int64(0),
+			Accepted:                  false,
+			Message:                   "",
+			NodeId:                    serviceRequest.NodeId,
+			ServiceId:                 serviceRequest.ServiceId,
+			OrderingNodeId:            serviceRequest.OrderingNodeId,
+			InputNodeIds:              serviceRequest.InputNodeIds,
+			OutputNodeIds:             serviceRequest.OutputNodeIds,
+			ExecutionConstraint:       serviceRequest.ExecutionConstraint,
+			ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
+		}
+
+		// Check if it is existing service
+		serviceManager := NewServiceManager(p2pm)
+		err, exist := serviceManager.Exists(serviceRequest.ServiceId)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+
+			serviceResponse.JobId = int64(0)
+			serviceResponse.Accepted = false
+			serviceResponse.Message = err.Error()
+			err = StreamData(p2pm, peer, &serviceResponse, nil)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+
+			s.Close()
+			return
+		}
+		if !exist {
+			msg := fmt.Sprintf("Could not find service Id %d.", serviceRequest.ServiceId)
+			p2pm.lm.Log("error", msg, "p2p")
+
+			serviceResponse.JobId = int64(0)
+			serviceResponse.Accepted = false
+			serviceResponse.Message = msg
+			err = StreamData(p2pm, peer, &serviceResponse, nil)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+
+			s.Close()
+			return
+		}
+
+		// TODO, check if requested service got all its inputs, outputs, constraints requirements
+		// TODO, service price and payment
+
+		// Create a job
+		jobManager := NewJobManager(p2pm)
+		job, err := jobManager.CreateJob(serviceRequest)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+
+			serviceResponse.JobId = int64(0)
+			serviceResponse.Accepted = false
+			serviceResponse.Message = err.Error()
+			err = StreamData(p2pm, peer, &serviceResponse, nil)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+
+			s.Close()
+			return
+		}
+
+		// Send response
+		serviceResponse.JobId = job.Id
+		serviceResponse.Accepted = true
+		serviceResponse.Message = job.Status
+		err = StreamData(p2pm, peer, &serviceResponse, nil)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Close()
+			return
+		}
+
+	case 5:
+		// Received a Service Response from the remote peer
+		var serviceResponse node_types.ServiceResponse
+		err := json.Unmarshal(data, &serviceResponse)
+		if err != nil {
+			msg := fmt.Sprintf("Could not load received binary stream into a Service Response struct.\n\n%s", err.Error())
+			p2pm.lm.Log("error", msg, "p2p")
+			s.Reset()
+			return
+		}
+
+		if !serviceResponse.Accepted {
+			msg := fmt.Sprintf("Service Request (service request Id %d) for node Id %s is not accepted with the following reason: %s.\n\n",
+				serviceResponse.ServiceId, serviceResponse.NodeId, serviceResponse.Message)
+			p2pm.lm.Log("error", msg, "p2p")
+		}
+
+		// Draw table output
+		// If we are in interactive mode print Service Offer to CLI
+		if !p2pm.daemon {
+			menuManager := NewMenuManager(p2pm)
+			menuManager.printServiceResponse(serviceResponse)
+		} else {
+			// TODO, Otherwise, if we are connected with other client (web, gui) push message
+		}
+
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is received", streamData.Type)
 		p2pm.lm.Log("warn", message, "p2p")
@@ -894,7 +1089,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			// Stream back offered services with prices
 			// (only if there we have matching services to offer)
 			if len(services) > 0 {
-				err = StreamData(p2pm, peerAddrInfo, &services)
+				err = StreamData(p2pm, peerAddrInfo, &services, nil)
 				if err != nil {
 					msg := err.Error()
 					p2pm.lm.Log("error", msg, "p2p")

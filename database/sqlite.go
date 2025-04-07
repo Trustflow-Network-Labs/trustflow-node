@@ -235,9 +235,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
-	"ordering_node_id" TEXT NOT NULL,
 	"service_id" INTEGER NOT NULL,
-	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
+	"ordering_node_id" TEXT NOT NULL,
+	"input_node_ids" TEXT DEFAULT '',
+	"output_node_ids" TEXT DEFAULT '',
+	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('NONE', 'INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'NONE',
+	"execution_constraint_detail" TEXT DEFAULT '',
+	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT '',
 	"ended" TEXT DEFAULT '',
 	FOREIGN KEY("service_id") REFERENCES services("id")
@@ -270,53 +274,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 			return nil, err
 		}
 
-		createJobInputsTableSql := `
-CREATE TABLE IF NOT EXISTS job_inputs (
-	"id" INTEGER PRIMARY KEY,
-	"job_execution_node_id" TEXT NOT NULL,
-	"execution_job_id" INTEGER NOT NULL,
-	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'INPUTS READY',
-	"constraints" TEXT DEFAULT '',
-	"job_input_node_id" TEXT DEFAULT NULL,
-	"input_job_id" INTEGER DEFAULT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS job_inputs_id_idx ON job_inputs ("id");
-`
-		_, err = db.ExecContext(context.Background(), createJobInputsTableSql)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `job_inputs` table. (%s)", err.Error())
-			logsManager.Log("error", message, "database")
-			return nil, err
-		}
-
 		createOrchestrationsTableSql := `
-CREATE TABLE IF NOT EXISTS orchestrations (
+CREATE TABLE IF NOT EXISTS workflows (
 	"id" INTEGER PRIMARY KEY,
-	"execution_jobs" TEXT NOT NULL
+	"job_ids" TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS orchestrations_id_idx ON orchestrations ("id");
+CREATE UNIQUE INDEX IF NOT EXISTS workflows_id_idx ON workflows ("id");
 `
 		_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
-			logsManager.Log("error", message, "database")
-			return nil, err
-		}
-
-		createExecutionsTable := `
-CREATE TABLE IF NOT EXISTS executions (
-	"id" INTEGER PRIMARY KEY,
-	"orchestration_id" INTEGER NOT NULL,
-	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'FINISHED') ) NOT NULL DEFAULT 'IDLE',
-	"started" TEXT DEFAULT '',
-	"ended" TEXT DEFAULT '',
-	FOREIGN KEY("orchestration_id") REFERENCES orchestrations("id")
-);
-CREATE UNIQUE INDEX IF NOT EXISTS executions_id_idx ON executions ("id");
-`
-		_, err = db.ExecContext(context.Background(), createExecutionsTable)
-		if err != nil {
-			message := fmt.Sprintf("Can not create `executions` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
@@ -339,6 +306,8 @@ INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VAL
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept sending data to requesting peer', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving binary stream sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving file sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_request', 'Accept Service Requests sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Requests sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_response', 'Accept Service Responses sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Responses sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 `
 		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
 		if err != nil {

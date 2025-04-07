@@ -50,7 +50,7 @@ func (mm *MenuManager) main() {
 	for {
 		prompt := promptui.Select{
 			Label: "Main",
-			Items: []string{"Find services", "Configure node", "Workflows & Jobs", "Exit"},
+			Items: []string{"Find services", "Request services", "Configure node", "Exit"},
 		}
 
 		_, result, err := prompt.Run()
@@ -64,9 +64,10 @@ func (mm *MenuManager) main() {
 		switch result {
 		case "Find services":
 			mm.findServices()
+		case "Request services":
+			mm.requestServices()
 		case "Configure node":
 			mm.configureNode()
-		case "Workflows & Jobs":
 		case "Exit":
 			msg := "Exiting interactive mode..."
 			fmt.Println(msg)
@@ -133,6 +134,110 @@ func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 		fmt.Println(" FREE")
 	}
 	fmt.Print("\n------------\nPress any key to continue...\n")
+}
+
+func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceResponse) {
+	fmt.Printf("\n")
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Node Id", "Service Id", "Job Id", "Message", "Accpeted"})
+	row := []string{serviceResponse.NodeId, fmt.Sprintf("%d", serviceResponse.ServiceId), fmt.Sprintf("%d", serviceResponse.JobId), serviceResponse.Message, fmt.Sprintf("%t", serviceResponse.Accepted)}
+	table.Append(row)
+	table.Render() // Prints the table
+	fmt.Print("\n------------\nPress any key to continue...\n")
+}
+
+// Print request services sub-menu
+func (mm *MenuManager) requestServices() {
+	for {
+		prompt := promptui.Select{
+			Label: "Main \U000025B6 Request services",
+			Items: []string{"Request service and start new workflow", "Request service for existing workflow", "Back"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			continue
+		}
+
+		switch result {
+		case "Request service and start new workflow":
+			mm.requestServiceNewWorkflow()
+		case "Request service for existing workflow":
+			mm.requestServiceExistingWorkflow()
+		case "Back":
+			return
+		}
+	}
+}
+
+// Print request service with new workflow sub-menu
+func (mm *MenuManager) requestServiceNewWorkflow() error {
+	// Start new workflow
+	// TODO, create new workflow
+	sidPrompt := promptui.Prompt{
+		Label:       "Service ID",
+		Default:     "",
+		Validate:    mm.vm.NotEmpty,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	sidResult, err := sidPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering service ID failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	fmt.Println("Select constraint type:")
+	// Get constraint type
+	cPrompt := promptui.Select{
+		Label: "Main \U000025B6 Request service \U000025B6 Constraint Type",
+		Items: []string{"NONE", "INPUTS READY", "DATETIME", "JOBS EXECUTED", "MANUAL START"},
+	}
+	_, cResult, err := cPrompt.Run()
+	if err != nil {
+		fmt.Printf("prompt failed: %s\n", err.Error())
+		return err
+	}
+
+	serviceIdPair := strings.Split(sidResult, "-")
+	if len(serviceIdPair) < 2 {
+		msg := fmt.Sprintf("Invalid Service ID: %s", sidResult)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	peerId := serviceIdPair[0]
+	sid := serviceIdPair[1]
+	peer, err := mm.p2pm.GeneratePeerFromId(peerId)
+	if err != nil {
+		fmt.Printf("Generating peer address info from %s failed: %s\n", peerId, err.Error())
+		return err
+	}
+	serviceId, err := strconv.ParseInt(sid, 10, 32)
+	if err != nil {
+		fmt.Printf("Service Id %s seems to be invalid Id: %s\n", sid, err.Error())
+		return err
+	}
+
+	err = mm.p2pm.RequestService(peer, serviceId, []string{}, []string{mm.p2pm.h.ID().String()}, cResult, "")
+	if err != nil {
+		fmt.Printf("Requesting service failed: %s\n", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+// Print request service with new workflow sub-menu
+func (mm *MenuManager) requestServiceExistingWorkflow() error {
+	return nil
 }
 
 // Print configure node sub-menu

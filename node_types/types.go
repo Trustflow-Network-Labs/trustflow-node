@@ -29,7 +29,6 @@ type Blacklist struct {
 // Declare stream data type
 type StreamData struct {
 	Type   uint16
-	Id     int64
 	PeerId [255]byte
 }
 
@@ -122,6 +121,31 @@ type ServiceResourcesWithPricing struct {
 	CurrencySymbol      string     `json:"currency_symbol"`
 }
 
+// Declare service request type
+type ServiceRequest struct {
+	NodeId                    string   `json:"node_id"`
+	ServiceId                 int64    `json:"service_id"`
+	OrderingNodeId            string   `json:"ordering_node_id"`
+	InputNodeIds              []string `json:"input_node_ids"`
+	OutputNodeIds             []string `json:"output_node_ids"`
+	ExecutionConstraint       string   `json:"execution_constraint"`
+	ExecutionConstraintDetail string   `json:"execution_constraint_detail"`
+}
+
+// Declare response type for a service request
+type ServiceResponse struct {
+	JobId                     int64    `json:"job_id"`
+	Accepted                  bool     `json:"accepted"`
+	Message                   string   `json:"message"`
+	NodeId                    string   `json:"node_id"`
+	ServiceId                 int64    `json:"service_id"`
+	OrderingNodeId            string   `json:"ordering_node_id"`
+	InputNodeIds              []string `json:"input_node_ids"`
+	OutputNodeIds             []string `json:"output_node_ids"`
+	ExecutionConstraint       string   `json:"execution_constraint"`
+	ExecutionConstraintDetail string   `json:"execution_constraint_detail"`
+}
+
 // Declare service offer type
 type ServiceOffer struct {
 	Id                int64                         `json:"id"`
@@ -135,10 +159,14 @@ type ServiceOffer struct {
 
 // Declare job type
 type Job struct {
-	Id             int64     `json:"id"`
-	OrderingNodeId string    `json:"ordering_node_id"`
-	ServiceId      int64     `json:"service_id"`
-	Status         string    `json:"status"`
-	Started        time.Time `json:"started"`
-	Ended          time.Time `json:"ended"`
+	Id                        int64     `json:"id"`
+	ServiceId                 int64     `json:"service_id"`
+	OrderingNodeId            string    `json:"ordering_node_id"`
+	InputNodeIds              []string  `json:"input_node_ids"`
+	OutputNodeIds             []string  `json:"output_node_ids"`
+	ExecutionConstraint       string    `json:"execution_constraint"`
+	ExecutionConstraintDetail string    `json:"execution_constraint_detail"`
+	Status                    string    `json:"status"`
+	Started                   time.Time `json:"started"`
+	Ended                     time.Time `json:"ended"`
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
@@ -199,42 +200,50 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 }
 
 // Create new job
-func (jm *JobManager) CreateJob(orderingNodeId string, serviceId int64) {
+func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest) (node_types.Job, error) {
+	var job node_types.Job
+
 	// Create a database connection
 	db, err := jm.sqlm.CreateConnection()
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
-		return
+		return job, err
 	}
 	defer db.Close()
 
 	// Create new job
-	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNodeId, serviceId), "jobs")
+	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", serviceRequest.OrderingNodeId, serviceRequest.ServiceId), "jobs")
 
-	result, err := db.ExecContext(context.Background(), "insert into jobs (ordering_node_id, service_id) values (?, ?);",
-		orderingNodeId, serviceId)
+	result, err := db.ExecContext(context.Background(), "insert into jobs (service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?);",
+		serviceRequest.ServiceId, serviceRequest.OrderingNodeId, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
-		return
+		return job, err
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
-		return
+		return job, err
 	}
 
-	job := node_types.Job{
-		Id:             id,
-		OrderingNodeId: orderingNodeId,
-		ServiceId:      serviceId,
-		Status:         "IDLE",
+	job = node_types.Job{
+		Id:                        id,
+		ServiceId:                 serviceRequest.ServiceId,
+		OrderingNodeId:            serviceRequest.OrderingNodeId,
+		InputNodeIds:              serviceRequest.InputNodeIds,
+		OutputNodeIds:             serviceRequest.OutputNodeIds,
+		ExecutionConstraint:       serviceRequest.ExecutionConstraint,
+		ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
+		Status:                    "IDLE",
 	}
 
 	jm.jobs[id] = &job
+
+	return job, nil
 }
 
 // Run job from a queue
@@ -394,7 +403,7 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Connect to peer and start streaming
-	err = StreamData(jm.p2pm, p, file)
+	err = StreamData(jm.p2pm, p, file, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
