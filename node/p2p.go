@@ -887,16 +887,10 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 
 		serviceResponse := node_types.ServiceResponse{
-			JobId:                     int64(0),
-			Accepted:                  false,
-			Message:                   "",
-			NodeId:                    serviceRequest.NodeId,
-			ServiceId:                 serviceRequest.ServiceId,
-			OrderingNodeId:            serviceRequest.OrderingNodeId,
-			InputNodeIds:              serviceRequest.InputNodeIds,
-			OutputNodeIds:             serviceRequest.OutputNodeIds,
-			ExecutionConstraint:       serviceRequest.ExecutionConstraint,
-			ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
+			JobId:          int64(0),
+			Accepted:       false,
+			Message:        "",
+			ServiceRequest: serviceRequest,
 		}
 
 		// Check if it is existing service

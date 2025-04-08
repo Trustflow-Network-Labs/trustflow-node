@@ -66,6 +66,7 @@ func (jm *JobManager) JobExists(id int64) (error, bool) {
 // Get job by id
 func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	var job node_types.Job
+	var jobSql node_types.JobSql
 
 	// Check if job exists in a queue
 	err, exists := jm.JobExists(id)
@@ -91,15 +92,16 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	defer db.Close()
 
 	// Get job
-	row := db.QueryRowContext(context.Background(), "select id, ordering_node_id, service_id, status, started, ended from jobs where id = ?;", id)
+	row := db.QueryRowContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
 
-	err = row.Scan(&job)
+	err = row.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("debug", msg, "jobs")
 		return job, err
 	}
 
+	job = jobSql.ToJob()
 	jm.jobs[job.Id] = &job
 
 	return job, nil
@@ -107,6 +109,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 
 // Get jobs by service ID
 func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]node_types.Job, error) {
+	var jobSql node_types.JobSql
 	var job node_types.Job
 	var jobs []node_types.Job
 
@@ -125,17 +128,26 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	}
 	defer db.Close()
 
+	var showOnlyActiveJobs bool = false // set to true for IDLE and RUNNING jobs only
+	if len(params) >= 1 {
+		showOnlyActiveJobs = params[0] != 0
+	}
 	var offset uint32 = 0
 	var limit uint32 = 10
-	if len(params) == 1 {
-		offset = params[0]
-	} else if len(params) >= 2 {
-		offset = params[0]
-		limit = params[1]
+	if len(params) >= 2 {
+		offset = params[1]
+	} else if len(params) >= 3 {
+		offset = params[1]
+		limit = params[2]
 	}
 
 	// Search for jobs
-	rows, err := db.QueryContext(context.Background(), "select id, ordering_node_id, service_id, status, datetime(started), datetime(ended) from jobs where service_id = ? limit ? offset ?;",
+	sqlPatch := ""
+	if showOnlyActiveJobs {
+		sqlPatch = " AND (status = 'IDLE' OR status = 'RUNNING') "
+	}
+
+	rows, err := db.QueryContext(context.Background(), fmt.Sprintf("select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -145,12 +157,13 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&job)
+		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
 			return jobs, err
 		}
+		job = jobSql.ToJob()
 		jobs = append(jobs, job)
 		jm.jobs[job.Id] = &job
 	}
@@ -230,15 +243,19 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest) (node_
 		return job, err
 	}
 
-	job = node_types.Job{
+	jobBase := node_types.JobBase{
 		Id:                        id,
 		ServiceId:                 serviceRequest.ServiceId,
 		OrderingNodeId:            serviceRequest.OrderingNodeId,
-		InputNodeIds:              serviceRequest.InputNodeIds,
-		OutputNodeIds:             serviceRequest.OutputNodeIds,
 		ExecutionConstraint:       serviceRequest.ExecutionConstraint,
 		ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
 		Status:                    "IDLE",
+	}
+
+	job = node_types.Job{
+		JobBase:       jobBase,
+		InputNodeIds:  serviceRequest.InputNodeIds,
+		OutputNodeIds: serviceRequest.OutputNodeIds,
 	}
 
 	jm.jobs[id] = &job

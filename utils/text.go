@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type TextManager struct {
@@ -17,6 +18,17 @@ func (tm *TextManager) Shorten(s string, prefixLen, suffixLen int) string {
 		return s // If the string is already short, return as is
 	}
 	return fmt.Sprintf("%s...%s", s[:prefixLen], s[len(s)-suffixLen:])
+}
+
+func (tm *TextManager) SplitAndTrimCsv(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	ssa := strings.Split(s, ",")
+	for i, ss := range ssa {
+		ssa[i] = strings.TrimSpace(ss)
+	}
+	return ssa
 }
 
 func (tm *TextManager) ToBool(s string) (bool, error) {

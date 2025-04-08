@@ -363,6 +363,19 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 
+	// Get active (IDLE or RUNING) jobs based on this service
+	jobsManager := NewJobManager(sm.p2pm)
+	jobs, err := jobsManager.GetJobsByServiceId(id, 1)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return err
+	}
+	if len(jobs) > 0 {
+		err = fmt.Errorf("there are %d active jobs (in status 'IDLE' or 'RUNNING') depending on this service", len(jobs))
+		sm.lm.Log("error", err.Error(), "services")
+		return err
+	}
+
 	// Delete prices defined for this service (if any)
 	priceManager := price.NewPriceManager()
 	err = priceManager.RemoveForService(id)
@@ -374,7 +387,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 	// Remove service
 	sm.lm.Log("debug", fmt.Sprintf("removing service %d", id), "services")
 
-	// Get service type
+	// Get service
 	service, err := sm.Get(id)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")

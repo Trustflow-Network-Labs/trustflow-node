@@ -1,8 +1,10 @@
 package node_types
 
 import (
+	"strings"
 	"time"
 
+	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -134,16 +136,10 @@ type ServiceRequest struct {
 
 // Declare response type for a service request
 type ServiceResponse struct {
-	JobId                     int64    `json:"job_id"`
-	Accepted                  bool     `json:"accepted"`
-	Message                   string   `json:"message"`
-	NodeId                    string   `json:"node_id"`
-	ServiceId                 int64    `json:"service_id"`
-	OrderingNodeId            string   `json:"ordering_node_id"`
-	InputNodeIds              []string `json:"input_node_ids"`
-	OutputNodeIds             []string `json:"output_node_ids"`
-	ExecutionConstraint       string   `json:"execution_constraint"`
-	ExecutionConstraintDetail string   `json:"execution_constraint_detail"`
+	JobId    int64  `json:"job_id"`
+	Accepted bool   `json:"accepted"`
+	Message  string `json:"message"`
+	ServiceRequest
 }
 
 // Declare service offer type
@@ -157,16 +153,70 @@ type ServiceOffer struct {
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
 }
 
+// Declare job base struct
+type JobBase struct {
+	Id                        int64  `json:"id"`
+	ServiceId                 int64  `json:"service_id"`
+	OrderingNodeId            string `json:"ordering_node_id"`
+	ExecutionConstraint       string `json:"execution_constraint"`
+	ExecutionConstraintDetail string `json:"execution_constraint_detail"`
+	Status                    string `json:"status"`
+}
+
 // Declare job type
 type Job struct {
-	Id                        int64     `json:"id"`
-	ServiceId                 int64     `json:"service_id"`
-	OrderingNodeId            string    `json:"ordering_node_id"`
-	InputNodeIds              []string  `json:"input_node_ids"`
-	OutputNodeIds             []string  `json:"output_node_ids"`
-	ExecutionConstraint       string    `json:"execution_constraint"`
-	ExecutionConstraintDetail string    `json:"execution_constraint_detail"`
-	Status                    string    `json:"status"`
-	Started                   time.Time `json:"started"`
-	Ended                     time.Time `json:"ended"`
+	JobBase
+	InputNodeIds  []string  `json:"input_node_ids"`
+	OutputNodeIds []string  `json:"output_node_ids"`
+	Started       time.Time `json:"started"`
+	Ended         time.Time `json:"ended"`
+}
+
+// Declare job sql type
+type JobSql struct {
+	JobBase
+	InputNodeIds  string `json:"input_node_ids"`
+	OutputNodeIds string `json:"output_node_ids"`
+	Started       string `json:"started"`
+	Ended         string `json:"ended"`
+}
+
+const timeLayout = time.RFC3339
+
+func (js *JobSql) ToJob() Job {
+	var started, ended time.Time
+	tm := utils.NewTextManager()
+
+	if js.Started != "" {
+		started, _ = time.Parse(timeLayout, js.Started)
+	}
+	if js.Ended != "" {
+		ended, _ = time.Parse(timeLayout, js.Ended)
+	}
+
+	return Job{
+		JobBase:       js.JobBase,
+		InputNodeIds:  tm.SplitAndTrimCsv(js.InputNodeIds),
+		OutputNodeIds: tm.SplitAndTrimCsv(js.OutputNodeIds),
+		Started:       started,
+		Ended:         ended,
+	}
+}
+
+func (j *Job) ToJobSql() JobSql {
+	var started, ended string
+
+	if !j.Started.IsZero() {
+		started = j.Started.Format(timeLayout)
+	}
+	if !j.Ended.IsZero() {
+		ended = j.Ended.Format(timeLayout)
+	}
+	return JobSql{
+		JobBase:       j.JobBase,
+		InputNodeIds:  strings.Join(j.InputNodeIds, ","),
+		OutputNodeIds: strings.Join(j.OutputNodeIds, ","),
+		Started:       started,
+		Ended:         ended,
+	}
 }

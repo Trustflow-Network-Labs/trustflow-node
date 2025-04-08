@@ -1112,8 +1112,9 @@ func (mm *MenuManager) services() {
 			}
 			err = mm.sm.Remove(id)
 			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
+				msg := fmt.Sprintf("\U00002757 %s\n", err.Error())
+				fmt.Println(msg)
+				mm.lm.Log("error", msg, "menu")
 				continue
 			}
 			fmt.Printf("\U00002705 Service %s is removed\n", rnResult)
