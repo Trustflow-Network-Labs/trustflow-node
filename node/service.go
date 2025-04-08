@@ -270,7 +270,7 @@ func (sm *ServiceManager) Add(name string, description string, serviceType strin
 }
 
 // Add a data service
-func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
+func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error) {
 	// Create a database connection
 	db, err := sm.sm.CreateConnection()
 	if err != nil {
@@ -280,34 +280,48 @@ func (sm *ServiceManager) AddData(serviceId int64, path string) (int64, error) {
 	defer db.Close()
 
 	// Add data service
-	sm.lm.Log("debug", fmt.Sprintf("add data service path %s to service ID %d", path, serviceId), "services")
+	sm.lm.Log("debug", fmt.Sprintf("add data service path(s) %s to service ID %d", pathss, serviceId), "services")
 
-	// Add file/folder, compress it and make CID
-	// Compress (File/Folder)
-	rnd := "./local_storage/" + utils.RandomString(32)
-	err = utils.Compress(path, rnd)
-	if err != nil {
-		os.RemoveAll(rnd)
-		sm.lm.Log("error", err.Error(), "services")
-		return 0, err
+	var cids []string
+	var cidss string
+	paths := strings.Split(pathss, ",")
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		// Skip if empty string
+		if path == "" {
+			continue
+		}
+
+		// Add file/folder, compress it and make CID
+		// Compress (File/Folder)
+		rnd := "./local_storage/" + utils.RandomString(32)
+		err = utils.Compress(path, rnd)
+		if err != nil {
+			os.RemoveAll(rnd)
+			sm.lm.Log("error", err.Error(), "services")
+			return 0, err
+		}
+
+		// Create CID
+		cid, err := utils.HashFileToCID(rnd)
+		if err != nil {
+			os.RemoveAll(rnd)
+			sm.lm.Log("error", err.Error(), "services")
+			return 0, err
+		}
+
+		err = os.Rename(rnd, "./local_storage/"+cid)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "services")
+			return 0, err
+		}
+
+		cids = append(cids, cid)
 	}
 
-	// Create CID
-	cid, err := utils.HashFileToCID(rnd)
-	if err != nil {
-		os.RemoveAll(rnd)
-		sm.lm.Log("error", err.Error(), "services")
-		return 0, err
-	}
-
-	err = os.Rename(rnd, "./local_storage/"+cid)
-	if err != nil {
-		sm.lm.Log("error", err.Error(), "services")
-		return 0, err
-	}
-
+	cidss = strings.Join(cids, ",")
 	result, err := db.ExecContext(context.Background(), "insert into data_service_details (service_id, path) values (?, ?);",
-		serviceId, cid)
+		serviceId, cidss)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("error", msg, "services")
@@ -414,22 +428,31 @@ func (sm *ServiceManager) removeData(id int64) error {
 		return err
 	}
 
-	// Check if same data is used by other services
-	var no int64 = 0
-	row := db.QueryRowContext(context.Background(), "select count(id) from data_service_details where path = ?;", data.Path)
+	// Split comma separated paths
+	paths := strings.Split(data.Path, ",")
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
 
-	err = row.Scan(&no)
-	if err != nil {
-		sm.lm.Log("debug", err.Error(), "servics")
-		return err
-	}
+		// Check if same data path is used by other services
+		var no int64 = 0
+		row := db.QueryRowContext(context.Background(), "select count(id) from data_service_details where path like ?;", "%"+path+"%")
 
-	if no == 1 {
-		// Delete the data only if this is the only service using the data
-		err = os.RemoveAll("./local_storage/" + data.Path)
+		err = row.Scan(&no)
 		if err != nil {
-			sm.lm.Log("error", err.Error(), "services")
+			sm.lm.Log("debug", err.Error(), "servics")
 			return err
+		}
+
+		if no == 1 {
+			// Delete the data only if this is the only service using the data
+			err = os.RemoveAll("./local_storage/" + path)
+			if err != nil {
+				sm.lm.Log("error", err.Error(), "services")
+				return err
+			}
 		}
 	}
 

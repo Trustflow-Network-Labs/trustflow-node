@@ -226,6 +226,7 @@ func (mm *MenuManager) requestServiceNewWorkflow() error {
 		return err
 	}
 
+	// TODO, collect all inputs
 	err = mm.p2pm.RequestService(peer, serviceId, []string{}, []string{mm.p2pm.h.ID().String()}, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
