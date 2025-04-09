@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/adgsm/trustflow-node/node_types"
 )
 
 // Worker represents a managed goroutine
@@ -15,7 +13,6 @@ type Worker struct {
 	cancel    context.CancelFunc
 	finished  chan struct{}
 	isRunning bool
-	job       node_types.Job
 	mu        sync.RWMutex
 }
 
@@ -34,7 +31,7 @@ func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(id int64, job node_types.Job) error {
+func (wm *WorkerManager) StartWorker(id int64) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -48,7 +45,6 @@ func (wm *WorkerManager) StartWorker(id int64, job node_types.Job) error {
 		ctx:      ctx,
 		cancel:   cancel,
 		finished: make(chan struct{}),
-		job:      job,
 	}
 
 	wm.workers[id] = worker
@@ -112,7 +108,7 @@ func (w *Worker) Start(p2pm *P2PManager) error {
 			default:
 				fmt.Printf("Worker %d: Working...\n", w.ID)
 				jobManager := NewJobManager(p2pm)
-				err := jobManager.StartJob(w.job)
+				err := jobManager.StartJob(w.ID)
 				if err != nil {
 					e = err
 				}

@@ -21,3 +21,6 @@ keystore_passphrase = KEYSTORE_PASSPHRASE
 chunk_size = 2048
 pid_path = ./trustflow.pid
 phrase_min_len = 3
+
+[cron]
+process_job_queue = */10 * * * * *

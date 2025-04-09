@@ -15,6 +15,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.14.0
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/olekukonko/tablewriter v0.0.5
+	github.com/robfig/cron v1.2.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1
 	github.com/zeebo/blake3 v0.2.4

@@ -116,7 +116,7 @@ func Uncompress(archivePath, targetDir string) error {
 		}
 
 		targetPath := filepath.Join(targetDir, header.Name)
-
+		fmt.Printf("header name: %s\n", header.Name)
 		switch header.Typeflag {
 		case tar.TypeDir:
 			// Ensure the directory exists

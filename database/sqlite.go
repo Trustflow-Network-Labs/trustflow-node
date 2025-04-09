@@ -37,13 +37,13 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 	}
 
 	// Init db connection
-	db, err := sql.Open("sqlite", config["database_file"])
-
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", config["database_file"]))
 	if err != nil {
 		message := fmt.Sprintf("Can not create database connection. (%s)", err.Error())
 		logsManager.Log("error", message, "database")
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 
 	if newDB {
 		// Create DB structure if it's not existing

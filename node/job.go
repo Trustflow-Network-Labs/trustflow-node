@@ -75,7 +75,6 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 		jm.lm.Log("error", msg, "jobs")
 		return job, err
 	}
-
 	if !exists {
 		msg := fmt.Sprintf("Job %d does not exists in a queue", id)
 		jm.lm.Log("error", msg, "jobs")
@@ -197,7 +196,7 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	defer db.Close()
 
 	// Update job status
-	_, err = db.ExecContext(context.Background(), "update jobs set status = ? where id = ?);",
+	_, err = db.ExecContext(context.Background(), "update jobs set status = ? where id = ?;",
 		status, id)
 	if err != nil {
 		msg := err.Error()
@@ -263,6 +262,47 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest) (node_
 	return job, nil
 }
 
+// Run jobs from queue
+func (jm *JobManager) ProcessQueue() {
+	var jobSql node_types.JobSql
+	var jobs []node_types.JobSql
+
+	// Create a database connection
+	db, err := jm.sqlm.CreateConnection()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+	defer db.Close()
+
+	// TODO, implement other cases ('NONE'/'IDLE' is just one case)
+	rows, err := db.QueryContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'IDLE';")
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+	//	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return
+		}
+
+		jobs = append(jobs, jobSql)
+	}
+	rows.Close()
+
+	for _, job := range jobs {
+		err = jm.RunJob(job.Id)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return
+		}
+	}
+}
+
 // Run job from a queue
 func (jm *JobManager) RunJob(jobId int64) error {
 	// Get job from a queue
@@ -278,7 +318,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 
 	switch status {
 	case "IDLE":
-		err := jm.wm.StartWorker(jobId, job)
+		err := jm.wm.StartWorker(jobId)
 		if err != nil {
 			// Stop worker
 			serr := jm.wm.StopWorker(jobId)
@@ -289,15 +329,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 			}
 
 			// Log error
-			msg := err.Error()
-			jm.lm.Log("error", msg, "jobs")
-			return err
-		}
-		// Set job status to RUNNING
-		err = jm.UpdateJobStatus(jobId, "RUNNING")
-		if err != nil {
-			msg := err.Error()
-			jm.lm.Log("error", msg, "jobs")
+			jm.lm.Log("error", err.Error(), "jobs")
 			return err
 		}
 		return nil
@@ -313,7 +345,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
 		jm.lm.Log("error", msg, "jobs")
 		return err
-	case "FINISHED":
+	case "COMPLETED":
 		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
 		jm.lm.Log("error", msg, "jobs")
 		return err
@@ -324,7 +356,14 @@ func (jm *JobManager) RunJob(jobId int64) error {
 	}
 }
 
-func (jm *JobManager) StartJob(job node_types.Job) error {
+func (jm *JobManager) StartJob(id int64) error {
+	job, err := jm.GetJob(id)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+
 	// Check underlaying service
 	jm.lm.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
@@ -345,6 +384,14 @@ func (jm *JobManager) StartJob(job node_types.Job) error {
 	// Determine service type
 	serviceType := service.Type
 
+	// Set job status to RUNNING
+	err = jm.UpdateJobStatus(job.Id, "RUNNING")
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+
 	switch serviceType {
 	case "DATA":
 		err := jm.StreamDataJob(job)
@@ -362,21 +409,12 @@ func (jm *JobManager) StartJob(job node_types.Job) error {
 	}
 
 	// Run a job
-	jobId := job.Id
-	jm.lm.Log("debug", fmt.Sprintf("start running job id %d", jobId), "jobs")
+	jm.lm.Log("debug", fmt.Sprintf("start running job id %d", id), "jobs")
 
 	return nil
 }
 
 func (jm *JobManager) StreamDataJob(job node_types.Job) error {
-	// Check if node is running
-	if running := jm.p2pm.IsHostRunning(); !running {
-		msg := "node is not running"
-		err := errors.New(msg)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	}
-
 	// Get data source path
 	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
@@ -391,12 +429,22 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 		return err
 	}
 
+	paths := strings.Split(dataService.Path, ",")
+	if len(paths) > 0 {
+		return jm.StreamDataJobEngine(job, paths, 0)
+	}
+
+	return nil
+}
+
+func (jm *JobManager) StreamDataJobEngine(job node_types.Job, paths []string, index int) error {
+	path := "./local_storage/" + strings.TrimSpace(paths[index])
+
 	// Check if the file exists
-	_, err = os.Stat(dataService.Path)
+	_, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		msg := "file does not exist"
-		err := errors.New(msg)
-		jm.lm.Log("error", msg, "jobs")
+		err = fmt.Errorf("file %s does not exist", path)
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	} else if err != nil {
 		// Handle other potential errors
@@ -405,26 +453,33 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 	}
 
 	// Open the file for reading
-	file, err := os.Open(dataService.Path)
+	file, err := os.Open(path)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-	defer file.Close() // Ensure the file is closed after operations
+	//	defer file.Close() // Ensure the file is closed after operations
 
-	// Get peer
-	p, err := jm.p2pm.GeneratePeerFromId(job.OrderingNodeId)
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
+	receivingNodes := job.OutputNodeIds
+	for _, receivingNode := range receivingNodes {
+		// Get peer
+		p, err := jm.p2pm.GeneratePeerFromId(receivingNode)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+
+		// Connect to peer and start streaming
+		err = StreamData(jm.p2pm, p, file, nil)
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return err
+		}
 	}
 
-	// Connect to peer and start streaming
-	err = StreamData(jm.p2pm, p, file, nil)
-	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
-		return err
+	if len(paths) > index+1 {
+		return jm.StreamDataJobEngine(job, paths, index+1)
 	}
 
 	return nil
