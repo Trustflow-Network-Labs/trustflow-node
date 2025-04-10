@@ -34,9 +34,9 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 		sm:   NewServiceManager(p2pm),
 		vm:   utils.NewValidatorManager(),
 		tm:   utils.NewTextManager(),
-		pm:   price.NewPriceManager(),
-		rm:   resource.NewResourceManager(),
-		cm:   currency.NewCurrencyManager(),
+		pm:   price.NewPriceManager(p2pm.db),
+		rm:   resource.NewResourceManager(p2pm.db),
+		cm:   currency.NewCurrencyManager(p2pm.db),
 	}
 }
 
@@ -291,7 +291,7 @@ func (mm *MenuManager) blacklist() {
 
 		switch result {
 		case "List nodes":
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
 			if err != nil {
 				fmt.Println(err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -338,7 +338,7 @@ func (mm *MenuManager) blacklist() {
 				continue
 			}
 
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")
@@ -378,7 +378,7 @@ func (mm *MenuManager) blacklist() {
 				continue
 			}
 
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
 			if err != nil {
 				fmt.Printf("\U00002757 %s\n", err.Error())
 				mm.lm.Log("error", err.Error(), "menu")

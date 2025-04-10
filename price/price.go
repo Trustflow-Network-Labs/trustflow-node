@@ -2,22 +2,22 @@ package price
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
 type PriceManager struct {
-	sm *database.SQLiteManager
+	db *sql.DB
 	lm *utils.LogsManager
 }
 
-func NewPriceManager() *PriceManager {
+func NewPriceManager(db *sql.DB) *PriceManager {
 	return &PriceManager{
-		sm: database.NewSQLiteManager(),
+		db: db,
 		lm: utils.NewLogsManager(),
 	}
 }
@@ -33,15 +33,6 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 		return prices, errors.New(msg)
 	}
 
-	// Create a database connection
-	db, err := pm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		pm.lm.Log("error", msg, "prices")
-		return prices, err
-	}
-	defer db.Close()
-
 	var offset uint32 = 0
 	var limit uint32 = 10
 	if len(params) == 1 {
@@ -52,7 +43,7 @@ func (pm *PriceManager) GetPricesByCurrency(symbol string, params ...uint32) ([]
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where currency_symbol = ? limit ? offset ?;",
+	rows, err := pm.db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where currency_symbol = ? limit ? offset ?;",
 		symbol, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -85,15 +76,6 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int64, params ...uint32
 		return prices, errors.New(msg)
 	}
 
-	// Create a database connection
-	db, err := pm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		pm.lm.Log("error", msg, "prices")
-		return prices, err
-	}
-	defer db.Close()
-
 	var offset uint32 = 0
 	var limit uint32 = 10
 	if len(params) == 1 {
@@ -104,7 +86,7 @@ func (pm *PriceManager) GetPricesByResourceId(resourceId int64, params ...uint32
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where resource_id = ? limit ? offset ?;",
+	rows, err := pm.db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where resource_id = ? limit ? offset ?;",
 		resourceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -137,15 +119,6 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 		return prices, errors.New(msg)
 	}
 
-	// Create a database connection
-	db, err := pm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		pm.lm.Log("error", msg, "prices")
-		return prices, err
-	}
-	defer db.Close()
-
 	var offset uint32 = 0
 	var limit uint32 = 10
 	if len(params) == 1 {
@@ -156,7 +129,7 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 	}
 
 	// Search for prices
-	rows, err := db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where service_id = ? limit ? offset ?;",
+	rows, err := pm.db.QueryContext(context.Background(), "select id, service_id, resource_id, price, currency_symbol from prices where service_id = ? limit ? offset ?;",
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -180,19 +153,11 @@ func (pm *PriceManager) GetPricesByServiceId(serviceId int64, params ...uint32) 
 
 // Add a price
 func (pm *PriceManager) Add(serviceId int64, resourceId int64, price float64, currency string) (int64, error) {
-	// Create a database connection
-	db, err := pm.sm.CreateConnection()
-	if err != nil {
-		pm.lm.Log("error", err.Error(), "prices")
-		return 0, err
-	}
-	defer db.Close()
-
 	// Add price
 	pm.lm.Log("debug", fmt.Sprintf("add price %.02f %s for service Id %d and service resource id %d",
 		price, currency, serviceId, resourceId), "prices")
 
-	result, err := db.ExecContext(context.Background(), "insert into prices (service_id, resource_id, price, currency_symbol) values (?, ?, ?, ?);",
+	result, err := pm.db.ExecContext(context.Background(), "insert into prices (service_id, resource_id, price, currency_symbol) values (?, ?, ?, ?);",
 		serviceId, resourceId, price, currency)
 	if err != nil {
 		pm.lm.Log("error", err.Error(), "prices")
@@ -210,18 +175,10 @@ func (pm *PriceManager) Add(serviceId int64, resourceId int64, price float64, cu
 
 // Remove prices defined for a service
 func (pm *PriceManager) RemoveForService(serviceId int64) error {
-	// Create a database connection
-	db, err := pm.sm.CreateConnection()
-	if err != nil {
-		pm.lm.Log("error", err.Error(), "prices")
-		return err
-	}
-	defer db.Close()
-
 	// Remove prices
 	pm.lm.Log("debug", fmt.Sprintf("remove prices for service Id %d", serviceId), "prices")
 
-	_, err = db.ExecContext(context.Background(), "delete from prices where service_id = ?;", serviceId)
+	_, err := pm.db.ExecContext(context.Background(), "delete from prices where service_id = ?;", serviceId)
 	if err != nil {
 		pm.lm.Log("error", err.Error(), "prices")
 		return err

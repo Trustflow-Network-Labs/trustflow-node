@@ -2,21 +2,21 @@ package resource_utilization
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
-	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
 type ResourceUtilizationManager struct {
-	sm *database.SQLiteManager
+	db *sql.DB
 	lm *utils.LogsManager
 }
 
-func NewResourceUtilizationManager() *ResourceUtilizationManager {
+func NewResourceUtilizationManager(db *sql.DB) *ResourceUtilizationManager {
 	return &ResourceUtilizationManager{
-		sm: database.NewSQLiteManager(),
+		db: db,
 		lm: utils.NewLogsManager(),
 	}
 }
@@ -31,15 +31,6 @@ func (rum *ResourceUtilizationManager) GetUtilizationsByResource(resource string
 		return utilizations, errors.New(msg)
 	}
 
-	// Create a database connection
-	db, err := rum.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		rum.lm.Log("error", msg, "utilizations")
-		return utilizations, err
-	}
-	defer db.Close()
-
 	var offset uint32 = 0
 	var limit uint32 = 10
 	if len(params) == 1 {
@@ -50,7 +41,7 @@ func (rum *ResourceUtilizationManager) GetUtilizationsByResource(resource string
 	}
 
 	// Search for resource utilizations
-	rows, err := db.QueryContext(context.Background(), "select id, job_id, resource, utilization, timestamp from resources_utilizations where resource = ? limit ? offset ?;",
+	rows, err := rum.db.QueryContext(context.Background(), "select id, job_id, resource, utilization, timestamp from resources_utilizations where resource = ? limit ? offset ?;",
 		resource, limit, offset)
 	if err != nil {
 		msg := err.Error()

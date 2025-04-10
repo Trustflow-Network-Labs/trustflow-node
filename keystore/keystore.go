@@ -2,10 +2,10 @@ package keystore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
-	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/settings"
 	"github.com/adgsm/trustflow-node/utils"
@@ -14,29 +14,20 @@ import (
 )
 
 type KeyStoreManager struct {
-	sqlm *database.SQLiteManager
-	lm   *utils.LogsManager
+	db *sql.DB
+	lm *utils.LogsManager
 }
 
-func NewKeyStoreManager() *KeyStoreManager {
+func NewKeyStoreManager(db *sql.DB) *KeyStoreManager {
 	return &KeyStoreManager{
-		sqlm: database.NewSQLiteManager(),
-		lm:   utils.NewLogsManager(),
+		db: db,
+		lm: utils.NewLogsManager(),
 	}
 }
 
 // Add node
 func (ksm *KeyStoreManager) AddKey(identifier string, algorithm string, key []byte) error {
-	// Create a database connection
-	db, err := ksm.sqlm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		ksm.lm.Log("error", msg, "keystore")
-		return err
-	}
-	defer db.Close()
-
-	_, err = db.ExecContext(context.Background(), "insert into keystore (identifier, algorithm, key) values (?, ?, ?);",
+	_, err := ksm.db.ExecContext(context.Background(), "insert into keystore (identifier, algorithm, key) values (?, ?, ?);",
 		identifier, algorithm, key)
 	if err != nil {
 		msg := err.Error()
@@ -52,17 +43,8 @@ func (ksm *KeyStoreManager) FindKey(identifier string) (node_types.Key, error) {
 	// Declarations
 	var k node_types.Key
 
-	// Create a database connection
-	db, err := ksm.sqlm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		ksm.lm.Log("error", msg, "keystore")
-		return k, err
-	}
-	defer db.Close()
-
-	row := db.QueryRowContext(context.Background(), "select * from keystore where identifier = ?;", identifier)
-	err = row.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
+	row := ksm.db.QueryRowContext(context.Background(), "select * from keystore where identifier = ?;", identifier)
+	err := row.Scan(&k.Id, &k.Identifier, &k.Algorithm, &k.Key)
 	if err != nil {
 		msg := err.Error()
 		ksm.lm.Log("error", msg, "keystore")
@@ -76,17 +58,8 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 	var priv crypto.PrivKey
 	var pub crypto.PubKey
 
-	// Create a database connection
-	db, err := ksm.sqlm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		ksm.lm.Log("error", msg, "node")
-		return nil, nil, err
-	}
-	defer db.Close()
-
 	// Check do we have a node key already
-	settingsManager := settings.NewSettingsManager()
+	settingsManager := settings.NewSettingsManager(ksm.db)
 	nodeId, err := settingsManager.Read("node_identifier")
 	if err != nil {
 		msg := err.Error()

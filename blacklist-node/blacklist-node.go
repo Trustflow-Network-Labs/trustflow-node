@@ -2,11 +2,11 @@ package blacklist_node
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -15,13 +15,13 @@ import (
 
 type BlacklistNodeManager struct {
 	shortenedKeys map[string]string
-	sm            *database.SQLiteManager
+	db            *sql.DB
 	lm            *utils.LogsManager
 	tm            *utils.TextManager
 	Gater         *conngater.BasicConnectionGater
 }
 
-func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
+func NewBlacklistNodeManager(db *sql.DB) (*BlacklistNodeManager, error) {
 	gater, err := conngater.NewBasicConnectionGater(nil)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
 
 	blnm := &BlacklistNodeManager{
 		shortenedKeys: map[string]string{},
-		sm:            database.NewSQLiteManager(),
+		db:            db,
 		lm:            utils.NewLogsManager(),
 		tm:            utils.NewTextManager(),
 		Gater:         gater,
@@ -45,17 +45,8 @@ func NewBlacklistNodeManager() (*BlacklistNodeManager, error) {
 
 // Load blacklist
 func (blnm *BlacklistNodeManager) loadBlacklist() error {
-	// Create a database connection
-	db, err := blnm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		blnm.lm.Log("error", msg, "blacklist-node")
-		return err
-	}
-	defer db.Close()
-
 	// Load a blacklist
-	rows, err := db.QueryContext(context.Background(), "select node_id from blacklisted_nodes;")
+	rows, err := blnm.db.QueryContext(context.Background(), "select node_id from blacklisted_nodes;")
 	if err != nil {
 		blnm.lm.Log("error", err.Error(), "blacklist-node")
 		return err
@@ -104,17 +95,8 @@ func (blnm *BlacklistNodeManager) IsBlacklisted(nodeId string) (bool, error) {
 
 // List blacklisted nodes
 func (blnm *BlacklistNodeManager) List() ([]node_types.Blacklist, error) {
-	// Create a database connection
-	db, err := blnm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		blnm.lm.Log("error", msg, "blacklist-node")
-		return nil, err
-	}
-	defer db.Close()
-
 	// Load a blacklist
-	rows, err := db.QueryContext(context.Background(), "select node_id, reason, timestamp from blacklisted_nodes;")
+	rows, err := blnm.db.QueryContext(context.Background(), "select node_id, reason, timestamp from blacklisted_nodes;")
 	if err != nil {
 		blnm.lm.Log("error", err.Error(), "blacklist-node")
 		return nil, err
@@ -152,15 +134,6 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 		blnm.lm.Log("error", err.Error(), "blacklist-node")
 		return err
 	}
-
-	// Create a database connection
-	db, err := blnm.sm.CreateConnection()
-	if err != nil {
-		blnm.lm.Log("error", err.Error(), "blacklist-node")
-		return err
-	}
-	defer db.Close()
-
 	// Check if node is already blacklisted
 	if blacklisted {
 		err = fmt.Errorf("node %s is already blacklisted", nodeId)
@@ -171,7 +144,7 @@ func (blnm *BlacklistNodeManager) Add(nodeId string, reason string) error {
 	// Add node to blacklist
 	blnm.lm.Log("debug", fmt.Sprintf("add node %s to blacklist", nodeId), "blacklist-node")
 
-	_, err = db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?);`,
+	_, err = blnm.db.ExecContext(context.Background(), `insert into blacklisted_nodes (node_id, reason, timestamp) values (?, ?, ?);`,
 		nodeId, reason, time.Now().Format(time.RFC3339))
 	if err != nil {
 		msg := err.Error()
@@ -206,15 +179,6 @@ func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
 		return err
 	}
 
-	// Create a database connection
-	db, err := blnm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		blnm.lm.Log("error", msg, "blacklist-node")
-		return err
-	}
-	defer db.Close()
-
 	// Check if node is already blacklisted
 	if !blacklisted {
 		err = fmt.Errorf("node %s is not blacklisted", nodeId)
@@ -225,7 +189,7 @@ func (blnm *BlacklistNodeManager) Remove(nodeId string) error {
 	// Remove node from blacklist
 	blnm.lm.Log("debug", fmt.Sprintf("removing node %s from blacklist", nodeId), "blacklist-node")
 
-	_, err = db.ExecContext(context.Background(), "delete from blacklisted_nodes where node_id = ?;", nodeId)
+	_, err = blnm.db.ExecContext(context.Background(), "delete from blacklisted_nodes where node_id = ?;", nodeId)
 	if err != nil {
 		msg := err.Error()
 		blnm.lm.Log("error", msg, "blacklist-node")

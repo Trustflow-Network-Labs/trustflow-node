@@ -2,24 +2,24 @@ package settings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 
-	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
 type SettingsManager struct {
-	sm *database.SQLiteManager
+	db *sql.DB
 	lm *utils.LogsManager
 }
 
-func NewSettingsManager() *SettingsManager {
+func NewSettingsManager(db *sql.DB) *SettingsManager {
 	return &SettingsManager{
-		sm: database.NewSQLiteManager(),
+		db: db,
 		lm: utils.NewLogsManager(),
 	}
 }
@@ -32,20 +32,11 @@ func (sm *SettingsManager) Exists(key string) (error, bool) {
 		return errors.New(msg), false
 	}
 
-	// Create a database connection
-	db, err := sm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "settings")
-		return err, false
-	}
-	defer db.Close()
-
 	// Check if key exists
 	var k node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select key from settings where key = ?;", key)
+	row := sm.db.QueryRowContext(context.Background(), "select key from settings where key = ?;", key)
 
-	err = row.Scan(&k)
+	err := row.Scan(&k)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("debug", msg, "settings")
@@ -63,20 +54,11 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 		return nil, errors.New(msg)
 	}
 
-	// Create a database connection
-	db, err := sm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "settings")
-		return nil, err
-	}
-	defer db.Close()
-
 	// Check if key exists
 	var keyType node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
+	row := sm.db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
 
-	err = row.Scan(&keyType)
+	err := row.Scan(&keyType)
 	if err != nil {
 		msg := err.Error()
 		sm.lm.Log("debug", msg, "settings")
@@ -88,7 +70,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	case "STRING":
 		var val string
 		// Read settings table value_string for the provided key
-		row := db.QueryRowContext(context.Background(), "select value_string from settings where key = ?;", key)
+		row := sm.db.QueryRowContext(context.Background(), "select value_string from settings where key = ?;", key)
 
 		err = row.Scan(&val)
 		if err != nil {
@@ -101,7 +83,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	case "JSON":
 		var val string
 		// Read settings table value_json for the provided key
-		row := db.QueryRowContext(context.Background(), "select value_json from settings where key = ?;", key)
+		row := sm.db.QueryRowContext(context.Background(), "select value_json from settings where key = ?;", key)
 
 		err = row.Scan(&val)
 		if err != nil {
@@ -128,7 +110,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	case "INTEGER":
 		var val int32
 		// Read settings table value_integer for the provided key
-		row := db.QueryRowContext(context.Background(), "select value_integer from settings where key = ?;", key)
+		row := sm.db.QueryRowContext(context.Background(), "select value_integer from settings where key = ?;", key)
 
 		err = row.Scan(&val)
 		if err != nil {
@@ -141,7 +123,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	case "BOOLEAN":
 		var val int32
 		// Read settings table value_boolean for the provided key
-		row := db.QueryRowContext(context.Background(), "select value_boolean from settings where key = ?;", key)
+		row := sm.db.QueryRowContext(context.Background(), "select value_boolean from settings where key = ?;", key)
 
 		err = row.Scan(&val)
 		if err != nil {
@@ -154,7 +136,7 @@ func (sm *SettingsManager) Read(key string) (any, error) {
 	case "REAL":
 		var val float32
 		// Read settings table value_real for the provided key
-		row := db.QueryRowContext(context.Background(), "select value_real from settings where key = ?;", key)
+		row := sm.db.QueryRowContext(context.Background(), "select value_real from settings where key = ?;", key)
 
 		err = row.Scan(&val)
 		if err != nil {
@@ -192,16 +174,6 @@ func (sm *SettingsManager) Modify(key string, value string) {
 		sm.lm.Log("error", msg, "settings")
 		return
 	}
-
-	// Create a database connection
-	db, err := sm.sm.CreateConnection()
-	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "settings")
-		return
-	}
-	defer db.Close()
-
 	// Check if key is existing
 	if !exists {
 		msg := fmt.Sprintf("Key %s does not exist", key)
@@ -214,7 +186,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 
 	// Check the key value type
 	var keyType node_types.NullString
-	row := db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
+	row := sm.db.QueryRowContext(context.Background(), "select setting_type from settings where key = ?;", key)
 
 	err = row.Scan(&keyType)
 	if err != nil {
@@ -231,7 +203,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 	switch keyType.String {
 	case "STRING":
 		// Update settings table value_string for the provided key
-		_, err = db.ExecContext(context.Background(), "update settings set value_string = ? where key = ?;",
+		_, err = sm.db.ExecContext(context.Background(), "update settings set value_string = ? where key = ?;",
 			value, key)
 		if err != nil {
 			msg := err.Error()
@@ -246,7 +218,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			return
 		}
 		// Update settings table value_json for the provided key
-		_, err = db.ExecContext(context.Background(), "update settings set value_json = ? where key = ?;",
+		_, err = sm.db.ExecContext(context.Background(), "update settings set value_json = ? where key = ?;",
 			value, key)
 		if err != nil {
 			msg := err.Error()
@@ -261,7 +233,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			return
 		}
 		// Update settings table value_integer for the provided key
-		_, err = db.ExecContext(context.Background(), "update settings set value_integer = ? where key = ?;",
+		_, err = sm.db.ExecContext(context.Background(), "update settings set value_integer = ? where key = ?;",
 			num, key)
 		if err != nil {
 			msg := err.Error()
@@ -280,7 +252,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			num = 1
 		}
 		// Update settings table value_boolean for the provided key
-		_, err = db.ExecContext(context.Background(), "update settings set value_boolean = ? where key = ?;",
+		_, err = sm.db.ExecContext(context.Background(), "update settings set value_boolean = ? where key = ?;",
 			num, key)
 		if err != nil {
 			msg := err.Error()
@@ -295,7 +267,7 @@ func (sm *SettingsManager) Modify(key string, value string) {
 			return
 		}
 		// Update settings table value_real for the provided key
-		_, err = db.ExecContext(context.Background(), "update settings set value_real = ? where key = ?;",
+		_, err = sm.db.ExecContext(context.Background(), "update settings set value_real = ? where key = ?;",
 			num, key)
 		if err != nil {
 			msg := err.Error()

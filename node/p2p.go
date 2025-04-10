@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"slices"
 
 	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
+	"github.com/adgsm/trustflow-node/database"
 	"github.com/adgsm/trustflow-node/keystore"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/settings"
@@ -46,10 +48,18 @@ type P2PManager struct {
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
+	db                 *sql.DB
 	lm                 *utils.LogsManager
 }
 
 func NewP2PManager() *P2PManager {
+	// Create a database connection
+	sqlm := database.NewSQLiteManager()
+	db, err := sqlm.CreateConnection()
+	if err != nil {
+		panic(err)
+	}
+
 	return &P2PManager{
 		daemon:             false,
 		topicNames:         []string{"lookup.service", "dummy.service"},
@@ -59,6 +69,7 @@ func NewP2PManager() *P2PManager {
 		idht:               nil,
 		h:                  nil,
 		ctx:                nil,
+		db:                 db,
 		lm:                 utils.NewLogsManager(),
 	}
 }
@@ -90,7 +101,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		return
 	}
 
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager()
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.db)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return
@@ -120,7 +131,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	cntx := context.Background()
 
 	// Create or get previously created node key
-	keystoreManager := keystore.NewKeyStoreManager()
+	keystoreManager := keystore.NewKeyStoreManager(p2pm.db)
 	priv, _, err := keystoreManager.ProvideKey()
 	if err != nil {
 		p2pm.lm.Log("panic", err.Error(), "p2p")
@@ -219,6 +230,11 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	} else {
 		// Running as a daemon never ends
 		<-cntx.Done()
+	}
+
+	// When host is stopped close DB connection
+	if err = p2pm.db.Close(); err != nil {
+		p2pm.lm.Log("error", err.Error(), "p2p")
 	}
 }
 
@@ -451,30 +467,6 @@ func (p2pm *P2PManager) RequestService(peer peer.AddrInfo, serviceId int64, inpu
 	return nil
 }
 
-/*
-	func (p2pm *P2PManager) RequestData(peer peer.AddrInfo, jobId int64) error {
-		_, err := p2pm.ConnectNode(peer)
-		if err != nil {
-			msg := err.Error()
-			p2pm.lm.Log("error", msg, "p2p")
-			return err
-		}
-
-		s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-		if err != nil {
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			s.Reset()
-			return err
-		} else {
-			var str []byte = []byte(p2pm.h.ID().String())
-			var str255 [255]byte
-			copy(str255[:], str)
-			go p2pm.streamProposal(s, str255, 1)
-		}
-
-		return nil
-	}
-*/
 func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStream network.Stream) error {
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
@@ -565,39 +557,19 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		streamData.Type, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
 	p2pm.lm.Log("debug", message, "p2p")
 
-	// Check what the stream proposal is
-	switch streamData.Type {
-	case 0, 2, 3, 4, 5:
-		// Request to receive a Service Offer from the remote peer
-		// Check settings, do we want to accept receiving service catalogues and updates
-		accepted := p2pm.streamProposalAssessment(streamData.Type)
-		if accepted {
-			p2pm.streamAccepted(s)
-			go p2pm.receivedStream(s, streamData)
-		} else {
-			s.Reset()
-		}
-	case 1:
-		// Request to send data to the remote peer
-		// Check settings, do we want to accept sending data
-		accepted := p2pm.streamProposalAssessment(streamData.Type)
-		if accepted {
-			//			jobManager := NewJobManager(p2pm)
-			//			go jobManager.RunJob(streamData.Id)
-			s.Reset()
-		} else {
-			s.Reset()
-		}
-	default:
-		message := fmt.Sprintf("Unknown stream type %d is poposed", streamData.Type)
-		p2pm.lm.Log("debug", message, "p2p")
+	// Check settings, do we want to accept receiving service catalogues and updates
+	accepted := p2pm.streamProposalAssessment(streamData.Type)
+	if accepted {
+		p2pm.streamAccepted(s)
+		go p2pm.receivedStream(s, streamData)
+	} else {
 		s.Reset()
 	}
 }
 
 func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	var accepted bool
-	settingsManager := settings.NewSettingsManager()
+	settingsManager := settings.NewSettingsManager(p2pm.db)
 	// Check what the stream proposal is about
 	switch streamDataType {
 	case 0:
