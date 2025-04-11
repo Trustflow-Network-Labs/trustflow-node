@@ -301,8 +301,6 @@ func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
 }
 
 func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
-	//serviceManager := NewServiceManager(p2pm)
-
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
 	for _, completeTopicName := range p2pm.completeTopicNames {
 		dutil.Advertise(p2pm.ctx, routingDiscovery, completeTopicName)
@@ -327,7 +325,6 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 
 				skip, err := p2pm.ConnectNode(peer)
 				if err != nil {
-					//p2pm.lm.Log("warn", err.Error(), "p2p")
 					continue
 				}
 				if skip {
@@ -335,40 +332,6 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 				}
 
 				peerChannel <- discoveredPeers
-				/*
-					// Read list of active services (service offers with pricing)
-					var data []byte
-					var catalogueLookup node_types.ServiceLookup = node_types.ServiceLookup{
-						Name:        "",
-						Description: "",
-						NodeId:      "",
-						Type:        "",
-						Repo:        "",
-					}
-
-					data, err = json.Marshal(catalogueLookup)
-					if err != nil {
-						p2pm.lm.Log("error", err.Error(), "p2p")
-						continue
-					}
-
-					serviceCatalogue, err := p2pm.ServiceLookup(data, true)
-					if err != nil {
-						p2pm.lm.Log("error", err.Error(), "p2p")
-						continue
-					}
-
-					// Stream it's own Service Catalogue
-					err = StreamData(p2pm, peer, &serviceCatalogue)
-					if err != nil {
-						msg := err.Error()
-						p2pm.lm.Log("error", msg, "p2p")
-						continue
-					}
-
-					// Request connected peer's Service Catalogue
-					//serviceManager.LookupRemoteService("", "", peer.ID.String(), "", "")
-				*/
 			}
 		}
 	}
@@ -540,7 +503,7 @@ func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16) 
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		s.Reset()
 	}
-	message := fmt.Sprintf("Sending stream proposal type %d is completed in stream %s", streamData.Type, s.ID())
+	message := fmt.Sprintf("Stream proposal type %d has been sent in stream %s", streamData.Type, s.ID())
 	p2pm.lm.Log("debug", message, "p2p")
 }
 
@@ -620,7 +583,7 @@ func (p2pm *P2PManager) streamAccepted(s network.Stream) {
 		s.Reset()
 	}
 
-	message := fmt.Sprintf("Sending TFREADY ended %s", s.ID())
+	message := fmt.Sprintf("Sent TFREADY successfully in stream %s", s.ID())
 	p2pm.lm.Log("debug", message, "p2p")
 }
 
@@ -732,7 +695,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
-		message := fmt.Sprintf("Sending chunk size %d completed %s", chunkSize, s.ID())
+		message := fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", chunkSize, s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		if chunkSize == 0 {
@@ -744,7 +707,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
 		}
-		message = fmt.Sprintf("Sending chunk %d completed %s", len((b)[pointer:pointer+chunkSize]), s.ID())
+		message = fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", len((b)[pointer:pointer+chunkSize]), s.ID())
 		p2pm.lm.Log("debug", message, "p2p")
 
 		pointer += chunkSize
@@ -766,7 +729,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				s.Reset()
 			}
 
-			message := fmt.Sprintf("Received chunk size %d from %s", chunkSize, s.ID())
+			message := fmt.Sprintf("Data from %s will be received in chunks of %d bytes", s.ID(), chunkSize)
 			p2pm.lm.Log("debug", message, "p2p")
 
 			if chunkSize == 0 {
@@ -781,15 +744,15 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				s.Reset()
 			}
 
-			message = fmt.Sprintf("Received chunk size %d of type %d from %s", len(chunk), streamData.Type, s.ID())
+			message = fmt.Sprintf("Received chunk [%d bytes] of type %d from %s", len(chunk), streamData.Type, s.ID())
 			p2pm.lm.Log("debug", message, "p2p")
 
 			// Concatenate received chunk
 			data = append(data, chunk...)
 		}
 
-		message := fmt.Sprintf("Received complete data size %d in stream %s of type %d from %s", len(data), s.ID(),
-			streamData.Type, string(bytes.Trim(streamData.PeerId[:], "\x00")))
+		message := fmt.Sprintf("Received completed. Data [%d bytes] of type %d received in stream %s from %s ",
+			len(data), streamData.Type, s.ID(), string(bytes.Trim(streamData.PeerId[:], "\x00")))
 		p2pm.lm.Log("debug", message, "p2p")
 
 		if streamData.Type == 0 {
@@ -1049,7 +1012,6 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 		topicKey := config["topic_name_prefix"] + "lookup.service"
 		topic = p2pm.topicsSubscribed[topicKey]
 
-		// /fmt.Printf("topicKey: %s,\ntopic: %v\ntopicsSubscribed: %v\n", topicKey, topic, p2pm.topicsSubscribed)
 	default:
 		msg := fmt.Sprintf("Message type %v is not allowed in this context (broadcasting message)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -1184,10 +1146,9 @@ func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error)
 	var p peer.AddrInfo
 
 	// Convert the string to a peer.ID
-	pID, err := peer.Decode(peerId)
+	pID, err := p2pm.IsValidPeerId(peerId)
 	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("warn", msg, "p2p")
+		p2pm.lm.Log("warn", err.Error(), "p2p")
 		return p, err
 	}
 
@@ -1206,4 +1167,14 @@ func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error)
 	}
 
 	return p, nil
+}
+
+func (p2pm *P2PManager) IsValidPeerId(peerId string) (peer.ID, error) {
+	// Convert the string to a peer.ID
+	pID, err := peer.Decode(peerId)
+	if err != nil {
+		return pID, err
+	}
+
+	return pID, nil
 }

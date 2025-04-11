@@ -552,7 +552,7 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		sm.lm.Log("error", msg, "services")
 		return nil, err
 	}
-	defer rows.Close()
+	//	defer rows.Close()
 
 	for rows.Next() {
 		var serviceOffer node_types.ServiceOffer
@@ -564,37 +564,40 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			return nil, err
 		}
 
+		services = append(services, serviceOffer)
+	}
+	rows.Close()
+
+	for i := range services {
 		// Query service resources with prices
 		sql = fmt.Sprintf(`SELECT r.resource_group, r.resource, r.resource_unit, r.description, p.price, c.currency, c.symbol
 			FROM prices p
 			INNER JOIN resources r ON p.resource_id = r.id
 			INNER JOIN currencies c ON p.currency_symbol = c.symbol
-			WHERE p.service_id = %d and r.active = true`, serviceOffer.Id)
+			WHERE p.service_id = %d and r.active = true`, services[i].Id)
 
-		rrows, err := sm.db.QueryContext(context.Background(), sql)
+		rows, err = sm.db.QueryContext(context.Background(), sql)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
 			return nil, err
 		}
-		defer rrows.Close()
 
 		// Service host node Id
-		serviceOffer.NodeId = sm.p2pm.h.ID().String()
+		services[i].NodeId = sm.p2pm.h.ID().String()
 
-		for rrows.Next() {
+		for rows.Next() {
 			var serviceResource node_types.ServiceResourcesWithPricing
-			err = rrows.Scan(&serviceResource.ResourceGroup, &serviceResource.ResourceName, &serviceResource.ResourceUnit, &serviceResource.ResourceDescription,
+			err = rows.Scan(&serviceResource.ResourceGroup, &serviceResource.ResourceName, &serviceResource.ResourceUnit, &serviceResource.ResourceDescription,
 				&serviceResource.Price, &serviceResource.CurrencyName, &serviceResource.CurrencySymbol)
 			if err != nil {
 				msg := err.Error()
 				sm.lm.Log("warn", msg, "services")
 				continue
 			}
-			serviceOffer.ServicePriceModel = append(serviceOffer.ServicePriceModel, serviceResource)
+			services[i].ServicePriceModel = append(services[i].ServicePriceModel, serviceResource)
 		}
-
-		services = append(services, serviceOffer)
+		rows.Close()
 	}
 
 	return services, nil

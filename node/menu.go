@@ -194,18 +194,6 @@ func (mm *MenuManager) requestServiceNewWorkflow() error {
 		return err
 	}
 
-	fmt.Println("Select constraint type:")
-	// Get constraint type
-	cPrompt := promptui.Select{
-		Label: "Main \U000025B6 Request service \U000025B6 Constraint Type",
-		Items: []string{"NONE", "INPUTS READY", "DATETIME", "JOBS EXECUTED", "MANUAL START"},
-	}
-	_, cResult, err := cPrompt.Run()
-	if err != nil {
-		fmt.Printf("prompt failed: %s\n", err.Error())
-		return err
-	}
-
 	serviceIdPair := strings.Split(sidResult, "-")
 	if len(serviceIdPair) < 2 {
 		msg := fmt.Sprintf("Invalid Service ID: %s", sidResult)
@@ -226,8 +214,82 @@ func (mm *MenuManager) requestServiceNewWorkflow() error {
 		return err
 	}
 
-	// TODO, collect all inputs
-	err = mm.p2pm.RequestService(peer, serviceId, []string{}, []string{mm.p2pm.h.ID().String()}, cResult, "")
+	// Input nodes
+	fmt.Println("If this job requires inputs to run or execute, please add the nodes (Node IDs) that will provide those inputs. The job will not run until inputs from all listed nodes are received.")
+	inPrompt := promptui.Prompt{
+		Label:       "Node IDs (comma-separated)",
+		Default:     "",
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	inResult, err := inPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering Node IDs failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	var inputNodes []string
+	inNodes := strings.Split(inResult, ",")
+	for _, inNode := range inNodes {
+		inNode = strings.TrimSpace(inNode)
+		peerId, err := mm.p2pm.IsValidPeerId(inNode)
+		if err == nil {
+			// Valid peer ID
+			inputNodes = append(inputNodes, peerId.String())
+		}
+	}
+
+	// Output nodes
+	fmt.Println("To which nodes should the results of this job be delivered? Please list the Node IDs to which the job results will be sent.")
+	outPrompt := promptui.Prompt{
+		Label:       "Node IDs (comma-separated)",
+		Default:     mm.p2pm.h.ID().String(),
+		Validate:    mm.vm.NotEmpty,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	outResult, err := outPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering Node IDs failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	var outputNodes []string
+	outNodes := strings.Split(outResult, ",")
+	for _, outNode := range outNodes {
+		outNode = strings.TrimSpace(outNode)
+		peerId, err := mm.p2pm.IsValidPeerId(outNode)
+		if err == nil {
+			// Valid peer ID
+			outputNodes = append(outputNodes, peerId.String())
+		}
+	}
+
+	/*
+		fmt.Println("Select constraint type:")
+		// Get constraint type
+		cPrompt := promptui.Select{
+			Label: "Main \U000025B6 Request service \U000025B6 Constraint Type",
+			Items: []string{"NONE", "INPUTS READY", "DATETIME", "JOBS EXECUTED", "MANUAL START"},
+		}
+		_, cResult, err := cPrompt.Run()
+		if err != nil {
+			fmt.Printf("prompt failed: %s\n", err.Error())
+			return err
+		}
+	*/
+	var cResult string = "NONE"
+	if len(inputNodes) > 0 {
+		cResult = "INPUTS READY"
+	}
+
+	err = mm.p2pm.RequestService(peer, serviceId, inputNodes, outputNodes, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err

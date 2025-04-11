@@ -253,7 +253,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 
 	switch status {
 	case "IDLE":
-		err := jm.wm.StartWorker(jobId)
+		err := jm.wm.StartWorker(jobId, jm)
 		if err != nil {
 			// Stop worker
 			serr := jm.wm.StopWorker(jobId)
@@ -267,6 +267,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return err
 		}
+
 		return nil
 	case "RUNNING":
 		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
@@ -294,8 +295,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 func (jm *JobManager) StartJob(id int64) error {
 	job, err := jm.GetJob(id)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
@@ -304,8 +304,7 @@ func (jm *JobManager) StartJob(id int64) error {
 
 	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
@@ -322,8 +321,7 @@ func (jm *JobManager) StartJob(id int64) error {
 	// Set job status to RUNNING
 	err = jm.UpdateJobStatus(job.Id, "RUNNING")
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
@@ -331,8 +329,15 @@ func (jm *JobManager) StartJob(id int64) error {
 	case "DATA":
 		err := jm.StreamDataJob(job)
 		if err != nil {
-			msg := err.Error()
-			jm.lm.Log("error", msg, "jobs")
+			jm.lm.Log("error", err.Error(), "jobs")
+
+			// Set job status to ERRORED
+			err = jm.UpdateJobStatus(job.Id, "ERRORED")
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+
 			return err
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
@@ -343,8 +348,23 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
-	// Run a job
 	jm.lm.Log("debug", fmt.Sprintf("start running job id %d", id), "jobs")
+
+	// Set job status to COMPLETED
+	err = jm.UpdateJobStatus(job.Id, "COMPLETED")
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	workers := jm.wm.ListWorkers()
+	fmt.Printf("workers: %v\n", workers)
+
+	err = jm.wm.StopWorker(job.Id)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
 
 	return nil
 }

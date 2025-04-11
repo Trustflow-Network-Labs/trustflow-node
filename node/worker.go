@@ -31,7 +31,7 @@ func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(id int64) error {
+func (wm *WorkerManager) StartWorker(id int64, jm *JobManager) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -48,7 +48,7 @@ func (wm *WorkerManager) StartWorker(id int64) error {
 	}
 
 	wm.workers[id] = worker
-	err := worker.Start(wm.p2pm)
+	err := worker.Start(wm.p2pm, jm)
 	if err != nil {
 		return err
 	}
@@ -87,43 +87,46 @@ func (wm *WorkerManager) ListWorkers() []int64 {
 	return ids
 }
 
-func (w *Worker) Start(p2pm *P2PManager) error {
+func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 	w.mu.Lock()
 	w.isRunning = true
 	w.mu.Unlock()
 
-	var e error = nil
-
 	go func() {
-		defer close(w.finished)
+		defer func() {
+			fmt.Printf("Worker %d: Stopping...\n", w.ID)
+			w.mu.Lock()
+			w.isRunning = false
+			w.mu.Unlock()
+			close(w.finished)
+			fmt.Printf("Worker %d: Stopped completely\n", w.ID)
+		}()
 
-		for {
-			select {
-			case <-w.ctx.Done():
-				fmt.Printf("Worker %d: Stopping...\n", w.ID)
-				w.mu.Lock()
-				w.isRunning = false
-				w.mu.Unlock()
-				return
-			default:
-				fmt.Printf("Worker %d: Working...\n", w.ID)
-				jobManager := NewJobManager(p2pm)
-				err := jobManager.StartJob(w.ID)
-				if err != nil {
-					e = err
-				}
-				w.Stop()
+		fmt.Printf("Worker %d: Working...\n", w.ID)
+
+		// Create a done channel to run job and listen for cancellation concurrently
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- jm.StartJob(w.ID)
+		}()
+
+		select {
+		case <-w.ctx.Done():
+			fmt.Printf("Worker %d: Context cancelled\n", w.ID)
+		case err := <-errCh:
+			if err != nil {
+				fmt.Printf("Worker %d: Job error: %v\n", w.ID, err)
 			}
 		}
 	}()
 
-	return e
+	return nil
 }
 
 func (w *Worker) Stop() {
 	w.cancel()
 	<-w.finished // Wait for worker to finish
-	fmt.Printf("Worker %d: Stopped completely\n", w.ID)
 }
 
 func (w *Worker) IsRunning() bool {
