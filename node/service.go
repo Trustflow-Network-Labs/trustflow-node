@@ -135,9 +135,8 @@ func (sm *ServiceManager) List(params ...uint32) ([]node_types.Service, error) {
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
 	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		sm.lm.Log("error", message, "services")
-		panic(err)
+		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		sm.lm.Log("warn", msg, "services")
 	}
 
 	var offset uint32 = 0
@@ -284,7 +283,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 
-	// Get active (IDLE or RUNING) jobs based on this service
+	// Get active (IDLE, READy or RUNING) jobs based on this service
 	jobsManager := NewJobManager(sm.p2pm)
 	jobs, err := jobsManager.GetJobsByServiceId(id, 1)
 	if err != nil {
@@ -292,7 +291,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 		return err
 	}
 	if len(jobs) > 0 {
-		err = fmt.Errorf("there are %d active jobs (in status 'IDLE' or 'RUNNING') depending on this service", len(jobs))
+		err = fmt.Errorf("there are %d active jobs (in status 'IDLE', 'READY' or 'RUNNING') depending on this service", len(jobs))
 		sm.lm.Log("error", err.Error(), "services")
 		return err
 	}

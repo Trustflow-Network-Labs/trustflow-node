@@ -73,9 +73,8 @@ func (cm *CurrencyManager) Get(symbol string) (node_types.Currency, error) {
 
 	err := row.Scan(&currency.Symbol, &currency.Currency)
 	if err != nil {
-		msg := err.Error()
-		cm.lm.Log("debug", msg, "currencies")
-		return currency, nil
+		cm.lm.Log("debug", err.Error(), "currencies")
+		return currency, err
 	}
 
 	return currency, nil

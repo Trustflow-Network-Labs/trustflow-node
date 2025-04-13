@@ -97,7 +97,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 		return jobs, errors.New(msg)
 	}
 
-	var showOnlyActiveJobs bool = false // set to true for IDLE and RUNNING jobs only
+	var showOnlyActiveJobs bool = false // set to true for IDLE, READY and RUNNING jobs only
 	if len(params) >= 1 {
 		showOnlyActiveJobs = params[0] != 0
 	}
@@ -113,7 +113,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	// Search for jobs
 	sqlPatch := ""
 	if showOnlyActiveJobs {
-		sqlPatch = " AND (status = 'IDLE' OR status = 'RUNNING') "
+		sqlPatch = " AND (status = 'IDLE' OR status = 'READY' OR status = 'RUNNING') "
 	}
 
 	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
@@ -167,14 +167,14 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 }
 
 // Create new job
-func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest) (node_types.Job, error) {
+func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderingNode string) (node_types.Job, error) {
 	var job node_types.Job
 
 	// Create new job
-	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", serviceRequest.OrderingNodeId, serviceRequest.ServiceId), "jobs")
+	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
 
 	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?);",
-		serviceRequest.ServiceId, serviceRequest.OrderingNodeId, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
+		serviceRequest.ServiceId, orderingNode, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -191,7 +191,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest) (node_
 	jobBase := node_types.JobBase{
 		Id:                        id,
 		ServiceId:                 serviceRequest.ServiceId,
-		OrderingNodeId:            serviceRequest.OrderingNodeId,
+		OrderingNodeId:            orderingNode,
 		ExecutionConstraint:       serviceRequest.ExecutionConstraint,
 		ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
 		Status:                    "IDLE",
@@ -211,8 +211,8 @@ func (jm *JobManager) ProcessQueue() {
 	var jobSql node_types.JobSql
 	var jobs []node_types.JobSql
 
-	// TODO, implement other cases ('NONE'/'IDLE' is just one case)
-	rows, err := jm.db.QueryContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'IDLE';")
+	// TODO, implement other cases ('NONE'/'READY' is just one case)
+	rows, err := jm.db.QueryContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
@@ -253,6 +253,10 @@ func (jm *JobManager) RunJob(jobId int64) error {
 
 	switch status {
 	case "IDLE":
+		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	case "READY":
 		err := jm.wm.StartWorker(jobId, jm)
 		if err != nil {
 			// Stop worker
@@ -332,10 +336,9 @@ func (jm *JobManager) StartJob(id int64) error {
 			jm.lm.Log("error", err.Error(), "jobs")
 
 			// Set job status to ERRORED
-			err = jm.UpdateJobStatus(job.Id, "ERRORED")
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
+			err1 := jm.UpdateJobStatus(job.Id, "ERRORED")
+			if err1 != nil {
+				jm.lm.Log("error", err1.Error(), "jobs")
 			}
 
 			return err
@@ -356,9 +359,6 @@ func (jm *JobManager) StartJob(id int64) error {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-
-	workers := jm.wm.ListWorkers()
-	fmt.Printf("workers: %v\n", workers)
 
 	err = jm.wm.StopWorker(job.Id)
 	if err != nil {

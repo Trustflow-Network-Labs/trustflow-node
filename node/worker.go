@@ -94,15 +94,18 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 
 	go func() {
 		defer func() {
-			fmt.Printf("Worker %d: Stopping...\n", w.ID)
+			msg := fmt.Sprintf("Worker %d: Stopping...\n", w.ID)
+			p2pm.lm.Log("info", msg, "worker")
 			w.mu.Lock()
 			w.isRunning = false
 			w.mu.Unlock()
 			close(w.finished)
-			fmt.Printf("Worker %d: Stopped completely\n", w.ID)
+			msg = fmt.Sprintf("Worker %d: Stopped completely\n", w.ID)
+			p2pm.lm.Log("info", msg, "worker")
 		}()
 
-		fmt.Printf("Worker %d: Working...\n", w.ID)
+		msg := fmt.Sprintf("Worker %d: Working...\n", w.ID)
+		p2pm.lm.Log("info", msg, "worker")
 
 		// Create a done channel to run job and listen for cancellation concurrently
 		errCh := make(chan error, 1)
@@ -113,10 +116,12 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 
 		select {
 		case <-w.ctx.Done():
-			fmt.Printf("Worker %d: Context cancelled\n", w.ID)
+			msg := fmt.Sprintf("Worker %d: Context cancelled\n", w.ID)
+			p2pm.lm.Log("info", msg, "worker")
 		case err := <-errCh:
 			if err != nil {
-				fmt.Printf("Worker %d: Job error: %v\n", w.ID, err)
+				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
+				p2pm.lm.Log("error", msg, "worker")
 			}
 		}
 	}()

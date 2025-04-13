@@ -12,6 +12,7 @@ import (
 	"github.com/adgsm/trustflow-node/price"
 	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node/workflow"
 	"github.com/manifoldco/promptui"
 	"github.com/olekukonko/tablewriter"
 )
@@ -25,6 +26,7 @@ type MenuManager struct {
 	pm   *price.PriceManager
 	rm   *resource.ResourceManager
 	cm   *currency.CurrencyManager
+	wm   *workflow.WorkflowManager
 }
 
 func NewMenuManager(p2pm *P2PManager) *MenuManager {
@@ -37,6 +39,7 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 		pm:   price.NewPriceManager(p2pm.db),
 		rm:   resource.NewResourceManager(p2pm.db),
 		cm:   currency.NewCurrencyManager(p2pm.db),
+		wm:   workflow.NewWorkflowManager(p2pm.db),
 	}
 }
 
@@ -50,7 +53,7 @@ func (mm *MenuManager) main() {
 	for {
 		prompt := promptui.Select{
 			Label: "Main",
-			Items: []string{"Find services", "Request services", "Configure node", "Exit"},
+			Items: []string{"Workflows & Jobs", "Configure node", "Exit"},
 		}
 
 		_, result, err := prompt.Run()
@@ -62,16 +65,45 @@ func (mm *MenuManager) main() {
 		}
 
 		switch result {
-		case "Find services":
-			mm.findServices()
-		case "Request services":
-			mm.requestServices()
+		case "Workflows & Jobs":
+			mm.workflows()
 		case "Configure node":
 			mm.configureNode()
 		case "Exit":
 			msg := "Exiting interactive mode..."
 			fmt.Println(msg)
 			mm.lm.Log("info", msg, "menu")
+			return
+		}
+	}
+}
+
+// Print rworkflows sub-menu
+func (mm *MenuManager) workflows() {
+	for {
+		prompt := promptui.Select{
+			Label: "Main \U000025B6 Workflows & Jobs",
+			Items: []string{"Find services", "Request services", "List workflows", "Run workflow", "Back"},
+		}
+
+		_, result, err := prompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			continue
+		}
+
+		switch result {
+		case "Find services":
+			mm.findServices()
+		case "Request services":
+			mm.requestService()
+		case "List workflows":
+			mm.printWorkflows(mm.wm)
+		case "Run workflow":
+			mm.runWorkflow()
+		case "Back":
 			return
 		}
 	}
@@ -146,37 +178,8 @@ func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceRe
 	fmt.Print("\n------------\nPress any key to continue...\n")
 }
 
-// Print request services sub-menu
-func (mm *MenuManager) requestServices() {
-	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Request services",
-			Items: []string{"Request service and start new workflow", "Request service for existing workflow", "Back"},
-		}
-
-		_, result, err := prompt.Run()
-		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
-			continue
-		}
-
-		switch result {
-		case "Request service and start new workflow":
-			mm.requestServiceNewWorkflow()
-		case "Request service for existing workflow":
-			mm.requestServiceExistingWorkflow()
-		case "Back":
-			return
-		}
-	}
-}
-
-// Print request service with new workflow sub-menu
-func (mm *MenuManager) requestServiceNewWorkflow() error {
-	// Start new workflow
-	// TODO, create new workflow
+// Print request service sub-menu
+func (mm *MenuManager) requestService() error {
 	sidPrompt := promptui.Prompt{
 		Label:       "Service ID",
 		Default:     "",
@@ -289,7 +292,89 @@ func (mm *MenuManager) requestServiceNewWorkflow() error {
 		cResult = "INPUTS READY"
 	}
 
-	err = mm.p2pm.RequestService(peer, serviceId, inputNodes, outputNodes, cResult, "")
+	// Use existing workflow or create a new one service prompt
+	var workflowId int64
+
+	nwPrompt := promptui.Prompt{
+		Label:     "Should we integrate this service or job into an existing workflow?",
+		IsConfirm: true,
+	}
+	nwResult, err := nwPrompt.Run()
+	if err != nil && strings.ToLower(nwResult) != "n" && strings.ToLower(nwResult) != "y" {
+		fmt.Printf("Prompt failed %v\n", err)
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	if strings.ToLower(nwResult) == "y" {
+		// Add job to existing workflow
+		fmt.Println("Let's add this job to an existing workflow.")
+		wfidPrompt := promptui.Prompt{
+			Label:       "Workflow Id",
+			Default:     "",
+			Validate:    mm.wm.IsRunnableWorkflow,
+			AllowEdit:   true,
+			HideEntered: false,
+			IsConfirm:   false,
+			IsVimMode:   false,
+		}
+		wfidResult, err := wfidPrompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Entering workflow id failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			return err
+		}
+
+		workflowId, err = strconv.ParseInt(wfidResult, 10, 64)
+		if err != nil {
+			mm.lm.Log("debug", err.Error(), "workflows")
+			return err
+		}
+
+	} else if strings.ToLower(nwResult) == "n" {
+		// Create new workflow
+		fmt.Println("Let's create a new workflow.")
+		wfnPrompt := promptui.Prompt{
+			Label:       "Workflow name",
+			Default:     "",
+			Validate:    mm.vm.NotEmpty,
+			AllowEdit:   true,
+			HideEntered: false,
+			IsConfirm:   false,
+			IsVimMode:   false,
+		}
+		wfnResult, err := wfnPrompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Entering workflow name failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			return err
+		}
+
+		wfdPrompt := promptui.Prompt{
+			Label:       "Workflow description",
+			Default:     "",
+			AllowEdit:   true,
+			HideEntered: false,
+			IsConfirm:   false,
+			IsVimMode:   false,
+		}
+		wfdResult, err := wfdPrompt.Run()
+		if err != nil {
+			msg := fmt.Sprintf("Entering workflow description failed: %s", err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+			return err
+		}
+
+		workflowId, err = mm.wm.Add(wfnResult, wfdResult, "", 0)
+		if err != nil {
+			fmt.Printf("Adding new workflow failed: %s\n", err.Error())
+			return err
+		}
+	}
+
+	err = mm.p2pm.RequestService(peer, workflowId, serviceId, inputNodes, outputNodes, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err
@@ -298,9 +383,133 @@ func (mm *MenuManager) requestServiceNewWorkflow() error {
 	return nil
 }
 
-// Print request service with new workflow sub-menu
-func (mm *MenuManager) requestServiceExistingWorkflow() error {
+func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...uint32) error {
+	var offset uint32 = 0
+	var limit uint32 = 10
+
+	// Read configs
+	configManager := utils.NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	if err != nil {
+		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
+		mm.lm.Log("error", message, "menu")
+		panic(err)
+	}
+
+	l := config["search_results"]
+	l64, err := strconv.ParseUint(l, 10, 32)
+	if err != nil {
+		limit = 10
+	} else {
+		limit = uint32(l64)
+	}
+
+	if len(params) == 1 {
+		offset = params[0]
+	} else if len(params) >= 2 {
+		offset = params[0]
+		limit = params[1]
+	}
+
+	workflows, err := wm.List(offset, limit)
+	if err != nil {
+		return err
+	}
+
+	// Draw table output
+	textManager := utils.NewTextManager()
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"ID", "Name", "Description", "Status"})
+	for _, workflow := range workflows {
+		row := []string{fmt.Sprintf("%d", workflow.Id), textManager.Shorten(workflow.Name, 17, 0), textManager.Shorten(workflow.Description, 17, 0), ""}
+		table.Append(row)
+
+		for i, job := range workflow.Jobs {
+			row = []string{"", fmt.Sprintf("%d.%d Job ID:", workflow.Id, i+1), fmt.Sprintf("%d-%s-%d", workflow.Id, job.NodeId, job.JobId), job.Status}
+			table.Append(row)
+		}
+	}
+	table.Render() // Prints the table
+
+	if len(workflows) >= int(limit) {
+		// Print "load more" prompt
+		lmPrompt := promptui.Prompt{
+			Label:     "Load more?",
+			IsConfirm: true,
+		}
+		lmResult, err := lmPrompt.Run()
+		if err != nil && strings.ToLower(lmResult) != "n" && strings.ToLower(lmResult) != "y" {
+			fmt.Printf("Prompt failed %v\n", err)
+			return err
+		}
+		if strings.ToLower(lmResult) == "y" {
+			mm.printWorkflows(wm, offset+limit, limit)
+		}
+	}
+
 	return nil
+}
+
+// Print run workflow sub-menu
+func (mm *MenuManager) runWorkflow() error {
+	widPrompt := promptui.Prompt{
+		Label:       "Workflow ID",
+		Default:     "",
+		Validate:    mm.wm.IsRunnableWorkflow,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	widResult, err := widPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering workflow ID failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	id, err := strconv.ParseInt(widResult, 10, 32)
+	if err != nil {
+		msg := fmt.Sprintf("Failed casting workflow id %s to int64: %s", widResult, err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	// Get workflow
+	workflow, err := mm.wm.Get(id)
+	if err != nil {
+		msg := fmt.Sprintf("Could not obtain workflow data for workflow Id %d: %s", id, err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	for _, job := range workflow.Jobs {
+		peer, err := mm.p2pm.GeneratePeerFromId(job.NodeId)
+		if err != nil {
+			mm.lm.Log("error", err.Error(), "menu")
+			return err
+		}
+		err = mm.p2pm.RequestJobRun(peer, workflow.Id, job.JobId)
+		if err != nil {
+			mm.lm.Log("error", err.Error(), "menu")
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) printJobRunResponse(jobRunResponse node_types.JobRunResponse) {
+	fmt.Printf("\n")
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Node Id", "Job Id", "Message", "Accpeted"})
+	row := []string{jobRunResponse.NodeId, fmt.Sprintf("%d", jobRunResponse.JobId), jobRunResponse.Message, fmt.Sprintf("%t", jobRunResponse.Accepted)}
+	table.Append(row)
+	table.Render() // Prints the table
+	fmt.Print("\n------------\nPress any key to continue...\n")
 }
 
 // Print configure node sub-menu
@@ -1201,7 +1410,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 	config, err := configManager.ReadConfigs()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		sm.lm.Log("error", message, "menu")
+		mm.lm.Log("error", message, "menu")
 		panic(err)
 	}
 

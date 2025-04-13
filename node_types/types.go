@@ -125,9 +125,10 @@ type ServiceResourcesWithPricing struct {
 
 // Declare service request type
 type ServiceRequest struct {
-	NodeId                    string   `json:"node_id"`
-	ServiceId                 int64    `json:"service_id"`
-	OrderingNodeId            string   `json:"ordering_node_id"`
+	NodeId     string `json:"node_id"`
+	WorkflowId int64  `json:"workflow_id"`
+	ServiceId  int64  `json:"service_id"`
+	//	OrderingNodeId            string   `json:"ordering_node_id"`
 	InputNodeIds              []string `json:"input_node_ids"`
 	OutputNodeIds             []string `json:"output_node_ids"`
 	ExecutionConstraint       string   `json:"execution_constraint"`
@@ -136,9 +137,10 @@ type ServiceRequest struct {
 
 // Declare response type for a service request
 type ServiceResponse struct {
-	JobId    int64  `json:"job_id"`
-	Accepted bool   `json:"accepted"`
-	Message  string `json:"message"`
+	JobId          int64  `json:"job_id"`
+	Accepted       bool   `json:"accepted"`
+	Message        string `json:"message"`
+	OrderingNodeId string `json:"ordering_node_id"`
 	ServiceRequest
 }
 
@@ -151,6 +153,23 @@ type ServiceOffer struct {
 	Type              string                        `json:"type"`
 	Active            bool                          `json:"active"`
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
+}
+
+// Declare workflow struct
+type Workflow struct {
+	Id          int64         `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Jobs        []WorkflowJob `json:"jobs"`
+}
+
+// Declare workflow job struct
+type WorkflowJob struct {
+	Id         int64  `json:"id"`
+	WorkflowId int64  `json:"workflow_id"`
+	NodeId     string `json:"node_id"`
+	JobId      int64  `json:"job_id"`
+	Status     string `json:"status"`
 }
 
 // Declare job base struct
@@ -219,4 +238,18 @@ func (j *Job) ToJobSql() JobSql {
 		Started:       started,
 		Ended:         ended,
 	}
+}
+
+// Declare job run request type
+type JobRunRequest struct {
+	WorkflowId int64  `json:"workflow_id"`
+	NodeId     string `json:"node_id"`
+	JobId      int64  `json:"job_id"`
+}
+
+// Declare job run response type for a job run request
+type JobRunResponse struct {
+	Accepted bool   `json:"accepted"`
+	Message  string `json:"message"`
+	JobRunRequest
 }

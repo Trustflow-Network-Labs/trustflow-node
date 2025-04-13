@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"output_node_ids" TEXT DEFAULT '',
 	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('NONE', 'INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'NONE',
 	"execution_constraint_detail" TEXT DEFAULT '',
-	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
+	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'READY', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
 	"started" TEXT DEFAULT '',
 	"ended" TEXT DEFAULT '',
 	FOREIGN KEY("service_id") REFERENCES services("id")
@@ -274,12 +274,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 			return nil, err
 		}
 
-		createOrchestrationsTableSql := `
+		createWorkflowsTableSql := `
 CREATE TABLE IF NOT EXISTS workflows (
 	"id" INTEGER PRIMARY KEY,
-	"job_ids" TEXT NOT NULL
+	"name" VARCHAR(255) NOT NULL,
+	"description" TEXT DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS workflows_id_idx ON workflows ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowsTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createOrchestrationsTableSql := `
+CREATE TABLE IF NOT EXISTS workflow_jobs (
+	"id" INTEGER PRIMARY KEY,
+	"workflow_id" INTEGER NOT NULL,
+	"node_id" TEXT NOT NULL,
+	"job_id" INTEGER NOT NULL,
+	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
+	FOREIGN KEY("workflow_id") REFERENCES workflows("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_jobs_id_idx ON workflow_jobs ("id");
 `
 		_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
 		if err != nil {
@@ -303,7 +322,8 @@ CREATE INDEX IF NOT EXISTS settings_key_idx ON settings ("key");
 
 INSERT INTO settings ("key", "description", "setting_type", "value_string") VALUES ('node_identifier', 'Node Identifier', 'STRING', '') ON CONFLICT(key) DO UPDATE SET "description" = 'Node Identifier', "setting_type" = 'STRING', "value_string" = '';
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Catalogues sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
-INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_sending_data', 'Accept sending data to requesting peer', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept sending data to requesting peer', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_run_request', 'Accept Job Run Requests  sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Run Requests  sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_run_response', 'Accept Job Run Responses sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Run Responses sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving binary stream sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving file sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_request', 'Accept Service Requests sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Requests sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
