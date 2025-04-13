@@ -212,14 +212,17 @@ func (jm *JobManager) ProcessQueue() {
 	var jobs []node_types.JobSql
 
 	// TODO, implement other cases ('NONE'/'READY' is just one case)
-	rows, err := jm.db.QueryContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
+	rows, err := jm.db.QueryContext(context.Background(),
+		"select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds,
+			&jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail,
+			&jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
@@ -251,49 +254,28 @@ func (jm *JobManager) RunJob(jobId int64) error {
 	// Check job status
 	status := job.Status
 
-	switch status {
-	case "IDLE":
+	if status != "READY" {
 		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	case "READY":
-		err := jm.wm.StartWorker(jobId, jm)
-		if err != nil {
-			// Stop worker
-			serr := jm.wm.StopWorker(jobId)
-			if serr != nil {
-				msg := serr.Error()
-				jm.lm.Log("error", msg, "jobs")
-				return err
-			}
-
-			// Log error
-			jm.lm.Log("error", err.Error(), "jobs")
-			return err
-		}
-
-		return nil
-	case "RUNNING":
-		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	case "CANCELLED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	case "ERRORED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	case "COMPLETED":
-		msg := fmt.Sprintf("Job id %d has been already executed with status %s. Create a new job to execute it", job.Id, status)
-		jm.lm.Log("error", msg, "jobs")
-		return err
-	default:
-		msg := fmt.Sprintf("Unknown job status %s", status)
 		jm.lm.Log("error", msg, "jobs")
 		return err
 	}
+
+	err = jm.wm.StartWorker(jobId, jm)
+	if err != nil {
+		// Stop worker
+		serr := jm.wm.StopWorker(jobId)
+		if serr != nil {
+			msg := serr.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return err
+		}
+
+		// Log error
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
 }
 
 func (jm *JobManager) StartJob(id int64) error {
