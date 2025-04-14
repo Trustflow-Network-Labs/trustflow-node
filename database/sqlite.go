@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS blacklisted_nodes_node_id_idx ON blacklisted_nodes ("
 
 		createKeystoreTableSql := `
 CREATE TABLE IF NOT EXISTS keystore (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"identifier" VARCHAR(255) NOT NULL,
 	"algorithm" VARCHAR(255) NOT NULL,
 	"key" BLOB NOT NULL
@@ -103,7 +103,7 @@ INSERT INTO currencies ("symbol", "currency") VALUES ('AED', 'Dirham');
 
 		createResourcesTableSql := `
 CREATE TABLE IF NOT EXISTS resources (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"resource_group" VARCHAR(255) NOT NULL,
 	"resource" VARCHAR(255) NOT NULL,
 	"resource_unit" VARCHAR(255) NOT NULL,
@@ -147,7 +147,7 @@ INSERT INTO resources ("resource_group", "resource", "resource_unit") VALUES ('E
 
 		createServicesTable := `
 CREATE TABLE IF NOT EXISTS services (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT '',
 	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'STANDALONE EXECUTABLE') ) NOT NULL DEFAULT 'DATA',
@@ -165,7 +165,7 @@ CREATE INDEX IF NOT EXISTS services_name_idx ON services ("name");
 
 		createDataServiceDetailsTable := `
 CREATE TABLE IF NOT EXISTS data_service_details (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"path" TEXT NOT NULL,
 	FOREIGN KEY("service_id") REFERENCES services("id")
@@ -181,7 +181,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS data_service_details_id_idx ON data_service_de
 
 		createDockerServiceDetailsTable := `
 CREATE TABLE IF NOT EXISTS docker_service_details (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"repo" TEXT DEFAULT '',
 	"image" TEXT NOT NULL,
@@ -198,7 +198,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS docker_service_details_id_idx ON docker_servic
 
 		createExecutableServiceDetailsTable := `
 CREATE TABLE IF NOT EXISTS executable_service_details (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"path" TEXT NOT NULL,
 	FOREIGN KEY("service_id") REFERENCES services("id")
@@ -214,7 +214,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS executable_service_details_id_idx ON executabl
 
 		createPricesTableSql := `
 CREATE TABLE IF NOT EXISTS prices (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"resource_id" INTEGER NOT NULL,
 	"price" DOUBLE PRECISION DEFAULT 0.0,
@@ -234,7 +234,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 
 		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"workflow_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"ordering_node_id" TEXT NOT NULL,
@@ -258,7 +258,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 
 		createResourcesUtilizationsTableSql := `
 CREATE TABLE IF NOT EXISTS resources_utilizations (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"job_id" INTEGER NOT NULL,
 	"resource_id" INTEGER NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
@@ -277,7 +277,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_uti
 
 		createWorkflowsTableSql := `
 CREATE TABLE IF NOT EXISTS workflows (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"name" VARCHAR(255) NOT NULL,
 	"description" TEXT DEFAULT ''
 );
@@ -292,7 +292,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS workflows_id_idx ON workflows ("id");
 
 		createOrchestrationsTableSql := `
 CREATE TABLE IF NOT EXISTS workflow_jobs (
-	"id" INTEGER PRIMARY KEY,
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"workflow_id" INTEGER NOT NULL,
 	"node_id" TEXT NOT NULL,
 	"job_id" INTEGER NOT NULL,

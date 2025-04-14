@@ -173,7 +173,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 	// Create new job
 	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
 
-	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (service_id, workflow_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?);",
+	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?, ?);",
 		serviceRequest.WorkflowId, serviceRequest.ServiceId, orderingNode, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
@@ -312,6 +312,8 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
+	jm.lm.Log("debug", fmt.Sprintf("started running job id %d", id), "jobs")
+
 	// Send job status update to remote node
 	go jm.statusUpdate(job, "RUNNING")
 
@@ -320,6 +322,8 @@ func (jm *JobManager) StartJob(id int64) error {
 		err := jm.StreamDataJob(job)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
+
+			jm.lm.Log("debug", fmt.Sprintf("error: running job id %d", id), "jobs")
 
 			// Set job status to ERRORED
 			err1 := jm.UpdateJobStatus(job.Id, "ERRORED")
@@ -340,7 +344,7 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
-	jm.lm.Log("debug", fmt.Sprintf("start running job id %d", id), "jobs")
+	jm.lm.Log("debug", fmt.Sprintf("ended running job id %d", id), "jobs")
 
 	// Set job status to COMPLETED
 	err = jm.UpdateJobStatus(job.Id, "COMPLETED")
