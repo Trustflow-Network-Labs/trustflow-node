@@ -175,6 +175,7 @@ type WorkflowJob struct {
 // Declare job base struct
 type JobBase struct {
 	Id                        int64  `json:"id"`
+	WorkflowId                int64  `json:"workflow_id"`
 	ServiceId                 int64  `json:"service_id"`
 	OrderingNodeId            string `json:"ordering_node_id"`
 	ExecutionConstraint       string `json:"execution_constraint"`
@@ -252,4 +253,12 @@ type JobRunResponse struct {
 	Accepted bool   `json:"accepted"`
 	Message  string `json:"message"`
 	JobRunRequest
+}
+
+// Declare job run status type
+type JobRunStatus struct {
+	WorkflowId int64  `json:"workflow_id"`
+	NodeId     string `json:"node_id"`
+	JobId      int64  `json:"job_id"`
+	Status     string `json:"status"`
 }

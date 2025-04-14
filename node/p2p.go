@@ -416,19 +416,19 @@ func (p2pm *P2PManager) RequestService(peer peer.AddrInfo, workflowId int64, ser
 		ExecutionConstraintDetail: constrDet,
 	}
 
-	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-	if err != nil {
-		p2pm.lm.Log("error", err.Error(), "p2p")
-		s.Reset()
-		return err
-	} else {
-		err = StreamData(p2pm, peer, &serviceRequest, nil)
+	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 		if err != nil {
-			msg := err.Error()
-			p2pm.lm.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Reset()
 			return err
-		}
+		} else {
+	*/err = StreamData(p2pm, peer, &serviceRequest, nil)
+	if err != nil {
+		msg := err.Error()
+		p2pm.lm.Log("error", msg, "p2p")
+		return err
 	}
+	//	}
 
 	return nil
 }
@@ -447,19 +447,51 @@ func (p2pm *P2PManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobI
 		JobId:      jobId,
 	}
 
-	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-	if err != nil {
-		p2pm.lm.Log("error", err.Error(), "p2p")
-		s.Reset()
-		return err
-	} else {
-		err = StreamData(p2pm, peer, &jobRunRequest, nil)
+	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
 		if err != nil {
-			msg := err.Error()
-			p2pm.lm.Log("error", msg, "p2p")
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Reset()
 			return err
-		}
+		} else {
+	*/err = StreamData(p2pm, peer, &jobRunRequest, nil)
+	if err != nil {
+		msg := err.Error()
+		p2pm.lm.Log("error", msg, "p2p")
+		return err
 	}
+	//	}
+
+	return nil
+}
+
+func (p2pm *P2PManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64, status string) error {
+	_, err := p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		p2pm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	jobRunStatus := node_types.JobRunStatus{
+		WorkflowId: workflowId,
+		NodeId:     jobNodeId,
+		JobId:      jobId,
+		Status:     status,
+	}
+
+	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return err
+		} else {
+	*/err = StreamData(p2pm, peer, &jobRunStatus, nil)
+	if err != nil {
+		msg := err.Error()
+		p2pm.lm.Log("error", msg, "p2p")
+		return err
+	}
+	//	}
 
 	return nil
 }
@@ -513,6 +545,8 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStr
 		t = 5
 	case *node_types.JobRunResponse:
 		t = 6
+	case *node_types.JobRunStatus:
+		t = 7
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -575,32 +609,28 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	switch streamDataType {
 	case 0:
 		// Request to receive a Service Catalogue from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_service_catalogue")
 	case 1:
-		// Request to from the remote peer to run a job
-		// Check settings
+		// Request to the remote peer to run a job
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_request")
 	case 2:
 		// Request to receive a binary stream from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_binary_stream")
 	case 3:
 		// Request to receive a file from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_file")
 	case 4:
 		// Request to receive a Service Request from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_service_request")
 	case 5:
 		// Request to receive a Service Response from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_service_response")
 	case 6:
 		// Request to receive a Job Run Response from the remote peer
-		// Check settings
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_response")
+	case 7:
+		// Request to receive a Job Run Status update from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_job_run_status")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		p2pm.lm.Log("debug", message, "p2p")
@@ -673,7 +703,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 
 	switch v := any(data).(type) {
 	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse,
-		*node_types.JobRunRequest, *node_types.JobRunResponse:
+		*node_types.JobRunRequest, *node_types.JobRunResponse, *node_types.JobRunStatus:
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
@@ -768,7 +798,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Determine data type
 	switch streamData.Type {
-	case 0, 1, 4, 5, 6:
+	case 0, 1, 4, 5, 6, 7:
 		// Prepare to read back the data
 		var data []byte
 		for {
@@ -1112,6 +1142,27 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				menuManager.printJobRunResponse(jobRunResponse)
 			} else {
 				// TODO, Otherwise, if we are connected with other client (web, gui) push message
+			}
+		} else if streamData.Type == 7 {
+			// Received a Job Run Status update from the remote peer
+			var jobRunStatus node_types.JobRunStatus
+			err := json.Unmarshal(data, &jobRunStatus)
+			if err != nil {
+				msg := fmt.Sprintf("Could not load received binary stream into a Job Run Status update struct.\n\n%s", err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Reset()
+				return
+			}
+
+			// Update workflow job status
+			workflowManager := workflow.NewWorkflowManager(p2pm.db)
+			err = workflowManager.UpdateWorkflowJobStatus(jobRunStatus.WorkflowId, jobRunStatus.NodeId, jobRunStatus.JobId, jobRunStatus.Status)
+			if err != nil {
+				msg := fmt.Sprintf("Could not update workflow job %d-%s-%d status to %s.\n\n%s",
+					jobRunStatus.WorkflowId, jobRunStatus.NodeId, jobRunStatus.JobId, jobRunStatus.Status, err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Reset()
+				return
 			}
 		}
 	case 2:

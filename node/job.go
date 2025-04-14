@@ -71,9 +71,9 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	}
 
 	// Get job
-	row := jm.db.QueryRowContext(context.Background(), "select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
+	row := jm.db.QueryRowContext(context.Background(), "select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
 
-	err = row.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+	err = row.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("debug", msg, "jobs")
@@ -116,7 +116,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 		sqlPatch = " AND (status = 'IDLE' OR status = 'READY' OR status = 'RUNNING') "
 	}
 
-	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
+	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -126,7 +126,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -173,8 +173,8 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 	// Create new job
 	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
 
-	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?);",
-		serviceRequest.ServiceId, orderingNode, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
+	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (service_id, workflow_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?);",
+		serviceRequest.WorkflowId, serviceRequest.ServiceId, orderingNode, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -190,6 +190,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 
 	jobBase := node_types.JobBase{
 		Id:                        id,
+		WorkflowId:                serviceRequest.WorkflowId,
 		ServiceId:                 serviceRequest.ServiceId,
 		OrderingNodeId:            orderingNode,
 		ExecutionConstraint:       serviceRequest.ExecutionConstraint,
@@ -213,16 +214,16 @@ func (jm *JobManager) ProcessQueue() {
 
 	// TODO, implement other cases ('NONE'/'READY' is just one case)
 	rows, err := jm.db.QueryContext(context.Background(),
-		"select id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
+		"select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds,
-			&jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail,
-			&jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId,
+			&jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint,
+			&jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
@@ -255,7 +256,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 	status := job.Status
 
 	if status != "READY" {
-		msg := fmt.Sprintf("Job id %d is %s", job.Id, status)
+		msg := fmt.Sprintf("Job id %d is in status %s. Expected job status is 'READY'", job.Id, status)
 		jm.lm.Log("error", msg, "jobs")
 		return err
 	}
@@ -311,6 +312,9 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
+	// Send job status update to remote node
+	go jm.statusUpdate(job, "RUNNING")
+
 	switch serviceType {
 	case "DATA":
 		err := jm.StreamDataJob(job)
@@ -322,6 +326,9 @@ func (jm *JobManager) StartJob(id int64) error {
 			if err1 != nil {
 				jm.lm.Log("error", err1.Error(), "jobs")
 			}
+
+			// Send job status update to remote node
+			go jm.statusUpdate(job, "ERRORED")
 
 			return err
 		}
@@ -342,6 +349,9 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
+	// Send job status update to remote node
+	go jm.statusUpdate(job, "COMPLETED")
+
 	err = jm.wm.StopWorker(job.Id)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -349,6 +359,14 @@ func (jm *JobManager) StartJob(id int64) error {
 	}
 
 	return nil
+}
+
+func (jm *JobManager) statusUpdate(job node_types.Job, status string) error {
+	// Send job status update to remote node
+	nodeId := jm.p2pm.h.ID().String()
+	peerId, err := jm.p2pm.GeneratePeerFromId(job.OrderingNodeId)
+	jm.p2pm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
+	return err
 }
 
 func (jm *JobManager) StreamDataJob(job node_types.Job) error {

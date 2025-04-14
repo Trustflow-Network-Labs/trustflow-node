@@ -235,6 +235,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 		createJobsTable := `
 CREATE TABLE IF NOT EXISTS jobs (
 	"id" INTEGER PRIMARY KEY,
+	"workflow_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"ordering_node_id" TEXT NOT NULL,
 	"input_node_ids" TEXT DEFAULT '',
@@ -324,6 +325,7 @@ INSERT INTO settings ("key", "description", "setting_type", "value_string") VALU
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue', 'Accept Service Catalogues sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Catalogues sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_run_request', 'Accept Job Run Requests  sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Run Requests  sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_run_response', 'Accept Job Run Responses sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Run Responses sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_run_status', 'Accept Job Run Status updates sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Run Status updates sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_binary_stream', 'Accept receiving binary stream sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving binary stream sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_file', 'Accept receiving file sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept receiving file sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_request', 'Accept Service Requests sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Requests sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
