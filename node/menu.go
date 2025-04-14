@@ -27,6 +27,7 @@ type MenuManager struct {
 	rm   *resource.ResourceManager
 	cm   *currency.CurrencyManager
 	wm   *workflow.WorkflowManager
+	jm   *JobManager
 }
 
 func NewMenuManager(p2pm *P2PManager) *MenuManager {
@@ -40,6 +41,7 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 		rm:   resource.NewResourceManager(p2pm.db),
 		cm:   currency.NewCurrencyManager(p2pm.db),
 		wm:   workflow.NewWorkflowManager(p2pm.db),
+		jm:   NewJobManager(p2pm),
 	}
 }
 
@@ -374,7 +376,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	}
 
-	err = mm.p2pm.RequestService(peer, workflowId, serviceId, inputNodes, outputNodes, cResult, "")
+	err = mm.jm.RequestService(peer, workflowId, serviceId, inputNodes, outputNodes, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err
@@ -492,7 +494,7 @@ func (mm *MenuManager) runWorkflow() error {
 			mm.lm.Log("error", err.Error(), "menu")
 			return err
 		}
-		err = mm.p2pm.RequestJobRun(peer, workflow.Id, job.JobId)
+		err = mm.jm.RequestJobRun(peer, workflow.Id, job.JobId)
 		if err != nil {
 			mm.lm.Log("error", err.Error(), "menu")
 			return err

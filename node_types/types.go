@@ -255,10 +255,15 @@ type JobRunResponse struct {
 	JobRunRequest
 }
 
-// Declare job run status type
-type JobRunStatus struct {
+// Declare job run status request type
+type JobRunStatusRequest struct {
 	WorkflowId int64  `json:"workflow_id"`
 	NodeId     string `json:"node_id"`
 	JobId      int64  `json:"job_id"`
-	Status     string `json:"status"`
+}
+
+// Declare job run status type
+type JobRunStatus struct {
+	JobRunStatusRequest
+	Status string `json:"status"`
 }

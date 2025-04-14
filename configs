@@ -24,3 +24,4 @@ phrase_min_len = 3
 
 [cron]
 process_job_queue = */10 * * * * *
+request_job_status_update = */1 * * * * *

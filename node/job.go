@@ -10,6 +10,7 @@ import (
 
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type JobManager struct {
@@ -166,6 +167,111 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	return nil
 }
 
+func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, inputNodeIds []string, outputNodeIds []string, constr string, constrDet string) error {
+	_, err := jm.p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	serviceRequest := node_types.ServiceRequest{
+		NodeId:                    peer.ID.String(),
+		WorkflowId:                workflowId,
+		ServiceId:                 serviceId,
+		InputNodeIds:              inputNodeIds,
+		OutputNodeIds:             outputNodeIds,
+		ExecutionConstraint:       constr,
+		ExecutionConstraintDetail: constrDet,
+	}
+
+	err = StreamData(jm.p2pm, peer, &serviceRequest, nil)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	return nil
+}
+
+func (jm *JobManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId int64) error {
+	_, err := jm.p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	jobRunRequest := node_types.JobRunRequest{
+		NodeId:     peer.ID.String(),
+		WorkflowId: workflowId,
+		JobId:      jobId,
+	}
+
+	err = StreamData(jm.p2pm, peer, &jobRunRequest, nil)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	return nil
+}
+
+func (jm *JobManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64, status string) error {
+	_, err := jm.p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	jobRunStatusRequest := node_types.JobRunStatusRequest{
+		WorkflowId: workflowId,
+		NodeId:     jobNodeId,
+		JobId:      jobId,
+	}
+
+	jobRunStatus := node_types.JobRunStatus{
+		JobRunStatusRequest: jobRunStatusRequest,
+		Status:              status,
+	}
+
+	err = StreamData(jm.p2pm, peer, &jobRunStatus, nil)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	return nil
+}
+
+func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64) error {
+	_, err := jm.p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	jobRunStatusRequest := node_types.JobRunStatusRequest{
+		WorkflowId: workflowId,
+		NodeId:     jobNodeId,
+		JobId:      jobId,
+	}
+
+	err = StreamData(jm.p2pm, peer, &jobRunStatusRequest, nil)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	return nil
+}
+
 // Create new job
 func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderingNode string) (node_types.Job, error) {
 	var job node_types.Job
@@ -207,7 +313,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 	return job, nil
 }
 
-// Run jobs from queue
+// CRON, Run jobs from queue
 func (jm *JobManager) ProcessQueue() {
 	var jobSql node_types.JobSql
 	var jobs []node_types.JobSql
@@ -238,6 +344,40 @@ func (jm *JobManager) ProcessQueue() {
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
+		}
+	}
+}
+
+// CRON, Request remote jobs status update
+func (jm *JobManager) RequestWorkflowJobsStatusUpdates() {
+	// Load workflow jobs with status 'RUNNING'
+	sql := `select distinct w.id, wj.node_id, wj.job_id
+		from workflows w
+		inner join workflow_jobs wj
+		on wj.workflow_id = w.id
+		where wj.status = 'RUNNING';`
+	rows, err := jm.db.QueryContext(context.Background(), sql)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var workflowId int64
+		var nodeId string
+		var jobId int64
+		if err := rows.Scan(&workflowId, &nodeId, &jobId); err == nil {
+			peer, err := jm.p2pm.GeneratePeerFromId(nodeId)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return
+			}
+			err = jm.RequestJobRunStatus(peer, workflowId, nodeId, jobId)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return
+			}
 		}
 	}
 }
@@ -315,7 +455,12 @@ func (jm *JobManager) StartJob(id int64) error {
 	jm.lm.Log("debug", fmt.Sprintf("started running job id %d", id), "jobs")
 
 	// Send job status update to remote node
-	go jm.statusUpdate(job, "RUNNING")
+	go func() {
+		err := jm.StatusUpdate(job, "RUNNING")
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+		}
+	}()
 
 	switch serviceType {
 	case "DATA":
@@ -332,7 +477,12 @@ func (jm *JobManager) StartJob(id int64) error {
 			}
 
 			// Send job status update to remote node
-			go jm.statusUpdate(job, "ERRORED")
+			go func() {
+				err := jm.StatusUpdate(job, "ERRORED")
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+				}
+			}()
 
 			return err
 		}
@@ -354,7 +504,12 @@ func (jm *JobManager) StartJob(id int64) error {
 	}
 
 	// Send job status update to remote node
-	go jm.statusUpdate(job, "COMPLETED")
+	go func() {
+		err := jm.StatusUpdate(job, "COMPLETED")
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+		}
+	}()
 
 	err = jm.wm.StopWorker(job.Id)
 	if err != nil {
@@ -365,11 +520,11 @@ func (jm *JobManager) StartJob(id int64) error {
 	return nil
 }
 
-func (jm *JobManager) statusUpdate(job node_types.Job, status string) error {
+func (jm *JobManager) StatusUpdate(job node_types.Job, status string) error {
 	// Send job status update to remote node
 	nodeId := jm.p2pm.h.ID().String()
 	peerId, err := jm.p2pm.GeneratePeerFromId(job.OrderingNodeId)
-	jm.p2pm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
+	jm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
 	return err
 }
 

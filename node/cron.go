@@ -33,6 +33,11 @@ func (cm *CronManager) JobQueue() error {
 		cm.lm.Log("error", err.Error(), "cron")
 		return err
 	}
+	err = c.AddFunc(configs["request_job_status_update"], jm.RequestWorkflowJobsStatusUpdates)
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "cron")
+		return err
+	}
 	c.Start()
 
 	return nil

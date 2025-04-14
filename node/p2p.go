@@ -398,104 +398,6 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
-func (p2pm *P2PManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, inputNodeIds []string, outputNodeIds []string, constr string, constrDet string) error {
-	_, err := p2pm.ConnectNode(peer)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-
-	serviceRequest := node_types.ServiceRequest{
-		NodeId:                    peer.ID.String(),
-		WorkflowId:                workflowId,
-		ServiceId:                 serviceId,
-		InputNodeIds:              inputNodeIds,
-		OutputNodeIds:             outputNodeIds,
-		ExecutionConstraint:       constr,
-		ExecutionConstraintDetail: constrDet,
-	}
-
-	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-		if err != nil {
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			s.Reset()
-			return err
-		} else {
-	*/err = StreamData(p2pm, peer, &serviceRequest, nil)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-	//	}
-
-	return nil
-}
-
-func (p2pm *P2PManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId int64) error {
-	_, err := p2pm.ConnectNode(peer)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-
-	jobRunRequest := node_types.JobRunRequest{
-		NodeId:     peer.ID.String(),
-		WorkflowId: workflowId,
-		JobId:      jobId,
-	}
-
-	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-		if err != nil {
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			s.Reset()
-			return err
-		} else {
-	*/err = StreamData(p2pm, peer, &jobRunRequest, nil)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-	//	}
-
-	return nil
-}
-
-func (p2pm *P2PManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64, status string) error {
-	_, err := p2pm.ConnectNode(peer)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-
-	jobRunStatus := node_types.JobRunStatus{
-		WorkflowId: workflowId,
-		NodeId:     jobNodeId,
-		JobId:      jobId,
-		Status:     status,
-	}
-
-	/*	s, err := p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
-		if err != nil {
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			s.Reset()
-			return err
-		} else {
-	*/err = StreamData(p2pm, peer, &jobRunStatus, nil)
-	if err != nil {
-		msg := err.Error()
-		p2pm.lm.Log("error", msg, "p2p")
-		return err
-	}
-	//	}
-
-	return nil
-}
-
 func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStream network.Stream) error {
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
@@ -547,6 +449,8 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStr
 		t = 6
 	case *node_types.JobRunStatus:
 		t = 7
+	case *node_types.JobRunStatusRequest:
+		t = 8
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -629,8 +533,11 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 		// Request to receive a Job Run Response from the remote peer
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_response")
 	case 7:
-		// Request to receive a Job Run Status update from the remote peer
+		// Request to send a Job Run Status to the remote peer
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_status")
+	case 8:
+		// Request to receive a Job Run Status update from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_job_run_status_request")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		p2pm.lm.Log("debug", message, "p2p")
@@ -703,7 +610,8 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 
 	switch v := any(data).(type) {
 	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse,
-		*node_types.JobRunRequest, *node_types.JobRunResponse, *node_types.JobRunStatus:
+		*node_types.JobRunRequest, *node_types.JobRunResponse,
+		*node_types.JobRunStatus, *node_types.JobRunStatusRequest:
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
@@ -798,7 +706,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Determine data type
 	switch streamData.Type {
-	case 0, 1, 4, 5, 6, 7:
+	case 0, 1, 4, 5, 6, 7, 8:
 		// Prepare to read back the data
 		var data []byte
 		for {
@@ -1078,16 +986,16 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				msg := fmt.Sprintf("Service Request (service request Id %d) for node Id %s is not accepted with the following reason: %s.\n\n",
 					serviceResponse.ServiceId, serviceResponse.NodeId, serviceResponse.Message)
 				p2pm.lm.Log("error", msg, "p2p")
-			}
-
-			// Add job to the workflow
-			err = p2pm.wm.AddWorkflowJob(serviceResponse.WorkflowId, serviceResponse.NodeId, serviceResponse.JobId)
-			if err != nil {
-				msg := fmt.Sprintf("Could not add workflow job (%s-%d) to workflow %d.\n\n%s",
-					serviceResponse.NodeId, serviceResponse.JobId, serviceResponse.WorkflowId, err.Error())
-				p2pm.lm.Log("error", msg, "p2p")
-				s.Reset()
-				return
+			} else {
+				// Add job to the workflow
+				err = p2pm.wm.AddWorkflowJob(serviceResponse.WorkflowId, serviceResponse.NodeId, serviceResponse.JobId)
+				if err != nil {
+					msg := fmt.Sprintf("Could not add workflow job (%s-%d) to workflow %d.\n\n%s",
+						serviceResponse.NodeId, serviceResponse.JobId, serviceResponse.WorkflowId, err.Error())
+					p2pm.lm.Log("error", msg, "p2p")
+					s.Reset()
+					return
+				}
 			}
 
 			// Draw table output
@@ -1124,15 +1032,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 					s.Reset()
 					return
 				}
-			} else {
-				err := workflowManager.UpdateWorkflowJobStatus(jobRunResponse.WorkflowId, jobRunResponse.NodeId, jobRunResponse.JobId, "RUNNING")
-				if err != nil {
-					msg := fmt.Sprintf("Could not update workflow job %d-%s-%d status to %s.\n\n%s",
-						jobRunResponse.WorkflowId, jobRunResponse.NodeId, jobRunResponse.JobId, "RUNNING", err.Error())
-					p2pm.lm.Log("error", msg, "p2p")
-					s.Reset()
-					return
-				}
 			}
 
 			// Draw table output
@@ -1162,6 +1061,90 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 					jobRunStatus.WorkflowId, jobRunStatus.NodeId, jobRunStatus.JobId, jobRunStatus.Status, err.Error())
 				p2pm.lm.Log("error", msg, "p2p")
 				s.Reset()
+				return
+			}
+		} else if streamData.Type == 8 {
+			// Received a Job Run Status Request from the remote peer
+			var jobRunStatusRequest node_types.JobRunStatusRequest
+
+			err := json.Unmarshal(data, &jobRunStatusRequest)
+			if err != nil {
+				msg := fmt.Sprintf("Could not load received binary stream into a Job Run Status Request struct.\n\n%s", err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Close()
+				return
+			}
+
+			peerId := s.Conn().RemotePeer()
+			peer, err := p2pm.GeneratePeerFromId(peerId.String())
+			if err != nil {
+				msg := err.Error()
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Close()
+				return
+			}
+
+			remotePeer := peerId.String()
+			jobRunStatusResponse := node_types.JobRunStatus{
+				JobRunStatusRequest: jobRunStatusRequest,
+				Status:              "",
+			}
+
+			// Check if job is existing
+			jobManager := NewJobManager(p2pm)
+			if err, exists := jobManager.JobExists(jobRunStatusRequest.JobId); err != nil || !exists {
+				msg := fmt.Sprintf("Could not find job Id %d.\n\n%s", jobRunStatusRequest.JobId, err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+
+				jobRunStatusResponse.Status = "ERRORED"
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+
+			// Check if job is owned by requesting peer
+			job, err := jobManager.GetJob(jobRunStatusRequest.JobId)
+			if err != nil {
+				msg := fmt.Sprintf("Could not retrieve job Id %d.\n\n%s", jobRunStatusRequest.JobId, err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+
+				jobRunStatusResponse.Status = "ERRORED"
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+			if job.OrderingNodeId != remotePeer {
+				msg := fmt.Sprintf("Job run status request for job Id %d is made by node %s who is not owning the job.\n\n", jobRunStatusRequest.JobId, remotePeer)
+				p2pm.lm.Log("error", msg, "p2p")
+
+				jobRunStatusResponse.Status = "ERRORED"
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+
+			err = jobManager.StatusUpdate(job, job.Status)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
 				return
 			}
 		}
