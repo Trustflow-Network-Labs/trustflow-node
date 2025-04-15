@@ -212,6 +212,13 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 	// Add data service
 	sm.lm.Log("debug", fmt.Sprintf("add data service path(s) %s to service ID %d", pathss, serviceId), "services")
 
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return 0, err
+	}
+
 	var cids []string
 	var cidss string
 	paths := strings.Split(pathss, ",")
@@ -224,7 +231,7 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 
 		// Add file/folder, compress it and make CID
 		// Compress (File/Folder)
-		rnd := "./local_storage/" + utils.RandomString(32)
+		rnd := configs["local_storage"] + utils.RandomString(32)
 		err := utils.Compress(path, rnd)
 		if err != nil {
 			os.RemoveAll(rnd)
@@ -240,7 +247,7 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 			return 0, err
 		}
 
-		err = os.Rename(rnd, "./local_storage/"+cid)
+		err = os.Rename(rnd, configs["local_storage"]+cid)
 		if err != nil {
 			sm.lm.Log("error", err.Error(), "services")
 			return 0, err
@@ -351,6 +358,13 @@ func (sm *ServiceManager) removeData(id int64) error {
 		return err
 	}
 
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "services")
+		return err
+	}
+
 	// Split comma separated paths
 	paths := strings.Split(data.Path, ",")
 	for _, path := range paths {
@@ -371,7 +385,7 @@ func (sm *ServiceManager) removeData(id int64) error {
 
 		if no == 1 {
 			// Delete the data only if this is the only service using the data
-			err = os.RemoveAll("./local_storage/" + path)
+			err = os.RemoveAll(configs["local_storage"] + path)
 			if err != nil {
 				sm.lm.Log("error", err.Error(), "services")
 				return err

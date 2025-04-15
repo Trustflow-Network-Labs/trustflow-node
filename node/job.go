@@ -552,10 +552,16 @@ func (jm *JobManager) StreamDataJob(job node_types.Job) error {
 }
 
 func (jm *JobManager) StreamDataJobEngine(job node_types.Job, paths []string, index int) error {
-	path := "./local_storage/" + strings.TrimSpace(paths[index])
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	path := configs["local_storage"] + strings.TrimSpace(paths[index])
 
 	// Check if the file exists
-	_, err := os.Stat(path)
+	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
 		err = fmt.Errorf("file %s does not exist", path)
 		jm.lm.Log("error", err.Error(), "jobs")

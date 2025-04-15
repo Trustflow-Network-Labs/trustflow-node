@@ -13,6 +13,10 @@ logfile = logs/log
 [keystore]
 keystore_passphrase = KEYSTORE_PASSPHRASE
 
+[store]
+local_storage = ./local_storage/
+received_files_storage = ./local_storage/received/
+
 [repo]
 
 [node]

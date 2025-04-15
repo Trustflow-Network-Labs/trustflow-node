@@ -1154,19 +1154,23 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		// Received a file from the remote peer
 		var file *os.File
 		var err error
-		var fdir string = "./local_storage/inbox/"
-		var fpath string = fdir + utils.RandomString(32)
+		var fdir string
+		var fpath string
 		var chunkSize uint64 = 4096
 
 		// Read chunk size form configs
 		configManager := utils.NewConfigManager("")
-		config, err := configManager.ReadConfigs()
+		configs, err := configManager.ReadConfigs()
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
 		}
-		cs := config["chunk_size"]
+
+		fdir = configs["received_files_storage"]
+		fpath = fdir + utils.RandomString(32)
+
+		cs := configs["chunk_size"]
 		chunkSize, err = strconv.ParseUint(cs, 10, 64)
 		if err != nil {
 			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
