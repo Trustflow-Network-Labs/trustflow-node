@@ -10,6 +10,7 @@ import (
 	"github.com/adgsm/trustflow-node/currency"
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/price"
+	"github.com/adgsm/trustflow-node/repo"
 	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/adgsm/trustflow-node/workflow"
@@ -1203,14 +1204,6 @@ func (mm *MenuManager) services() {
 				continue
 			}
 
-			// Add service
-			id, err := mm.sm.Add(snResult, sdResult, stResult, active)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
 			switch stResult {
 			case "DATA":
 				// Get file/folder/data path
@@ -1228,7 +1221,14 @@ func (mm *MenuManager) services() {
 					msg := fmt.Sprintf("\U00002757 Entering service file/folder/data path failed: %s", err.Error())
 					fmt.Println(msg)
 					mm.lm.Log("error", msg, "menu")
-					mm.sm.Remove(id)
+					continue
+				}
+
+				// Add service
+				id, err := mm.sm.Add(snResult, sdResult, stResult, active)
+				if err != nil {
+					fmt.Printf("\U00002757 %s\n", err.Error())
+					mm.lm.Log("error", err.Error(), "menu")
 					continue
 				}
 
@@ -1240,31 +1240,84 @@ func (mm *MenuManager) services() {
 					mm.sm.Remove(id)
 					continue
 				}
-			case "DOCKER EXECUTION ENVIRONMENT":
-			case "STANDALONE EXECUTABLE":
-			}
 
-			// Print free or paid service prompt
-			sfcPrompt := promptui.Prompt{
-				Label:     "Is this service free of charge",
-				IsConfirm: true,
-			}
-			sfcResult, err := sfcPrompt.Run()
-			if err != nil && strings.ToLower(sfcResult) != "n" && strings.ToLower(sfcResult) != "y" {
-				fmt.Printf("Prompt failed %v\n", err)
-				mm.lm.Log("error", err.Error(), "menu")
-				mm.sm.Remove(id)
-				continue
-			}
-			if strings.ToLower(sfcResult) == "n" {
-				// Add service price
-				err = mm.addServicePrice(id)
+				// Print service pricing prompt
+				err = mm.printServicePrice(id)
 				if err != nil {
-					fmt.Println(err.Error())
 					mm.lm.Log("error", err.Error(), "menu")
 					mm.sm.Remove(id)
+				}
+
+			case "DOCKER EXECUTION ENVIRONMENT":
+				// Do we have docker image prepared or
+				// we will create it fron git repo?
+				deetPrompt := promptui.Prompt{
+					Label:     "Do you have a pre-built Docker image? Enter 'Y' and provide the image name to pull it. Otherwise, enter 'N' and provide a Git repository URL containing a valid Dockerfile or docker-compose.yml.",
+					IsConfirm: true,
+				}
+				deetResult, err := deetPrompt.Run()
+				if err != nil && strings.ToLower(deetResult) != "n" && strings.ToLower(deetResult) != "y" {
+					fmt.Printf("Prompt failed %v\n", err)
 					continue
 				}
+				if strings.ToLower(deetResult) == "n" {
+					// Pull from git and compose Docker image
+					gruPrompt := promptui.Prompt{
+						Label:       "Git repository URL",
+						Default:     "",
+						Validate:    mm.vm.NotEmpty,
+						AllowEdit:   true,
+						HideEntered: false,
+						IsConfirm:   false,
+						IsVimMode:   false,
+					}
+					gruResult, err := gruPrompt.Run()
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Entering Git repository URL failed: %s", err.Error())
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					gitManager := repo.NewGitManager()
+					cmdOut, err := gitManager.ValidateRepo(gruResult)
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\nOutput: %s", err, string(cmdOut))
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					// TODO, optionally provide user and pass
+					// TODO, pull/clone
+				} else {
+					// Pull existing Docker image
+					pediPrompt := promptui.Prompt{
+						Label:       "Pre-built Docker image name to pull",
+						Default:     "",
+						Validate:    mm.vm.NotEmpty,
+						AllowEdit:   true,
+						HideEntered: false,
+						IsConfirm:   false,
+						IsVimMode:   false,
+					}
+					pediResult, err := pediPrompt.Run()
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Entering Docker image name failed: %s", err.Error())
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					dockerManager := repo.NewDockerManager()
+					cmdOut, err := dockerManager.ValidateImage(pediResult)
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					// TODO, pull image, create container
+				}
+
+			case "STANDALONE EXECUTABLE":
 			}
 
 			// Service is added
@@ -1546,5 +1599,27 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		return mm.addServicePrice(id)
 	}
 
+	return nil
+}
+
+func (mm *MenuManager) printServicePrice(id int64) error {
+	// Print free or paid service prompt
+	sfcPrompt := promptui.Prompt{
+		Label:     "Is this service free of charge",
+		IsConfirm: true,
+	}
+	sfcResult, err := sfcPrompt.Run()
+	if err != nil && strings.ToLower(sfcResult) != "n" && strings.ToLower(sfcResult) != "y" {
+		fmt.Printf("Prompt failed %v\n", err)
+		return err
+	}
+	if strings.ToLower(sfcResult) == "n" {
+		// Add service price
+		err = mm.addServicePrice(id)
+		if err != nil {
+			fmt.Println(err.Error())
+			return err
+		}
+	}
 	return nil
 }
