@@ -1278,16 +1278,76 @@ func (mm *MenuManager) services() {
 						mm.lm.Log("error", msg, "menu")
 						continue
 					}
+					// If this is private repo ask for credentials
+					var username string = ""
+					var token string = ""
+					iprPrompt := promptui.Prompt{
+						Label:     "Is this private repo",
+						IsConfirm: true,
+					}
+					iprResult, err := iprPrompt.Run()
+					if err != nil && strings.ToLower(iprResult) != "n" && strings.ToLower(iprResult) != "y" {
+						fmt.Printf("Prompt failed %v\n", err)
+						continue
+					}
+					if strings.ToLower(iprResult) == "y" {
+						// Ask for Git credentials
+						unPrompt := promptui.Prompt{
+							Label:       "Git user",
+							Default:     "",
+							AllowEdit:   true,
+							HideEntered: false,
+							IsConfirm:   false,
+							IsVimMode:   false,
+						}
+						username, err = unPrompt.Run()
+						if err != nil {
+							msg := fmt.Sprintf("\U00002757 Entering Git username failed: %s", err.Error())
+							fmt.Println(msg)
+							mm.lm.Log("error", msg, "menu")
+							continue
+						}
+						tknPrompt := promptui.Prompt{
+							Label:       "Git token/password",
+							Default:     "",
+							AllowEdit:   true,
+							HideEntered: false,
+							IsConfirm:   false,
+							IsVimMode:   false,
+						}
+						token, err = tknPrompt.Run()
+						if err != nil {
+							msg := fmt.Sprintf("\U00002757 Entering Git token/password failed: %s", err.Error())
+							fmt.Println(msg)
+							mm.lm.Log("error", msg, "menu")
+							continue
+						}
+					}
 					gitManager := repo.NewGitManager()
-					cmdOut, err := gitManager.ValidateRepo(gruResult)
+					err = gitManager.ValidateRepo(gruResult, username, token)
 					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\nOutput: %s", err, string(cmdOut))
+						msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\n", err)
 						fmt.Println(msg)
 						mm.lm.Log("error", msg, "menu")
 						continue
 					}
-					// TODO, optionally provide user and pass
-					// TODO, pull/clone
+					// Pull/clone
+					configManager := utils.NewConfigManager("")
+					configs, err := configManager.ReadConfigs()
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Failed reading configs: %v\n", err)
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					gitRoot := configs["local_git_root"]
+					err = gitManager.CloneOrPull(gitRoot, gruResult, "", username, token)
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Failed pulling/cloning repo %s: %v\n", gruResult, err)
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
 				} else {
 					// Pull existing Docker image
 					pediPrompt := promptui.Prompt{

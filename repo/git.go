@@ -1,12 +1,20 @@
 package repo
 
 import (
+	"errors"
 	"os"
-	"os/exec"
+	"os/user"
+	"path/filepath"
+	"strings"
 
+	"github.com/adgsm/trustflow-node/utils"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 type GitManager struct {
@@ -16,28 +24,133 @@ func NewGitManager() *GitManager {
 	return &GitManager{}
 }
 
-// ValidateRepo checks if a Git repo exists by running `git ls-remote`.
-// Supports HTTPS and SSH. Logs errors with reason.
-func (gm *GitManager) ValidateRepo(repoURL string) ([]byte, error) {
-	cmd := exec.Command("git", "ls-remote", repoURL)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return output, err
+// Get appropriate auth basing on provided parameters
+func (gm *GitManager) getAuth(repoURL, username, password string) (transport.AuthMethod, error) {
+	// No auth for public repo
+	if username == "" && password == "" && strings.HasPrefix(repoURL, "http") {
+		return nil, nil
 	}
 
-	return output, nil
+	// HTTPS basic auth (token or user/pass)
+	if strings.HasPrefix(repoURL, "http") {
+		return &githttp.BasicAuth{
+			Username: username, // Can be anything for token-based auth
+			Password: password,
+		}, nil
+	}
+
+	// SSH auth (assumes key in ~/.ssh/id_rsa)
+	if strings.HasPrefix(repoURL, "git@") || strings.HasPrefix(repoURL, "ssh://") {
+
+		usr, err := user.Current()
+		if err != nil {
+			return nil, err
+		}
+		sshPath := filepath.Join(usr.HomeDir, ".ssh", "id_rsa")
+
+		publicKeys, err := gitssh.NewPublicKeysFromFile("git", sshPath, "")
+		if err != nil {
+			return nil, err
+		}
+		publicKeys.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+		return publicKeys, nil
+	}
+
+	return nil, errors.New("unsupported repo auth method")
+}
+
+// ValidateRepo checks if the Git repo is reachable by attempting a shallow clone without checkout.
+func (gm *GitManager) ValidateRepo(repoUrl, username, password string) error {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return err
+	}
+	tmpRoot := configs["local_tmp"]
+
+	// Make sure tmpRoot exists
+	if err := os.MkdirAll(tmpRoot, 0755); err != nil {
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp(tmpRoot, "gitcheck-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	auth, err := gm.getAuth(repoUrl, username, password)
+	if err != nil {
+		return err
+	}
+
+	_, err = git.PlainClone(tmpDir, false, &git.CloneOptions{
+		URL:        repoUrl,
+		Depth:      1,
+		NoCheckout: true,
+		Auth:       auth,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DockerFileCheckResult holds the results of scanning for docker-related files.
+type DockerFileCheckResult struct {
+	HasDockerfile bool
+	HasCompose    bool
+	Dockerfiles   []string
+	Composes      []string
+}
+
+// Check Docker files in git repo
+func (gm *GitManager) CheckDockerFiles(path string) (DockerFileCheckResult, error) {
+	result := DockerFileCheckResult{}
+
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		switch strings.ToLower(info.Name()) {
+		case "Dockerfile", "dockerfile":
+			result.HasDockerfile = true
+			result.Dockerfiles = append(result.Dockerfiles, filePath)
+		case "docker-compose.yml", "docker-compose.yaml":
+			result.HasCompose = true
+			result.Composes = append(result.Composes, filePath)
+		}
+		return nil
+	})
+
+	return result, err
 }
 
 // Clone or pull git repo
-func (gm *GitManager) CloneOrPull(remote string, local string, user string, password string) error {
-	repo, err := git.PlainClone(local, false, &git.CloneOptions{
-		URL:      remote,
+func (gm *GitManager) CloneOrPull(local, repoUrl, branch, username, password string) error {
+	auth, err := gm.getAuth(repoUrl, username, password)
+	if err != nil {
+		return err
+	}
+
+	cloneOptions := &git.CloneOptions{
+		URL:      repoUrl,
 		Progress: os.Stdout,
-		Auth: &http.BasicAuth{
-			Username: user,
-			Password: password,
-		},
-	})
+		Auth:     auth,
+	}
+	if branch != "" {
+		cloneOptions.ReferenceName = plumbing.NewBranchReferenceName(branch)
+		cloneOptions.SingleBranch = true
+	}
+
+	// Make sure tmpPath exists
+	if err := os.MkdirAll(local, 0755); err != nil {
+		return err
+	}
+
+	repo, err := git.PlainClone(local, false, cloneOptions)
 	if err != nil {
 		if err == git.ErrRepositoryAlreadyExists {
 			repo, err = git.PlainOpen(local)
@@ -53,11 +166,8 @@ func (gm *GitManager) CloneOrPull(remote string, local string, user string, pass
 	}
 	err = worktree.Pull(&git.PullOptions{
 		RemoteName: "origin",
-		RemoteURL:  remote,
-		Auth: &http.BasicAuth{
-			Username: user,
-			Password: password,
-		},
+		RemoteURL:  repoUrl,
+		Auth:       auth,
 	})
 	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return err
