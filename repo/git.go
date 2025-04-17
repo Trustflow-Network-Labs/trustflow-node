@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/user"
@@ -128,8 +130,26 @@ func (gm *GitManager) CheckDockerFiles(path string) (DockerFileCheckResult, erro
 	return result, err
 }
 
+// getRepoCachePath generates a unique folder name based on repo URL and branch.
+func (gm *GitManager) getRepoCachePath(basePath, repoUrl, branch string) string {
+	key := repoUrl
+	if branch != "" {
+		key = key + ":" + branch
+	}
+	hash := sha1.Sum([]byte(key))
+	hashStr := hex.EncodeToString(hash[:])[:12] // 12 chars is short but quite unique
+
+	// Extract repo name from URL for readability
+	name := strings.TrimSuffix(filepath.Base(repoUrl), ".git")
+	if name == "" {
+		name = "repo"
+	}
+
+	return filepath.Join(basePath, name+"-"+hashStr)
+}
+
 // Clone or pull git repo
-func (gm *GitManager) CloneOrPull(local, repoUrl, branch, username, password string) error {
+func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password string) error {
 	auth, err := gm.getAuth(repoUrl, username, password)
 	if err != nil {
 		return err
@@ -145,15 +165,18 @@ func (gm *GitManager) CloneOrPull(local, repoUrl, branch, username, password str
 		cloneOptions.SingleBranch = true
 	}
 
-	// Make sure tmpPath exists
-	if err := os.MkdirAll(local, 0755); err != nil {
+	// Generate unique and redable folder name for git contents
+	path := gm.getRepoCachePath(basePath, repoUrl, branch)
+
+	// Make sure path exists
+	if err := os.MkdirAll(path, 0755); err != nil {
 		return err
 	}
 
-	repo, err := git.PlainClone(local, false, cloneOptions)
+	repo, err := git.PlainClone(path, false, cloneOptions)
 	if err != nil {
 		if err == git.ErrRepositoryAlreadyExists {
-			repo, err = git.PlainOpen(local)
+			repo, err = git.PlainOpen(path)
 			if err != nil {
 				return err
 			}
