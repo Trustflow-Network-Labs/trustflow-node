@@ -149,10 +149,10 @@ func (gm *GitManager) getRepoCachePath(basePath, repoUrl, branch string) string 
 }
 
 // Clone or pull git repo
-func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password string) error {
+func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password string) (string, error) {
 	auth, err := gm.getAuth(repoUrl, username, password)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	cloneOptions := &git.CloneOptions{
@@ -170,7 +170,7 @@ func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password 
 
 	// Make sure path exists
 	if err := os.MkdirAll(path, 0755); err != nil {
-		return err
+		return "", err
 	}
 
 	repo, err := git.PlainClone(path, false, cloneOptions)
@@ -178,14 +178,14 @@ func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password 
 		if err == git.ErrRepositoryAlreadyExists {
 			repo, err = git.PlainOpen(path)
 			if err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
 
 	worktree, err := repo.Worktree()
 	if err != nil {
-		return err
+		return "", err
 	}
 	err = worktree.Pull(&git.PullOptions{
 		RemoteName: "origin",
@@ -193,10 +193,10 @@ func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password 
 		Auth:       auth,
 	})
 	if err != nil && err != git.NoErrAlreadyUpToDate {
-		return err
+		return "", err
 	}
 
-	return nil
+	return path, nil
 }
 
 // List git commits

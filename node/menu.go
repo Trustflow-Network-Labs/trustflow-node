@@ -1252,7 +1252,7 @@ func (mm *MenuManager) services() {
 				// Do we have docker image prepared or
 				// we will create it fron git repo?
 				deetPrompt := promptui.Prompt{
-					Label:     "Do you have a pre-built Docker image? Enter 'Y' and provide the image name to pull it. Otherwise, enter 'N' and provide a Git repository URL containing a valid Dockerfile or docker-compose.yml.",
+					Label:     "Have a pre-built Docker image? Enter 'Y' and image name to pull. Else, enter 'N' and Git repo URL with Dockerfile or docker-compose.yml.",
 					IsConfirm: true,
 				}
 				deetResult, err := deetPrompt.Run()
@@ -1331,6 +1331,22 @@ func (mm *MenuManager) services() {
 						mm.lm.Log("error", msg, "menu")
 						continue
 					}
+					// Ask for Git branch
+					bPrompt := promptui.Prompt{
+						Label:       "Set branch for pull/clone (optional, blank for default)",
+						Default:     "",
+						AllowEdit:   true,
+						HideEntered: false,
+						IsConfirm:   false,
+						IsVimMode:   false,
+					}
+					branch, err := bPrompt.Run()
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Entering Git branch failed: %s", err.Error())
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
 					// Pull/clone
 					configManager := utils.NewConfigManager("")
 					configs, err := configManager.ReadConfigs()
@@ -1341,11 +1357,26 @@ func (mm *MenuManager) services() {
 						continue
 					}
 					gitRoot := configs["local_git_root"]
-					err = gitManager.CloneOrPull(gitRoot, gruResult, "", username, token)
+					repoPath, err := gitManager.CloneOrPull(gitRoot, gruResult, branch, username, token)
 					if err != nil {
 						msg := fmt.Sprintf("\U00002757 Failed pulling/cloning repo %s: %v\n", gruResult, err)
 						fmt.Println(msg)
 						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					// Check for docker files
+					dockerCheckResult, err := gitManager.CheckDockerFiles(repoPath)
+					if err != nil {
+						msg := fmt.Sprintf("\U00002757 Failed checking repo for docker files: %v\n", err)
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						continue
+					}
+					if !dockerCheckResult.HasDockerfile && !dockerCheckResult.HasCompose {
+						msg := fmt.Sprintf("\U00002757 Repo '%s' has neither Dockerfile nor docker-compose.yml\n", gruResult)
+						fmt.Println(msg)
+						mm.lm.Log("error", msg, "menu")
+						os.RemoveAll(repoPath)
 						continue
 					}
 				} else {
