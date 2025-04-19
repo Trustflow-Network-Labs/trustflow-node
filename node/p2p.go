@@ -1167,7 +1167,8 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			return
 		}
 
-		fdir = configs["received_files_storage"]
+		peerId := s.Conn().RemotePeer().String()
+		fdir = configs["received_files_storage"] + peerId + "/"
 		fpath = fdir + utils.RandomString(32)
 
 		cs := configs["chunk_size"]
