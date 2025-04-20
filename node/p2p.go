@@ -1206,8 +1206,15 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			file.Write(buf[:n])
 		}
 
+		// Create CID
+		cid, err := utils.HashFileToCID(fpath)
+		if err != nil {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			return
+		}
+
 		// Uncompress received file
-		err = utils.Uncompress(fpath, fdir)
+		err = utils.Uncompress(fpath, fdir+cid+"/")
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Close()
