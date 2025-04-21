@@ -125,10 +125,9 @@ type ServiceResourcesWithPricing struct {
 
 // Declare service request type
 type ServiceRequest struct {
-	NodeId     string `json:"node_id"`
-	WorkflowId int64  `json:"workflow_id"`
-	ServiceId  int64  `json:"service_id"`
-	//	OrderingNodeId            string   `json:"ordering_node_id"`
+	NodeId                    string   `json:"node_id"`
+	WorkflowId                int64    `json:"workflow_id"`
+	ServiceId                 int64    `json:"service_id"`
 	InputNodeIds              []string `json:"input_node_ids"`
 	OutputNodeIds             []string `json:"output_node_ids"`
 	ExecutionConstraint       string   `json:"execution_constraint"`
@@ -165,11 +164,12 @@ type Workflow struct {
 
 // Declare workflow job struct
 type WorkflowJob struct {
-	Id         int64  `json:"id"`
-	WorkflowId int64  `json:"workflow_id"`
-	NodeId     string `json:"node_id"`
-	JobId      int64  `json:"job_id"`
-	Status     string `json:"status"`
+	Id                 int64  `json:"id"`
+	WorkflowId         int64  `json:"workflow_id"`
+	NodeId             string `json:"node_id"`
+	JobId              int64  `json:"job_id"`
+	ExpectedJobOutputs string `json:"expected_job_outputs"`
+	Status             string `json:"status"`
 }
 
 // Declare job base struct

@@ -226,7 +226,7 @@ func (wm *WorkflowManager) Add(name string, description string, nodeId string, j
 }
 
 // Add a workflow job
-func (wm *WorkflowManager) AddWorkflowJob(workflowId int64, nodeId string, jobId int64) error {
+func (wm *WorkflowManager) AddWorkflowJob(workflowId int64, nodeId string, jobId int64, expectedJobOutputs string) error {
 	// Check if workflow exists
 	if err, exists := wm.Exists(workflowId); err != nil || !exists {
 		err = fmt.Errorf("workflow %d does not exist", workflowId)
@@ -237,8 +237,8 @@ func (wm *WorkflowManager) AddWorkflowJob(workflowId int64, nodeId string, jobId
 	// Add workflow job
 	wm.lm.Log("debug", fmt.Sprintf("add workflow job %s-%d to workflow id %d", nodeId, jobId, workflowId), "workflows")
 
-	_, err := wm.db.ExecContext(context.Background(), "insert into workflow_jobs (workflow_id, node_id, job_id) values (?, ?, ?);",
-		workflowId, nodeId, jobId)
+	_, err := wm.db.ExecContext(context.Background(), "insert into workflow_jobs (workflow_id, node_id, job_id, expected_job_outputs) values (?, ?, ?, ?);",
+		workflowId, nodeId, jobId, expectedJobOutputs)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")
 		return err
@@ -331,4 +331,37 @@ func (wm *WorkflowManager) UpdateWorkflowJobStatus(workflowId int64, nodeId stri
 	}
 
 	return nil
+}
+
+// Check if there are workflow jobs containing expected output
+func (wm *WorkflowManager) ExpectedOutputFound(nodeId string, output string) (bool, error) {
+	// Load workflow jobs matching the expected output
+	sql := `select distinct w.id
+		from workflows w
+		inner join workflow_jobs wj
+			on wj.workflow_id = w.id
+		where wj.node_id = ?
+		and ',' || wj.expected_job_outputs || ',' like ?`
+
+	pattern := fmt.Sprintf("%%,%s,%%", output)
+	rows, err := wm.db.QueryContext(context.Background(), sql, nodeId, pattern)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflow")
+		return false, err
+	}
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+
+	if len(ids) > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }

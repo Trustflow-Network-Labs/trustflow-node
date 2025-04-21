@@ -940,6 +940,44 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				return
 			}
 
+			// Acquire service
+			service, err := serviceManager.Get(serviceRequest.ServiceId)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+
+				serviceResponse.Message = err.Error()
+				err = StreamData(p2pm, peer, &serviceResponse, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+			// If service type is DATA populate file hash(es) in response message
+			if service.Type == "DATA" {
+				dataService, err := serviceManager.GetData(serviceRequest.ServiceId)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+
+					serviceResponse.Message = err.Error()
+					err = StreamData(p2pm, peer, &serviceResponse, nil)
+					if err != nil {
+						p2pm.lm.Log("error", err.Error(), "p2p")
+						s.Close()
+						return
+					}
+
+					s.Close()
+					return
+				}
+				serviceResponse.Message = dataService.Path
+			} else {
+				serviceResponse.Message = ""
+			}
+
 			// TODO, check if requested service got all its inputs, outputs, constraints requirements
 			// TODO, service price and payment
 
@@ -964,7 +1002,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			// Send response
 			serviceResponse.JobId = job.Id
 			serviceResponse.Accepted = true
-			serviceResponse.Message = job.Status
 			err = StreamData(p2pm, peer, &serviceResponse, nil)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
@@ -988,7 +1025,8 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 			} else {
 				// Add job to the workflow
-				err = p2pm.wm.AddWorkflowJob(serviceResponse.WorkflowId, serviceResponse.NodeId, serviceResponse.JobId)
+				err = p2pm.wm.AddWorkflowJob(serviceResponse.WorkflowId, serviceResponse.NodeId,
+					serviceResponse.JobId, serviceResponse.Message)
 				if err != nil {
 					msg := fmt.Sprintf("Could not add workflow job (%s-%d) to workflow %d.\n\n%s",
 						serviceResponse.NodeId, serviceResponse.JobId, serviceResponse.WorkflowId, err.Error())
@@ -1210,6 +1248,14 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		cid, err := utils.HashFileToCID(fpath)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
+			return
+		}
+
+		// Check are we expecting this file
+		expected, err := p2pm.wm.ExpectedOutputFound(peerId, cid)
+		if err != nil || !expected {
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			os.RemoveAll(fpath)
 			return
 		}
 

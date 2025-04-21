@@ -296,6 +296,7 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
 	"workflow_id" INTEGER NOT NULL,
 	"node_id" TEXT NOT NULL,
 	"job_id" INTEGER NOT NULL,
+	"expected_job_outputs" TEXT NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
 	FOREIGN KEY("workflow_id") REFERENCES workflows("id")
 );
