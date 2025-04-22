@@ -1,24 +1,350 @@
 package repo
 
 import (
+	"archive/tar"
+	"bufio"
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/adgsm/trustflow-node/utils"
+
+	"github.com/compose-spec/compose-go/loader"
+	composetypes "github.com/compose-spec/compose-go/types"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/strslice"
+	"github.com/docker/docker/api/types/volume"
+	"github.com/docker/docker/client"
+	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v3"
 )
 
 type DockerManager struct {
+	lm *utils.LogsManager
 }
 
 func NewDockerManager() *DockerManager {
-	return &DockerManager{}
+	return &DockerManager{
+		lm: utils.NewLogsManager(),
+	}
 }
 
-// ValidateImage checks if a Docker image exists in a registry.
-// Assumes user is authenticated via `docker login` for private registries.
 func (dm *DockerManager) ValidateImage(image string) ([]byte, error) {
 	cmd := exec.Command("docker", "manifest", "inspect", image)
 	output, err := cmd.CombinedOutput()
+	return output, err
+}
+
+func (dm *DockerManager) parseCompose(path string, envFile string) (*composetypes.Project, error) {
+	_ = godotenv.Load(envFile)
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return output, err
+		return nil, err
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal(content, &raw); err != nil {
+		return nil, err
+	}
+	return loader.Load(composetypes.ConfigDetails{
+		ConfigFiles: []composetypes.ConfigFile{{Filename: path, Config: raw}},
+		WorkingDir:  filepath.Dir(path),
+		Environment: dm.getEnvMap(),
+	})
+}
+
+func (dm *DockerManager) getEnvMap() map[string]string {
+	env := map[string]string{}
+	for _, e := range os.Environ() {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			env[parts[0]] = parts[1]
+		}
+	}
+	return env
+}
+
+func (dm *DockerManager) tarDirectory(dir string) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	tw := tar.NewWriter(buf)
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath, _ := filepath.Rel(dir, path)
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(tw, file)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) error {
+	ctx := context.Background()
+	tarBuf, err := dm.tarDirectory(contextDir)
+	if err != nil {
+		return err
+	}
+	resp, err := cli.ImageBuild(ctx, bytes.NewReader(tarBuf.Bytes()), types.ImageBuildOptions{
+		Tags:       []string{imageName},
+		Dockerfile: dockerfile,
+		Remove:     true,
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(os.Stdout, resp.Body)
+	return err
+}
+
+func (dm *DockerManager) detectDockerfiles() []composetypes.ServiceConfig {
+	var services []composetypes.ServiceConfig
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Name() == "Dockerfile" {
+			ctxDir := filepath.Dir(path)
+			name := filepath.Base(ctxDir)
+			services = append(services, composetypes.ServiceConfig{
+				Name:  name,
+				Image: name + ":latest",
+				Build: &composetypes.BuildConfig{
+					Context:    ctxDir,
+					Dockerfile: "Dockerfile",
+				},
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		msg := fmt.Sprintf("Error walking for Dockerfiles: %v", err)
+		dm.lm.Log("error", msg, "docker")
+	}
+	return services
+}
+
+func (dm *DockerManager) runService(cli *client.Client, svc composetypes.ServiceConfig, wg *sync.WaitGroup, detach bool) (string, error) {
+	defer wg.Done()
+	ctx := context.Background()
+
+	if svc.Build != nil {
+		dockerfile := svc.Build.Dockerfile
+		if dockerfile == "" {
+			dockerfile = "Dockerfile"
+		}
+		if err := dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
+			return "", err
+		}
 	}
 
-	return output, nil
+	hostConfig := &container.HostConfig{Binds: []string{}}
+	netConfig := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{}}
+
+	for _, vol := range svc.Volumes {
+		if vol.Source != "" && vol.Target != "" {
+			hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s", vol.Source, vol.Target))
+		}
+	}
+	for name := range svc.Networks {
+		netConfig.EndpointsConfig[name] = &network.EndpointSettings{}
+	}
+
+	var cmd strslice.StrSlice
+	if len(svc.Command) > 0 {
+		cmd = strslice.StrSlice(svc.Command)
+	}
+
+	resp, err := cli.ContainerCreate(ctx, &container.Config{
+		Image: svc.Image,
+		Cmd:   cmd,
+		Tty:   false,
+	}, hostConfig, netConfig, nil, svc.Name)
+	if err != nil {
+		return "", err
+	}
+
+	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12])
+	dm.lm.Log("info", msg, "docker")
+
+	if !detach {
+		go dm.streamLogs(cli, resp.ID, svc.Name)
+	}
+
+	if svc.HealthCheck != nil {
+		waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		for {
+			select {
+			case <-waitCtx.Done():
+				return resp.ID, fmt.Errorf("timeout waiting for container %s to become healthy", svc.Name)
+			default:
+				inspect, err := cli.ContainerInspect(context.Background(), resp.ID)
+				if err != nil {
+					return resp.ID, err
+				}
+				if inspect.State != nil && inspect.State.Health != nil &&
+					inspect.State.Health.Status == "healthy" {
+					return resp.ID, nil
+				}
+				time.Sleep(1 * time.Second)
+			}
+		}
+	}
+
+	return resp.ID, nil
+}
+
+func (dm *DockerManager) streamLogs(cli *client.Client, containerID, name string) {
+	ctx := context.Background()
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Tail:       "20",
+	}
+	r, err := cli.ContainerLogs(ctx, containerID, options)
+	if err != nil {
+		msg := fmt.Sprintf("Log stream error for %s: %v", name, err)
+		dm.lm.Log("error", msg, "docker")
+		return
+	}
+	defer r.Close()
+
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		msg := fmt.Sprintf("[%s] %s", name, scanner.Text())
+		dm.lm.Log("info", msg, "docker")
+	}
+}
+
+func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool, detach bool, composeFile string, envFile string) {
+	var project *composetypes.Project
+	var err error
+
+	if _, statErr := os.Stat(composeFile); statErr == nil {
+		project, err = dm.parseCompose(composeFile, envFile)
+		if err != nil {
+			msg := fmt.Sprintf("Parse error: %v", err)
+			dm.lm.Log("error", msg, "docker")
+			return
+		}
+	} else {
+		services := dm.detectDockerfiles()
+		if len(services) == 0 {
+			msg := fmt.Sprintf("No docker-compose.yml or Dockerfiles found")
+			dm.lm.Log("error", msg, "docker")
+			return
+		}
+		project = &composetypes.Project{Services: services}
+	}
+
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		msg := fmt.Sprintf("Docker client error: %v", err)
+		dm.lm.Log("error", msg, "docker")
+		return
+	}
+	ctx := context.Background()
+
+	for name := range project.Volumes {
+		_, _ = cli.VolumeCreate(ctx, volume.CreateOptions{Name: name})
+	}
+	for name := range project.Networks {
+		_, _ = cli.NetworkCreate(ctx, name, network.CreateOptions{})
+	}
+
+	var started []string
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		dm.lm.Log("info", "Caught signal. Cleaning up...", "docker")
+		stopOptions := container.StopOptions{}
+		mu.Lock()
+		for _, id := range started {
+			_ = cli.ContainerStop(ctx, id, stopOptions)
+			_ = cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+			dm.lm.Log("info", fmt.Sprintf("Cleaned up container %s", id[:12]), "docker")
+		}
+		mu.Unlock()
+		signal.Stop(sigs)
+		close(sigs)
+		os.Exit(0)
+	}()
+
+	for _, svc := range project.Services {
+		if singleService != "" && svc.Name != singleService {
+			continue
+		}
+		if buildOnly && svc.Build != nil {
+			dockerfile := svc.Build.Dockerfile
+			if dockerfile == "" {
+				dockerfile = "Dockerfile"
+			}
+			_ = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
+			continue
+		}
+		wg.Add(1)
+		go func(svc composetypes.ServiceConfig) {
+			id, err := dm.runService(cli, svc, &wg, detach)
+			if err == nil {
+				mu.Lock()
+				started = append(started, id)
+				mu.Unlock()
+			} else {
+				dm.lm.Log("warn", fmt.Sprintf("Failed to start service %s: %v", svc.Name, err), "docker")
+			}
+		}(svc)
+	}
+	wg.Wait()
+
+	if cleanup {
+		stopOptions := container.StopOptions{}
+		for _, id := range started {
+			_ = cli.ContainerStop(ctx, id, stopOptions)
+			_ = cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+			dm.lm.Log("info", fmt.Sprintf("Cleaned up container %s", id[:12]), "docker")
+		}
+	}
 }
