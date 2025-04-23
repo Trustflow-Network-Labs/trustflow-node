@@ -1382,8 +1382,10 @@ func (mm *MenuManager) services() {
 
 					// Run docker
 					dockerManager := repo.NewDockerManager()
-					dockerManager.Run(false, "", false, false, "", ".env")
-					fmt.Print("DONE!!!")
+					// TODO, collect and add mounts
+					mounts := map[string]string{}
+
+					dockerManager.Run(false, "", true, false, "", "", os.Stdin, os.Stdout, mounts)
 				} else {
 					// Pull existing Docker image
 					pediPrompt := promptui.Prompt{
