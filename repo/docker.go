@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/joho/godotenv"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -112,16 +113,47 @@ func (dm *DockerManager) tarDirectory(dir string) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
+func (dm *DockerManager) getPlatform(cli *client.Client) *specs.Platform {
+	// Prefer env var if available
+	if env := os.Getenv("DOCKER_DEFAULT_PLATFORM"); env != "" {
+		parts := strings.Split(env, "/")
+		if len(parts) == 2 {
+			return &specs.Platform{
+				OS:           parts[0],
+				Architecture: parts[1],
+			}
+		}
+	}
+
+	// Fallback: use `cli.Info` to detect platform
+	info, err := cli.Info(context.Background())
+	if err != nil {
+		dm.lm.Log("warn", fmt.Sprintf("Could not detect host platform, using default: %v", err), "docker")
+		return nil // fallback to default behavior
+	}
+
+	return &specs.Platform{
+		OS:           info.OSType,
+		Architecture: info.Architecture,
+	}
+}
+
 func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) error {
 	ctx := context.Background()
 	tarBuf, err := dm.tarDirectory(contextDir)
 	if err != nil {
 		return err
 	}
+	platform := dm.getPlatform(cli)
+	var platformStr string
+	if platform != nil {
+		platformStr = fmt.Sprintf("%s/%s", platform.OS, platform.Architecture)
+	}
 	resp, err := cli.ImageBuild(ctx, bytes.NewReader(tarBuf.Bytes()), types.ImageBuildOptions{
 		Tags:       []string{imageName},
 		Dockerfile: dockerfile,
 		Remove:     true,
+		Platform:   platformStr,
 	})
 	if err != nil {
 		return err
@@ -189,11 +221,13 @@ func (dm *DockerManager) runService(cli *client.Client, svc composetypes.Service
 		cmd = strslice.StrSlice(svc.Command)
 	}
 
+	platform := dm.getPlatform(cli)
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: svc.Image,
 		Cmd:   cmd,
 		Tty:   false,
-	}, hostConfig, netConfig, nil, svc.Name)
+	}, hostConfig, netConfig, platform, svc.Name)
 	if err != nil {
 		return "", err
 	}
@@ -269,8 +303,7 @@ func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool,
 	} else {
 		services := dm.detectDockerfiles()
 		if len(services) == 0 {
-			msg := fmt.Sprintf("No docker-compose.yml or Dockerfiles found")
-			dm.lm.Log("error", msg, "docker")
+			dm.lm.Log("error", "No docker-compose.yml or Dockerfiles found", "docker")
 			return
 		}
 		project = &composetypes.Project{Services: services}

@@ -1379,6 +1379,11 @@ func (mm *MenuManager) services() {
 						os.RemoveAll(repoPath)
 						continue
 					}
+
+					// Run docker
+					dockerManager := repo.NewDockerManager()
+					dockerManager.Run(false, "", false, false, "", ".env")
+					fmt.Print("DONE!!!")
 				} else {
 					// Pull existing Docker image
 					pediPrompt := promptui.Prompt{
