@@ -267,3 +267,12 @@ type JobRunStatus struct {
 	JobRunStatusRequest
 	Status string `json:"status"`
 }
+
+// Declare docker image type
+type DockerImage struct {
+	Id      string    `json:"id"`
+	Name    string    `json:"name"`
+	Tags    []string  `json:"tags"`
+	Digests []string  `json:"digests"`
+	BuiltAt time.Time `json:"built_at"`
+}

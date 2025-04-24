@@ -11,21 +11,25 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
 
 	"github.com/compose-spec/compose-go/loader"
 	composetypes "github.com/compose-spec/compose-go/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/joho/godotenv"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"gopkg.in/yaml.v3"
@@ -138,12 +142,23 @@ func (dm *DockerManager) getPlatform(cli *client.Client) *specs.Platform {
 	}
 }
 
-func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) error {
+func (dm *DockerManager) imageMetadata(cli *client.Client, imageName string) (*image.InspectResponse, error) {
+	ctx := context.Background()
+	img, err := cli.ImageInspect(ctx, imageName)
+	if err != nil {
+		return nil, err
+	}
+	return &img, nil
+}
+
+func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) (node_types.DockerImage, error) {
+	var dockerImage node_types.DockerImage
 	ctx := context.Background()
 	tarBuf, err := dm.tarDirectory(contextDir)
 	if err != nil {
-		return err
+		return dockerImage, err
 	}
+
 	platform := dm.getPlatform(cli)
 	var platformStr string
 	if platform != nil {
@@ -156,14 +171,46 @@ func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, d
 		Platform:   platformStr,
 	})
 	if err != nil {
-		return err
+		return dockerImage, err
 	}
-	defer resp.Body.Close()
-	_, err = io.Copy(os.Stdout, resp.Body)
-	return err
+
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return dockerImage, err
+	}
+	// Save image logs
+	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "build.log")
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return dockerImage, err
+	}
+	defer logFile.Close()
+
+	_, err = io.Copy(io.MultiWriter(os.Stdout, logFile), resp.Body)
+	if err != nil {
+		return dockerImage, err
+	}
+	resp.Body.Close()
+
+	img, err := dm.imageMetadata(cli, imageName)
+	if err != nil {
+		return dockerImage, err
+	}
+
+	dockerImage = node_types.DockerImage{
+		Id:      img.ID,
+		Name:    imageName,
+		Tags:    img.RepoTags,
+		Digests: img.RepoDigests,
+		BuiltAt: time.Now(),
+	}
+
+	return dockerImage, err
 }
 
-func (dm *DockerManager) detectDockerfiles() []composetypes.ServiceConfig {
+func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceConfig {
 	var services []composetypes.ServiceConfig
 
 	skipDirs := map[string]bool{
@@ -174,7 +221,7 @@ func (dm *DockerManager) detectDockerfiles() []composetypes.ServiceConfig {
 		".vscode":      true,
 	}
 
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -206,15 +253,15 @@ func (dm *DockerManager) detectDockerfiles() []composetypes.ServiceConfig {
 }
 
 func (dm *DockerManager) runService(
+	jobId int64,
 	cli *client.Client,
 	svc composetypes.ServiceConfig,
-	wg *sync.WaitGroup,
-	detach bool,
 	input io.Reader,
 	output io.Writer,
 	mounts map[string]string,
-) (string, error) {
-	//	defer wg.Done()
+) (string, node_types.DockerImage, error) {
+	var image node_types.DockerImage
+	var err error
 	ctx := context.Background()
 
 	if svc.Build != nil {
@@ -222,8 +269,8 @@ func (dm *DockerManager) runService(
 		if dockerfile == "" {
 			dockerfile = "Dockerfile"
 		}
-		if err := dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
-			return "", err
+		if image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
+			return "", image, err
 		}
 	}
 
@@ -264,63 +311,63 @@ func (dm *DockerManager) runService(
 		AttachStderr: output != nil,
 	}, hostConfig, netConfig, platform, svc.Name)
 	if err != nil {
-		return "", err
+		return "", image, err
 	}
 
-	if input != nil || output != nil {
-		attachResp, err := cli.ContainerAttach(ctx, resp.ID, container.AttachOptions{
-			Stream: true,
-			Stdin:  input != nil,
-			Stdout: output != nil,
-			Stderr: output != nil,
-		})
-		if err != nil {
-			return "", err
-		}
+	// Save container logs
+	logDir := filepath.Join("jobs", strconv.FormatInt(jobId, 10), svc.Name, "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	stdoutFile, _ := os.Create(filepath.Join(logDir, "stdout.log"))
+	stderrFile, _ := os.Create(filepath.Join(logDir, "stderr.log"))
+	stdinFile, _ := os.Create(filepath.Join(logDir, "stdin.log"))
+	defer stdoutFile.Close()
+	defer stderrFile.Close()
+	defer stdinFile.Close()
 
-		if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-			attachResp.Close()
-			return "", err
-		}
+	attachResp, err := cli.ContainerAttach(ctx, resp.ID, container.AttachOptions{
+		Stream: true,
+		Stdin:  input != nil,
+		Stdout: true,
+		Stderr: true,
+	})
+	if err != nil {
+		return "", image, err
+	}
 
-		dm.lm.Log("info", fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12]), "docker")
-
-		var wgIO sync.WaitGroup
-		if input != nil {
-			wgIO.Add(1)
-			go func() {
-				defer wgIO.Done()
-				_, _ = io.Copy(attachResp.Conn, input)
-				_ = attachResp.CloseWrite()
-			}()
-		}
-		if output != nil {
-			wgIO.Add(1)
-			go func() {
-				defer wgIO.Done()
-				_, _ = io.Copy(output, attachResp.Reader)
-			}()
-		}
-
-		statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-		select {
-		case <-statusCh:
-		case err := <-errCh:
-			return resp.ID, err
-		}
-
-		wgIO.Wait()
+	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		attachResp.Close()
-	} else {
-		if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-			return "", err
-		}
-		dm.lm.Log("info", fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12]), "docker")
-
-		if !detach {
-			go dm.streamLogs(cli, resp.ID, svc.Name)
-		}
+		return "", image, err
 	}
+
+	dm.lm.Log("info", fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12]), "docker")
+
+	var wgIO sync.WaitGroup
+	if input != nil {
+		wgIO.Add(1)
+		go func() {
+			defer wgIO.Done()
+			_, _ = io.Copy(io.MultiWriter(attachResp.Conn, stdinFile), input)
+			_ = attachResp.CloseWrite()
+		}()
+	}
+	//	if output != nil {
+	wgIO.Add(1)
+	go func() {
+		defer wgIO.Done()
+		_, _ = stdcopy.StdCopy(io.MultiWriter(output, stdoutFile), stderrFile, attachResp.Reader)
+	}()
+
+	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case <-statusCh:
+	case err := <-errCh:
+		return resp.ID, image, err
+	}
+
+	wgIO.Wait()
+	attachResp.Close()
+
+	go dm.streamLogs(cli, resp.ID, svc.Name)
 
 	if svc.HealthCheck != nil {
 		waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -328,22 +375,22 @@ func (dm *DockerManager) runService(
 		for {
 			select {
 			case <-waitCtx.Done():
-				return resp.ID, fmt.Errorf("timeout waiting for container %s to become healthy", svc.Name)
+				return resp.ID, image, fmt.Errorf("timeout waiting for container %s to become healthy", svc.Name)
 			default:
 				inspect, err := cli.ContainerInspect(context.Background(), resp.ID)
 				if err != nil {
-					return resp.ID, err
+					return resp.ID, image, err
 				}
 				if inspect.State != nil && inspect.State.Health != nil &&
 					inspect.State.Health.Status == "healthy" {
-					return resp.ID, nil
+					return resp.ID, image, nil
 				}
 				time.Sleep(1 * time.Second)
 			}
 		}
 	}
 
-	return resp.ID, nil
+	return resp.ID, image, nil
 }
 
 func (dm *DockerManager) streamLogs(cli *client.Client, containerID, name string) {
@@ -370,16 +417,19 @@ func (dm *DockerManager) streamLogs(cli *client.Client, containerID, name string
 }
 
 func (dm *DockerManager) Run(
+	path string,
+	jobId int64,
 	buildOnly bool,
 	singleService string,
-	cleanup bool, detach bool,
+	cleanup bool,
 	composeFile string,
 	envFile string,
 	input io.Reader,
 	output io.Writer,
-	mounts map[string]string) ([]string, []error) {
+	mounts map[string]string) ([]string, []node_types.DockerImage, []error) {
 	var (
 		project *composetypes.Project
+		images  []node_types.DockerImage
 		err     error
 		errors  []error
 	)
@@ -388,13 +438,13 @@ func (dm *DockerManager) Run(
 		project, err = dm.parseCompose(composeFile, envFile)
 		if err != nil {
 			dm.lm.Log("error", fmt.Sprintf("Parse error: %v", err), "docker")
-			return nil, []error{err}
+			return nil, images, []error{err}
 		}
 	} else {
-		services := dm.detectDockerfiles()
+		services := dm.detectDockerfiles(path)
 		if len(services) == 0 {
 			dm.lm.Log("error", "No docker-compose.yml or Dockerfiles found", "docker")
-			return nil, []error{err}
+			return nil, images, []error{err}
 		}
 		project = &composetypes.Project{Services: services}
 	}
@@ -402,7 +452,7 @@ func (dm *DockerManager) Run(
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		dm.lm.Log("error", fmt.Sprintf("Docker client error: %v", err), "docker")
-		return nil, []error{err}
+		return nil, images, []error{err}
 	}
 	ctx := context.Background()
 
@@ -448,23 +498,25 @@ func (dm *DockerManager) Run(
 			defer wg.Done()
 			var id string
 			var err error
+			var image node_types.DockerImage
 
 			if buildOnly && svc.Build != nil {
 				dockerfile := svc.Build.Dockerfile
 				if dockerfile == "" {
 					dockerfile = "Dockerfile"
 				}
-				err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
-				//			continue
+				image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
+				if err == nil {
+					images = append(images, image)
+				}
 			} else {
-				//		wg.Add(1)
-				//		go func(svc composetypes.ServiceConfig) {
-				id, err = dm.runService(cli, svc, &wg, detach, input, output, mounts)
+				id, image, err = dm.runService(jobId, cli, svc, input, output, mounts)
 				if err == nil {
 					mu.Lock()
 					started = append(started, id)
 					mu.Unlock()
 				} else {
+					images = append(images, image)
 					dm.lm.Log("warn", fmt.Sprintf("Failed to start service %s: %v", svc.Name, err), "docker")
 				}
 			}
@@ -487,5 +539,5 @@ func (dm *DockerManager) Run(
 		}
 	}
 
-	return started, errors
+	return started, images, errors
 }

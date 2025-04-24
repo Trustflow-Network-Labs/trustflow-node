@@ -1382,25 +1382,24 @@ func (mm *MenuManager) services() {
 
 					// Run docker
 					dockerManager := repo.NewDockerManager()
-					// TODO, collect and add mounts, define inputs/outputs
-					mounts := map[string]string{}
-
-					containers, errors := dockerManager.Run(false, "", true, false, "", "", os.Stdin, os.Stdout, mounts)
+					// Build image(s)
+					_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil)
 					if errors != nil {
 						for _, err := range errors {
-							msg := fmt.Sprintf("\U00002757 Building and running repo '%s' reported following error: %s\n", gruResult, err.Error())
+							msg := fmt.Sprintf("\U00002757 Building image(s) from repo '%s' ended with following error: %s\n", gruResult, err.Error())
 							fmt.Println(msg)
 							mm.lm.Log("error", msg, "menu")
 						}
 						os.RemoveAll(repoPath)
 						continue
 					}
-					for _, contn := range containers {
-						fmt.Printf("started: %s\n", contn)
-						msg := fmt.Sprintf("\U00002705 Started container %s from repo '%s'\n", contn, gruResult)
+					for _, img := range images {
+						msg := fmt.Sprintf("\U00002705 Successfully built image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, gruResult)
 						fmt.Println(msg)
 						mm.lm.Log("debug", msg, "menu")
 					}
+					// TODO, define inputs/outputs
+					// TODO, add service
 				} else {
 					// Pull existing Docker image
 					pediPrompt := promptui.Prompt{
