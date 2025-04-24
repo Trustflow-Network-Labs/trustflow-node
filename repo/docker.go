@@ -214,7 +214,7 @@ func (dm *DockerManager) runService(
 	output io.Writer,
 	mounts map[string]string,
 ) (string, error) {
-	defer wg.Done()
+	//	defer wg.Done()
 	ctx := context.Background()
 
 	if svc.Build != nil {
@@ -369,21 +369,32 @@ func (dm *DockerManager) streamLogs(cli *client.Client, containerID, name string
 	}
 }
 
-func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool, detach bool, composeFile string, envFile string, input io.Reader, output io.Writer, mounts map[string]string) {
-	var project *composetypes.Project
-	var err error
+func (dm *DockerManager) Run(
+	buildOnly bool,
+	singleService string,
+	cleanup bool, detach bool,
+	composeFile string,
+	envFile string,
+	input io.Reader,
+	output io.Writer,
+	mounts map[string]string) ([]string, []error) {
+	var (
+		project *composetypes.Project
+		err     error
+		errors  []error
+	)
 
 	if _, statErr := os.Stat(composeFile); statErr == nil {
 		project, err = dm.parseCompose(composeFile, envFile)
 		if err != nil {
 			dm.lm.Log("error", fmt.Sprintf("Parse error: %v", err), "docker")
-			return
+			return nil, []error{err}
 		}
 	} else {
 		services := dm.detectDockerfiles()
 		if len(services) == 0 {
 			dm.lm.Log("error", "No docker-compose.yml or Dockerfiles found", "docker")
-			return
+			return nil, []error{err}
 		}
 		project = &composetypes.Project{Services: services}
 	}
@@ -391,7 +402,7 @@ func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool,
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		dm.lm.Log("error", fmt.Sprintf("Docker client error: %v", err), "docker")
-		return
+		return nil, []error{err}
 	}
 	ctx := context.Background()
 
@@ -402,9 +413,12 @@ func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool,
 		_, _ = cli.NetworkCreate(ctx, name, network.CreateOptions{})
 	}
 
-	var started []string
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+	var (
+		started []string
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		errsMu  sync.Mutex
+	)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -428,29 +442,43 @@ func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool,
 		if singleService != "" && svc.Name != singleService {
 			continue
 		}
-		if buildOnly && svc.Build != nil {
-			dockerfile := svc.Build.Dockerfile
-			if dockerfile == "" {
-				dockerfile = "Dockerfile"
-			}
-			_ = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
-			continue
-		}
+
 		wg.Add(1)
 		go func(svc composetypes.ServiceConfig) {
-			id, err := dm.runService(cli, svc, &wg, detach, input, output, mounts)
-			if err == nil {
-				mu.Lock()
-				started = append(started, id)
-				mu.Unlock()
+			defer wg.Done()
+			var id string
+			var err error
+
+			if buildOnly && svc.Build != nil {
+				dockerfile := svc.Build.Dockerfile
+				if dockerfile == "" {
+					dockerfile = "Dockerfile"
+				}
+				err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
+				//			continue
 			} else {
-				dm.lm.Log("warn", fmt.Sprintf("Failed to start service %s: %v", svc.Name, err), "docker")
+				//		wg.Add(1)
+				//		go func(svc composetypes.ServiceConfig) {
+				id, err = dm.runService(cli, svc, &wg, detach, input, output, mounts)
+				if err == nil {
+					mu.Lock()
+					started = append(started, id)
+					mu.Unlock()
+				} else {
+					dm.lm.Log("warn", fmt.Sprintf("Failed to start service %s: %v", svc.Name, err), "docker")
+				}
+			}
+
+			if err != nil {
+				errsMu.Lock()
+				errors = append(errors, fmt.Errorf("service %s: %w", svc.Name, err))
+				errsMu.Unlock()
 			}
 		}(svc)
 	}
 	wg.Wait()
 
-	if cleanup {
+	if cleanup || len(errors) > 0 {
 		stopOptions := container.StopOptions{}
 		for _, id := range started {
 			_ = cli.ContainerStop(ctx, id, stopOptions)
@@ -458,4 +486,6 @@ func (dm *DockerManager) Run(buildOnly bool, singleService string, cleanup bool,
 			dm.lm.Log("info", fmt.Sprintf("Cleaned up container %s", id[:12]), "docker")
 		}
 	}
+
+	return started, errors
 }

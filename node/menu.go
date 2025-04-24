@@ -1382,10 +1382,25 @@ func (mm *MenuManager) services() {
 
 					// Run docker
 					dockerManager := repo.NewDockerManager()
-					// TODO, collect and add mounts
+					// TODO, collect and add mounts, define inputs/outputs
 					mounts := map[string]string{}
 
-					dockerManager.Run(false, "", true, false, "", "", os.Stdin, os.Stdout, mounts)
+					containers, errors := dockerManager.Run(false, "", true, false, "", "", os.Stdin, os.Stdout, mounts)
+					if errors != nil {
+						for _, err := range errors {
+							msg := fmt.Sprintf("\U00002757 Building and running repo '%s' reported following error: %s\n", gruResult, err.Error())
+							fmt.Println(msg)
+							mm.lm.Log("error", msg, "menu")
+						}
+						os.RemoveAll(repoPath)
+						continue
+					}
+					for _, contn := range containers {
+						fmt.Printf("started: %s\n", contn)
+						msg := fmt.Sprintf("\U00002705 Started container %s from repo '%s'\n", contn, gruResult)
+						fmt.Println(msg)
+						mm.lm.Log("debug", msg, "menu")
+					}
 				} else {
 					// Pull existing Docker image
 					pediPrompt := promptui.Prompt{
