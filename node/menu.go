@@ -1427,6 +1427,19 @@ func (mm *MenuManager) services() {
 						continue
 					}
 					// TODO, pull image, create container
+					// Run docker
+					dockerManager = repo.NewDockerManager()
+					// Pull image
+					img := "docker.io/library/nginx:alpine"
+					_, _, errors := dockerManager.Run("", 0, true, img, true, "", "", nil, nil, nil)
+					if errors != nil {
+						for _, err := range errors {
+							msg := fmt.Sprintf("\U00002757 Pulling image '%s' ended with following error: %s\n", img, err.Error())
+							fmt.Println(msg)
+							mm.lm.Log("error", msg, "menu")
+						}
+						continue
+					}
 				}
 
 			case "STANDALONE EXECUTABLE":

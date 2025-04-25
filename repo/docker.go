@@ -568,8 +568,16 @@ func (dm *DockerManager) Run(
 	} else {
 		services := dm.detectDockerfiles(path)
 		if len(services) == 0 {
-			dm.lm.Log("error", "No docker-compose.yml or Dockerfiles found", "docker")
-			return nil, images, []error{err}
+			if singleService != "" {
+				dm.lm.Log("info", fmt.Sprintf("No compose or Dockerfile found. Assuming remote image: %s", singleService), "docker")
+				services = append(services, composetypes.ServiceConfig{
+					Name:  singleService,
+					Image: singleService,
+				})
+			} else {
+				dm.lm.Log("error", "No docker-compose.yml, Dockerfiles, or image specified", "docker")
+				return nil, images, []error{err}
+			}
 		}
 		project = &composetypes.Project{Services: services}
 	}
