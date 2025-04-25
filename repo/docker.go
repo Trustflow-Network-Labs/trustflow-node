@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +24,8 @@ import (
 
 	"github.com/compose-spec/compose-go/loader"
 	composetypes "github.com/compose-spec/compose-go/types"
+	"github.com/docker/cli/cli/config"
+	dockerTypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -151,6 +155,111 @@ func (dm *DockerManager) imageMetadata(cli *client.Client, imageName string) (*i
 	return &img, nil
 }
 
+func (dm *DockerManager) imageExistsLocally(cli *client.Client, imageName string) (bool, error) {
+	_, err := cli.ImageInspect(context.Background(), imageName)
+	if err == nil {
+		return true, nil
+	}
+	if client.IsErrNotFound(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (dm *DockerManager) getAuthConfig(imageName string) (dockerTypes.AuthConfig, error) {
+	// Parse registry from image name (default to Docker Hub if no registry specified)
+	registry := "https://index.docker.io/v1/"
+	if strings.Contains(imageName, "/") {
+		parts := strings.Split(imageName, "/")
+		if strings.Contains(parts[0], ".") {
+			registry = parts[0]
+		}
+	}
+
+	// Defaults from env vars
+	username := os.Getenv("DOCKER_REGISTRY_USER")
+	password := os.Getenv("DOCKER_REGISTRY_PASS")
+
+	// CLI overrides
+	if val := os.Getenv("DOCKER_AUTH_OVERRIDE"); val == "1" {
+		if user := os.Getenv("DOCKER_AUTH_USER"); user != "" {
+			username = user
+		}
+		if pass := os.Getenv("DOCKER_AUTH_PASS"); pass != "" {
+			password = pass
+		}
+
+		return dockerTypes.AuthConfig{
+			Username: username,
+			Password: password,
+		}, nil
+	}
+
+	// Load auth config from default docker config file
+	configFile, err := config.Load(config.Dir())
+	if err != nil {
+		return dockerTypes.AuthConfig{}, err
+	}
+	authConfig, err := configFile.GetAuthConfig(registry)
+	if err != nil {
+		return dockerTypes.AuthConfig{}, err
+	}
+	return authConfig, nil
+}
+
+func (dm *DockerManager) encodeAuthToBase64(authConfig dockerTypes.AuthConfig) (string, error) {
+	encodedJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(encodedJSON), nil
+}
+
+func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
+	ctx := context.Background()
+
+	exists, err := dm.imageExistsLocally(cli, imageName)
+	if err != nil {
+		return err
+	}
+	if exists {
+		dm.lm.Log("info", fmt.Sprintf("Image %s already exists locally, skipping pull", imageName), "docker")
+		return nil
+	}
+
+	dm.lm.Log("info", fmt.Sprintf("Pulling image %s...", imageName), "docker")
+
+	authConfig, err := dm.getAuthConfig(imageName)
+	if err != nil {
+		return fmt.Errorf("failed to get auth config: %w", err)
+	}
+	encodedAuth, err := dm.encodeAuthToBase64(authConfig)
+	if err != nil {
+		return fmt.Errorf("failed to encode auth: %w", err)
+	}
+
+	platform := dm.getPlatform(cli)
+	var platformStr string
+	if platform != nil {
+		platformStr = fmt.Sprintf("%s/%s", platform.OS, platform.Architecture)
+	}
+
+	reader, err := cli.ImagePull(ctx, imageName, image.PullOptions{
+		Platform:     platformStr,
+		RegistryAuth: encodedAuth,
+	})
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		dm.lm.Log("info", fmt.Sprintf("Pulling %s: %s", imageName, scanner.Text()), "docker")
+	}
+	return scanner.Err()
+}
+
 func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) (node_types.DockerImage, error) {
 	var dockerImage node_types.DockerImage
 	ctx := context.Background()
@@ -271,6 +380,22 @@ func (dm *DockerManager) runService(
 		}
 		if image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
 			return "", image, err
+		}
+	} else {
+		// Pull the image if build is not defined
+		if err := dm.pullImage(cli, svc.Image); err != nil {
+			return "", image, fmt.Errorf("failed to pull image %s: %w", svc.Image, err)
+		}
+
+		// Inspect and attach metadata
+		if meta, err := dm.imageMetadata(cli, svc.Image); err == nil {
+			image = node_types.DockerImage{
+				Id:      meta.ID,
+				Name:    svc.Image,
+				Tags:    meta.RepoTags,
+				Digests: meta.RepoDigests,
+				BuiltAt: time.Now(), // Not really built, but we use it for consistency
+			}
 		}
 	}
 
