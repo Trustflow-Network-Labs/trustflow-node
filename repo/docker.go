@@ -622,6 +622,7 @@ func (dm *DockerManager) Run(
 	}()
 
 	for _, svc := range project.Services {
+		fmt.Printf("svc.Name: %s, singleService: %s\n", svc.Name, singleService)
 		if singleService != "" && svc.Name != singleService {
 			continue
 		}
@@ -634,6 +635,7 @@ func (dm *DockerManager) Run(
 			var image node_types.DockerImage
 
 			if buildOnly && svc.Build != nil {
+				// Build from docker / compose
 				dockerfile := svc.Build.Dockerfile
 				if dockerfile == "" {
 					dockerfile = "Dockerfile"
@@ -642,7 +644,25 @@ func (dm *DockerManager) Run(
 				if err == nil {
 					images = append(images, image)
 				}
+			} else if buildOnly && svc.Build == nil {
+				// Pull image
+				if err := dm.pullImage(cli, svc.Image); err == nil {
+
+					img, err := dm.imageMetadata(cli, singleService)
+					if err == nil {
+						image := node_types.DockerImage{
+							Id:      img.ID,
+							Name:    singleService,
+							Tags:    img.RepoTags,
+							Digests: img.RepoDigests,
+							BuiltAt: time.Now(),
+						}
+
+						images = append(images, image)
+					}
+				}
 			} else {
+				// Run service
 				id, image, err = dm.runService(jobId, cli, svc, input, output, mounts)
 				if err == nil {
 					mu.Lock()
