@@ -29,6 +29,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
+	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.2.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect

@@ -10,7 +10,7 @@ import (
 
 // Declare key type
 type Key struct {
-	Id         int32  `json:"id"`
+	Id         int64  `json:"id"`
 	Identifier string `json:"identifier"`
 	Algorithm  string `json:"algorithm"`
 	Key        []byte `json:"key"`
