@@ -68,7 +68,7 @@ go build -o trustflow-node .
 |--------------------------|---------------------------------------------------|
 | `cmd/`                   | Application entrypoint                           |
 | `node/`                  | Core node runtime logic                           |
-| `database/`              | Persistence layer (e.g., Postgres adapters)        |
+| `database/`              | Persistence layer                                  |
 | `keystore/`              | Key and identity management modules               |
 | `price/`                 | External price feed integrations                  |
 | `resource-utilization/`  | Node performance monitoring                       |
