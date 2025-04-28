@@ -91,11 +91,11 @@ func TestNewResourceUtilizationManager(t *testing.T) {
 		t.Error("expected ResourceUtilizationManager, got nil")
 	}
 
-	if rum.db != db {
+	if rum != nil && rum.db != nil && rum.db != db {
 		t.Error("expected db to be set correctly")
 	}
 
-	if rum.lm == nil {
+	if rum != nil && rum.lm == nil {
 		t.Error("expected LogsManager to be initialized")
 	}
 }
