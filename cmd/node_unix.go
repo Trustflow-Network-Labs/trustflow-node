@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/adgsm/trustflow-node/dependencies"
 	"github.com/adgsm/trustflow-node/node"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/spf13/cobra"
@@ -23,6 +24,8 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		dependencies.CheckAndInstallDependencies()
+		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
 		p2pManager := node.NewP2PManager()
 		p2pManager.Start(port, daemon)
 	},
