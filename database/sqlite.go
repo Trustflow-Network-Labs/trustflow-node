@@ -184,7 +184,8 @@ CREATE TABLE IF NOT EXISTS docker_service_details (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"repo" TEXT DEFAULT '',
-	"image" TEXT NOT NULL,
+	"repo_docker_files" TEXT DEFAULT '',
+	"repo_docker_composes" TEXT DEFAULT '',
 	FOREIGN KEY("service_id") REFERENCES services("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docker_service_details_id_idx ON docker_service_details ("id");
@@ -192,6 +193,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS docker_service_details_id_idx ON docker_servic
 		_, err = db.ExecContext(context.Background(), createDockerServiceDetailsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `docker_service_details` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createDockerServiceImagesTable := `
+CREATE TABLE IF NOT EXISTS docker_service_images (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"service_details_id" INTEGER NOT NULL,
+	"image_id" TEXT NOT NULL,
+	"image_name" TEXT NOT NULL,
+	"image_tags" TEXT DEFAULT '',
+	"image_digests" TEXT DEFAULT '',
+	FOREIGN KEY("service_details_id") REFERENCES docker_service_details("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS docker_service_images_id_idx ON docker_service_images ("id");
+`
+		_, err = db.ExecContext(context.Background(), createDockerServiceImagesTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `docker_service_images` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createDockerServiceImageInterfacesTable := `
+CREATE TABLE IF NOT EXISTS docker_service_image_interfaces (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"service_image_id" INTEGER NOT NULL,
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('FILE STREAM', 'MOUNTED FILE SYSTEM', 'STDIN/STDOUT') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
+	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
+	"description" TEXT NOT NULL,
+	"path" TEXT DEFAULT '',
+	FOREIGN KEY("service_image_id") REFERENCES docker_service_images("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS docker_service_image_interfaces_id_idx ON docker_service_image_interfaces ("id");
+`
+		_, err = db.ExecContext(context.Background(), createDockerServiceImageInterfacesTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `docker_service_image_interfaces` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
@@ -238,8 +277,6 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"workflow_id" INTEGER NOT NULL,
 	"service_id" INTEGER NOT NULL,
 	"ordering_node_id" TEXT NOT NULL,
-	"input_node_ids" TEXT DEFAULT '',
-	"output_node_ids" TEXT DEFAULT '',
 	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('NONE', 'INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'NONE',
 	"execution_constraint_detail" TEXT DEFAULT '',
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'READY', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
@@ -252,6 +289,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 		_, err = db.ExecContext(context.Background(), createJobsTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `jobs` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createJobInterfacesTable := `
+CREATE TABLE IF NOT EXISTS job_interfaces (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"job_id" INTEGER NOT NULL,
+	"node_id" TEXT NOT NULL,
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('FILE STREAM', 'MOUNTED FILE SYSTEM', 'STDIN/STDOUT') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
+	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
+	"path" TEXT DEFAULT '',
+	FOREIGN KEY("job_id") REFERENCES jobs("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS job_interfaces_id_idx ON job_interfaces ("id");
+`
+		_, err = db.ExecContext(context.Background(), createJobInterfacesTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `job_interfaces` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}

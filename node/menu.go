@@ -209,7 +209,7 @@ func (mm *MenuManager) requestService() error {
 	}
 	peerId := serviceIdPair[0]
 	sid := serviceIdPair[1]
-	peer, err := mm.p2pm.GeneratePeerFromId(peerId)
+	peer, err := mm.p2pm.GeneratePeerAddrInfo(peerId)
 	if err != nil {
 		fmt.Printf("Generating peer address info from %s failed: %s\n", peerId, err.Error())
 		return err
@@ -220,61 +220,47 @@ func (mm *MenuManager) requestService() error {
 		return err
 	}
 
+	// Collect job interfaces
+	var interfaces []node_types.Interface
+	var inputInterfaces []node_types.Interface
+	var outputInterfaces []node_types.Interface
+
 	// Input nodes
-	fmt.Println("If this job requires inputs to run or execute, please add the nodes (Node IDs) that will provide those inputs. The job will not run until inputs from all listed nodes are received.")
-	inPrompt := promptui.Prompt{
-		Label:       "Node IDs (comma-separated)",
-		Default:     "",
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
+	rinPrompt := promptui.Prompt{
+		Label:     "Does the job require inputs to run or execute?",
+		IsConfirm: true,
 	}
-	inResult, err := inPrompt.Run()
-	if err != nil {
-		msg := fmt.Sprintf("Entering Node IDs failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
+	rinResult, err := rinPrompt.Run()
+	if err != nil && strings.ToLower(rinResult) != "n" && strings.ToLower(rinResult) != "y" {
+		fmt.Printf("Prompt failed %v\n", err)
 		return err
 	}
-	var inputNodes []string
-	inNodes := strings.Split(inResult, ",")
-	for _, inNode := range inNodes {
-		inNode = strings.TrimSpace(inNode)
-		peerId, err := mm.p2pm.IsValidPeerId(inNode)
-		if err == nil {
-			// Valid peer ID
-			inputNodes = append(inputNodes, peerId.String())
+	if strings.ToLower(rinResult) == "y" {
+		inputInterfaces, err = mm.jobInterfaces("INPUT", mm.p2pm.h.ID().String())
+		if err != nil {
+			fmt.Printf("Collecting input interfaces faileed %v\n", err)
+			return err
 		}
+		interfaces = append(interfaces, inputInterfaces...)
 	}
 
 	// Output nodes
-	fmt.Println("To which nodes should the results of this job be delivered? Please list the Node IDs to which the job results will be sent.")
-	outPrompt := promptui.Prompt{
-		Label:       "Node IDs (comma-separated)",
-		Default:     mm.p2pm.h.ID().String(),
-		Validate:    mm.vm.NotEmpty,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
+	routPrompt := promptui.Prompt{
+		Label:     "Does the job produce outputs?",
+		IsConfirm: true,
 	}
-	outResult, err := outPrompt.Run()
-	if err != nil {
-		msg := fmt.Sprintf("Entering Node IDs failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
+	routResult, err := routPrompt.Run()
+	if err != nil && strings.ToLower(routResult) != "n" && strings.ToLower(routResult) != "y" {
+		fmt.Printf("Prompt failed %v\n", err)
 		return err
 	}
-	var outputNodes []string
-	outNodes := strings.Split(outResult, ",")
-	for _, outNode := range outNodes {
-		outNode = strings.TrimSpace(outNode)
-		peerId, err := mm.p2pm.IsValidPeerId(outNode)
-		if err == nil {
-			// Valid peer ID
-			outputNodes = append(outputNodes, peerId.String())
+	if strings.ToLower(routResult) == "y" {
+		outputInterfaces, err = mm.jobInterfaces("OUTPUT", mm.p2pm.h.ID().String())
+		if err != nil {
+			fmt.Printf("Collecting output interfaces faileed %v\n", err)
+			return err
 		}
+		interfaces = append(interfaces, outputInterfaces...)
 	}
 
 	/*
@@ -291,7 +277,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	*/
 	var cResult string = "NONE"
-	if len(inputNodes) > 0 {
+	if len(inputInterfaces) > 0 {
 		cResult = "INPUTS READY"
 	}
 
@@ -377,13 +363,88 @@ func (mm *MenuManager) requestService() error {
 		}
 	}
 
-	err = mm.jm.RequestService(peer, workflowId, serviceId, inputNodes, outputNodes, cResult, "")
+	err = mm.jm.RequestService(peer, workflowId, serviceId, interfaces, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err
 	}
 
 	return nil
+}
+
+func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
+	var interfaces []node_types.Interface
+
+	tyPrompt := promptui.Select{
+		Label: "Interface type",
+		Items: []string{"FILE STREAM", "MOUNTED FILE SYSTEM", "STDIN/STDOUT"},
+	}
+
+	_, tyResult, err := tyPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Prompt failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return nil, err
+	}
+
+	pthPrompt := promptui.Prompt{
+		Label:       "Specific file path or file system mount point (optional)",
+		Default:     "",
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	pthResult, err := pthPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering file path or file system mount point failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return nil, err
+	}
+
+	nidPrompt := promptui.Prompt{
+		Label:       "Node ID",
+		Default:     nodeId,
+		Validate:    mm.p2pm.IsValidPeerId,
+		AllowEdit:   true,
+		HideEntered: false,
+		IsConfirm:   false,
+		IsVimMode:   false,
+	}
+	nidResult, err := nidPrompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering Node ID failed: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return nil, err
+	}
+
+	intrfce := node_types.Interface{
+		NodeId:              nidResult,
+		FunctionalInterface: functionalInterface,
+		InterfaceType:       tyResult,
+		Path:                pthResult,
+	}
+
+	interfaces = append(interfaces, intrfce)
+
+	// Print "add another interface" prompt
+	aaPrompt := promptui.Prompt{
+		Label:     "Add another interface?",
+		IsConfirm: true,
+	}
+	aaResult, err := aaPrompt.Run()
+	if err != nil && strings.ToLower(aaResult) != "n" && strings.ToLower(aaResult) != "y" {
+		fmt.Printf("Prompt failed %v\n", err)
+		return nil, err
+	}
+	if strings.ToLower(aaResult) == "y" {
+		return mm.jobInterfaces(functionalInterface, nodeId)
+	}
+
+	return interfaces, nil
 }
 
 func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...uint32) error {
@@ -446,7 +507,7 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 			return err
 		}
 		if strings.ToLower(lmResult) == "y" {
-			mm.printWorkflows(wm, offset+limit, limit)
+			return mm.printWorkflows(wm, offset+limit, limit)
 		}
 	}
 
@@ -490,7 +551,7 @@ func (mm *MenuManager) runWorkflow() error {
 	}
 
 	for _, job := range workflow.Jobs {
-		peer, err := mm.p2pm.GeneratePeerFromId(job.NodeId)
+		peer, err := mm.p2pm.GeneratePeerAddrInfo(job.NodeId)
 		if err != nil {
 			mm.lm.Log("error", err.Error(), "menu")
 			return err

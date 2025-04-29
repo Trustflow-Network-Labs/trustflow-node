@@ -1,10 +1,8 @@
 package node_types
 
 import (
-	"strings"
 	"time"
 
-	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -86,10 +84,33 @@ type DataService struct {
 
 // Declare docker service type
 type DockerService struct {
-	Id        int64  `json:"id"`
-	ServiceId int64  `json:"service_id"`
-	Repo      string `json:"repo"`
-	Image     string `json:"image"`
+	Id                 int64                `json:"id"`
+	ServiceId          int64                `json:"service_id"`
+	Repo               string               `json:"repo"`
+	RepoDockerFiles    []string             `json:"repo_docker_files"`
+	RepoDockerComposes []string             `json:"repo_docker_composes"`
+	Images             []DockerServiceImage `json:"images"`
+}
+
+// Declare docker image type
+type DockerServiceImage struct {
+	Id               int64                         `json:"id"`
+	ServiceDetailsId int64                         `json:"service_details_id"`
+	ImageId          int64                         `json:"image_id"`
+	ImageName        string                        `json:"image_name"`
+	ImageTags        []string                      `json:"image_tags"`
+	ImageDigests     []string                      `json:"image_digests"`
+	Intefaces        []DockerServiceImageInterface `json:"interfaces"`
+}
+
+// Declare docker image type
+type DockerServiceImageInterface struct {
+	Id                  int64  `json:"id"`
+	ServiceImageId      int64  `json:"service_image_id"`
+	InterfaceType       string `json:"interface_type"`
+	FunctionalInterface string `json:"functional_interface"`
+	Description         string `json:"description"`
+	Path                string `json:"path"`
 }
 
 // Declare executable service type
@@ -123,15 +144,22 @@ type ServiceResourcesWithPricing struct {
 	CurrencySymbol      string     `json:"currency_symbol"`
 }
 
+// Declare interface base struct
+type Interface struct {
+	NodeId              string `json:"node_id"`
+	InterfaceType       string `json:"interface_type"`
+	FunctionalInterface string `json:"functional_interface"`
+	Path                string `json:"path"`
+}
+
 // Declare service request type
 type ServiceRequest struct {
-	NodeId                    string   `json:"node_id"`
-	WorkflowId                int64    `json:"workflow_id"`
-	ServiceId                 int64    `json:"service_id"`
-	InputNodeIds              []string `json:"input_node_ids"`
-	OutputNodeIds             []string `json:"output_node_ids"`
-	ExecutionConstraint       string   `json:"execution_constraint"`
-	ExecutionConstraintDetail string   `json:"execution_constraint_detail"`
+	NodeId                    string      `json:"node_id"`
+	WorkflowId                int64       `json:"workflow_id"`
+	ServiceId                 int64       `json:"service_id"`
+	Interfaces                []Interface `json:"interfaces"`
+	ExecutionConstraint       string      `json:"execution_constraint"`
+	ExecutionConstraintDetail string      `json:"execution_constraint_detail"`
 }
 
 // Declare response type for a service request
@@ -186,26 +214,29 @@ type JobBase struct {
 // Declare job type
 type Job struct {
 	JobBase
-	InputNodeIds  []string  `json:"input_node_ids"`
-	OutputNodeIds []string  `json:"output_node_ids"`
-	Started       time.Time `json:"started"`
-	Ended         time.Time `json:"ended"`
+	JobInterfaces []JobInterface `json:"job_interfaces"`
+	Started       time.Time      `json:"started"`
+	Ended         time.Time      `json:"ended"`
 }
 
 // Declare job sql type
 type JobSql struct {
 	JobBase
-	InputNodeIds  string `json:"input_node_ids"`
-	OutputNodeIds string `json:"output_node_ids"`
-	Started       string `json:"started"`
-	Ended         string `json:"ended"`
+	Started string `json:"started"`
+	Ended   string `json:"ended"`
+}
+
+// Declare job interfaces base struct
+type JobInterface struct {
+	InterfaceId int64 `json:"interface_id"`
+	JobId       int64 `json:"job_id"`
+	Interface
 }
 
 const timeLayout = time.RFC3339
 
 func (js *JobSql) ToJob() Job {
 	var started, ended time.Time
-	tm := utils.NewTextManager()
 
 	if js.Started != "" {
 		started, _ = time.Parse(timeLayout, js.Started)
@@ -215,11 +246,9 @@ func (js *JobSql) ToJob() Job {
 	}
 
 	return Job{
-		JobBase:       js.JobBase,
-		InputNodeIds:  tm.SplitAndTrimCsv(js.InputNodeIds),
-		OutputNodeIds: tm.SplitAndTrimCsv(js.OutputNodeIds),
-		Started:       started,
-		Ended:         ended,
+		JobBase: js.JobBase,
+		Started: started,
+		Ended:   ended,
 	}
 }
 
@@ -233,11 +262,9 @@ func (j *Job) ToJobSql() JobSql {
 		ended = j.Ended.Format(timeLayout)
 	}
 	return JobSql{
-		JobBase:       j.JobBase,
-		InputNodeIds:  strings.Join(j.InputNodeIds, ","),
-		OutputNodeIds: strings.Join(j.OutputNodeIds, ","),
-		Started:       started,
-		Ended:         ended,
+		JobBase: j.JobBase,
+		Started: started,
+		Ended:   ended,
 	}
 }
 

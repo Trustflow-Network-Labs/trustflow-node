@@ -776,7 +776,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			var jobRunRequest node_types.JobRunRequest
 
 			peerId := s.Conn().RemotePeer()
-			peer, err := p2pm.GeneratePeerFromId(peerId.String())
+			peer, err := p2pm.GeneratePeerAddrInfo(peerId.String())
 			if err != nil {
 				msg := err.Error()
 				p2pm.lm.Log("error", msg, "p2p")
@@ -882,7 +882,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			var serviceRequest node_types.ServiceRequest
 
 			peerId := s.Conn().RemotePeer()
-			peer, err := p2pm.GeneratePeerFromId(peerId.String())
+			peer, err := p2pm.GeneratePeerAddrInfo(peerId.String())
 			if err != nil {
 				msg := err.Error()
 				p2pm.lm.Log("error", msg, "p2p")
@@ -1114,7 +1114,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			}
 
 			peerId := s.Conn().RemotePeer()
-			peer, err := p2pm.GeneratePeerFromId(peerId.String())
+			peer, err := p2pm.GeneratePeerAddrInfo(peerId.String())
 			if err != nil {
 				msg := err.Error()
 				p2pm.lm.Log("error", msg, "p2p")
@@ -1355,7 +1355,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			}
 
 			// Retrieve known multiaddresses from the peerstore
-			peerAddrInfo, err := p2pm.GeneratePeerFromId(peerId.String())
+			peerAddrInfo, err := p2pm.GeneratePeerAddrInfo(peerId.String())
 			if err != nil {
 				msg := err.Error()
 				p2pm.lm.Log("error", msg, "p2p")
@@ -1439,11 +1439,11 @@ func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.Se
 	return services, nil
 }
 
-func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error) {
+func (p2pm *P2PManager) GeneratePeerAddrInfo(peerId string) (peer.AddrInfo, error) {
 	var p peer.AddrInfo
 
 	// Convert the string to a peer.ID
-	pID, err := p2pm.IsValidPeerId(peerId)
+	pID, err := p2pm.GeneratePeerId(peerId)
 	if err != nil {
 		p2pm.lm.Log("warn", err.Error(), "p2p")
 		return p, err
@@ -1466,7 +1466,7 @@ func (p2pm *P2PManager) GeneratePeerFromId(peerId string) (peer.AddrInfo, error)
 	return p, nil
 }
 
-func (p2pm *P2PManager) IsValidPeerId(peerId string) (peer.ID, error) {
+func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {
 	// Convert the string to a peer.ID
 	pID, err := peer.Decode(peerId)
 	if err != nil {
@@ -1474,4 +1474,9 @@ func (p2pm *P2PManager) IsValidPeerId(peerId string) (peer.ID, error) {
 	}
 
 	return pID, nil
+}
+
+func (p2pm *P2PManager) IsValidPeerId(peerId string) error {
+	_, err := peer.Decode(peerId)
+	return err
 }

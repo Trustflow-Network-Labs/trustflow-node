@@ -57,6 +57,7 @@ func (jm *JobManager) JobExists(id int64) (error, bool) {
 func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	var job node_types.Job
 	var jobSql node_types.JobSql
+	var jobInterface node_types.JobInterface
 
 	// Check if job exists in a queue
 	err, exists := jm.JobExists(id)
@@ -72,9 +73,9 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	}
 
 	// Get job
-	row := jm.db.QueryRowContext(context.Background(), "select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
+	row := jm.db.QueryRowContext(context.Background(), "select id, workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
 
-	err = row.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+	err = row.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("debug", msg, "jobs")
@@ -82,6 +83,25 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	}
 
 	job = jobSql.ToJob()
+
+	// Get job interfaces
+	rows, err := jm.db.QueryContext(context.Background(), "select id, job_id, node_id, interface_type, functional_interface, path from job_interfaces where job_id = ?;", jobSql.Id)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return job, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&jobInterface.InterfaceId, &jobInterface.JobId, &jobInterface.NodeId, &jobInterface.InterfaceType, &jobInterface.FunctionalInterface, &jobInterface.Path)
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return job, err
+		}
+		job.JobInterfaces = append(job.JobInterfaces, jobInterface)
+	}
 
 	return job, nil
 }
@@ -117,17 +137,16 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 		sqlPatch = " AND (status = 'IDLE' OR status = 'READY' OR status = 'RUNNING') "
 	}
 
-	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
+	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
 		return jobs, err
 	}
-	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -135,6 +154,29 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 		}
 		job = jobSql.ToJob()
 		jobs = append(jobs, job)
+	}
+	rows.Close()
+
+	for i, _ := range jobs {
+		// Get job interfaces
+		var jobInterface node_types.JobInterface
+		rows, err := jm.db.QueryContext(context.Background(), "select id, job_id, node_id, interface_type, functional_interface, path from job_interfaces where job_id = ?;", jobs[i].Id)
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return jobs, err
+		}
+
+		for rows.Next() {
+			err = rows.Scan(&jobInterface.InterfaceId, &jobInterface.JobId, &jobInterface.NodeId, &jobInterface.InterfaceType, &jobInterface.FunctionalInterface, &jobInterface.Path)
+			if err != nil {
+				msg := err.Error()
+				jm.lm.Log("error", msg, "jobs")
+				return jobs, err
+			}
+			jobs[i].JobInterfaces = append(jobs[i].JobInterfaces, jobInterface)
+		}
+		rows.Close()
 	}
 
 	return jobs, nil
@@ -167,7 +209,7 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	return nil
 }
 
-func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, inputNodeIds []string, outputNodeIds []string, constr string, constrDet string) error {
+func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, Interfaces []node_types.Interface, constr string, constrDet string) error {
 	_, err := jm.p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
@@ -179,8 +221,7 @@ func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, servi
 		NodeId:                    peer.ID.String(),
 		WorkflowId:                workflowId,
 		ServiceId:                 serviceId,
-		InputNodeIds:              inputNodeIds,
-		OutputNodeIds:             outputNodeIds,
+		Interfaces:                Interfaces,
 		ExecutionConstraint:       constr,
 		ExecutionConstraintDetail: constrDet,
 	}
@@ -275,12 +316,13 @@ func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, 
 // Create new job
 func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderingNode string) (node_types.Job, error) {
 	var job node_types.Job
+	var jobInterfaces []node_types.JobInterface
 
 	// Create new job
 	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
 
-	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?, ?);",
-		serviceRequest.WorkflowId, serviceRequest.ServiceId, orderingNode, strings.Join(serviceRequest.InputNodeIds, ","), strings.Join(serviceRequest.OutputNodeIds, ","), serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
+	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?);",
+		serviceRequest.WorkflowId, serviceRequest.ServiceId, orderingNode, serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -304,10 +346,34 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 		Status:                    "IDLE",
 	}
 
+	for _, intface := range serviceRequest.Interfaces {
+		result, err = jm.db.ExecContext(context.Background(), "insert into job_interfaces (job_id, node_id, interface_type, functional_interface, path) values (?, ?, ?, ?, ?);",
+			id, intface.NodeId, intface.InterfaceType, intface.FunctionalInterface, intface.Path)
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return job, err
+		}
+
+		interfaceId, err := result.LastInsertId()
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return job, err
+		}
+
+		jobInterface := node_types.JobInterface{
+			InterfaceId: interfaceId,
+			JobId:       id,
+			Interface:   intface,
+		}
+
+		jobInterfaces = append(jobInterfaces, jobInterface)
+	}
+
 	job = node_types.Job{
 		JobBase:       jobBase,
-		InputNodeIds:  serviceRequest.InputNodeIds,
-		OutputNodeIds: serviceRequest.OutputNodeIds,
+		JobInterfaces: jobInterfaces,
 	}
 
 	return job, nil
@@ -315,32 +381,30 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 
 // CRON, Run jobs from queue
 func (jm *JobManager) ProcessQueue() {
-	var jobSql node_types.JobSql
-	var jobs []node_types.JobSql
+	var id int64
+	var ids []int64
 
 	// TODO, implement other cases ('NONE'/'READY' is just one case)
 	rows, err := jm.db.QueryContext(context.Background(),
-		"select id, workflow_id, service_id, ordering_node_id, input_node_ids, output_node_ids, execution_constraint, execution_constraint_detail, status, started, ended from jobs where execution_constraint = 'NONE' and status = 'READY';")
+		"select id from jobs where execution_constraint = 'NONE' and status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId,
-			&jobSql.InputNodeIds, &jobSql.OutputNodeIds, &jobSql.ExecutionConstraint,
-			&jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&id)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
 		}
 
-		jobs = append(jobs, jobSql)
+		ids = append(ids, id)
 	}
 	rows.Close()
 
-	for _, job := range jobs {
-		err = jm.RunJob(job.Id)
+	for _, id := range ids {
+		err = jm.RunJob(id)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
@@ -368,7 +432,7 @@ func (jm *JobManager) RequestWorkflowJobsStatusUpdates() {
 		var nodeId string
 		var jobId int64
 		if err := rows.Scan(&workflowId, &nodeId, &jobId); err == nil {
-			peer, err := jm.p2pm.GeneratePeerFromId(nodeId)
+			peer, err := jm.p2pm.GeneratePeerAddrInfo(nodeId)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return
@@ -523,7 +587,7 @@ func (jm *JobManager) StartJob(id int64) error {
 func (jm *JobManager) StatusUpdate(job node_types.Job, status string) error {
 	// Send job status update to remote node
 	nodeId := jm.p2pm.h.ID().String()
-	peerId, err := jm.p2pm.GeneratePeerFromId(job.OrderingNodeId)
+	peerId, err := jm.p2pm.GeneratePeerAddrInfo(job.OrderingNodeId)
 	jm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
 	return err
 }
@@ -578,23 +642,24 @@ func (jm *JobManager) StreamDataJobEngine(job node_types.Job, paths []string, in
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-	//	defer file.Close() // Ensure the file is closed after operations
+	//	defer file.Close() // This should be done after streaming is finished
 
-	receivingNodes := job.OutputNodeIds
-	for _, receivingNode := range receivingNodes {
+	for _, jobInterface := range job.JobInterfaces {
 		// Get peer
-		p, err := jm.p2pm.GeneratePeerFromId(receivingNode)
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-			return err
-		}
+		if jobInterface.FunctionalInterface == "OUTPUT" {
+			p, err := jm.p2pm.GeneratePeerAddrInfo(jobInterface.NodeId)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
 
-		// Connect to peer and start streaming
-		err = StreamData(jm.p2pm, p, file, nil)
-		if err != nil {
-			msg := err.Error()
-			jm.lm.Log("error", msg, "jobs")
-			return err
+			// Connect to peer and start streaming
+			err = StreamData(jm.p2pm, p, file, nil)
+			if err != nil {
+				msg := err.Error()
+				jm.lm.Log("error", msg, "jobs")
+				return err
+			}
 		}
 	}
 
