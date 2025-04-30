@@ -107,6 +107,12 @@ See the [LICENSE](LICENSE) file for details.
 
 ## Workflow Example
 
-The following diagram illustrates an example of end-to-end processing workflow, from satellite data ingestion to deforestation estimation and output delivery.
+The following diagrams illustrate examples of end-to-end ecological monitoring workflows—starting with decentralized data integration for pollinator species management in agroecosystems, and extending to satellite-based deforestation estimation.
 
-![Trustflow Workflow](./trustflow_workflow_example.png)
+- Ddecentralized data integration for pollinator species management in agroecosystems
+
+![Trustflow Workflow](./trustflow_workflow_example_1.png)
+
+- Satellite-based deforestation estimation
+
+![Trustflow Workflow](./trustflow_workflow_example_2.png)
