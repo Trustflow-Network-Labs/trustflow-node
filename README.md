@@ -102,3 +102,11 @@ See the [LICENSE](LICENSE) file for details.
 
 - [Issue Tracker](https://github.com/Trustflow-Network-Labs/trustflow-node/issues)
 - [Trustflow Network Labs GitHub](https://github.com/Trustflow-Network-Labs)
+
+---
+
+## Workflow Example
+
+The following diagram illustrates an example of end-to-end processing workflow, from satellite data ingestion to deforestation estimation and output delivery.
+
+![Trustflow Workflow](./trustflow_workflow_example.png)

@@ -3,6 +3,8 @@ package node
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/adgsm/trustflow-node/resource"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/adgsm/trustflow-node/workflow"
+	"github.com/fatih/color"
 	"github.com/manifoldco/promptui"
 	"github.com/olekukonko/tablewriter"
 )
@@ -46,8 +49,44 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 	}
 }
 
+// clearTerminal clears the terminal based on the operating system.
+func (mm *MenuManager) clearTerminal() {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	case "windows":
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	default:
+		// For unsupported OS, use a series of newlines
+		fmt.Print(strings.Repeat("\n", 100))
+	}
+}
+
+// drawLogo displays the TrustFlow Network ASCII art logo.
+func (mm *MenuManager) drawLogo() {
+	color.Set(color.FgHiBlue)
+	fmt.Println(`
+ _____               _   _____ _               
+|_   _|             | | |  ___| |              
+  | |_ __ _   _ ___| |_| |_  | | _____      __
+  | | '__| | | / __| __|  _| | |/ _ \ \ /\ / /
+  | | |  | |_| \__ \ |_| |   | | (_) \ V  V / 
+  \_/_|   \__,_|___/\__\_|   |_|\___/ \_/\_/  
+                                               
+                                             `)
+	color.Set(color.FgHiCyan)
+	fmt.Println("           N E T W O R K          ")
+	color.Unset()
+}
+
 // Print menu
 func (mm *MenuManager) Run() {
+	//mm.clearTerminal()
+	mm.drawLogo()
 	mm.main()
 }
 
