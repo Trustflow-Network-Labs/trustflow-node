@@ -29,8 +29,8 @@ It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifia
 ### Prerequisites
 
 - Go 1.21+
-- Docker (optional, for container runtime)
-- Postgres database (if using persistent storage)
+- Docker
+- SQLite database
 
 ### Installation
 
