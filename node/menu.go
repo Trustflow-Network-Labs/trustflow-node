@@ -49,7 +49,7 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 	}
 }
 
-// clearTerminal clears the terminal based on the operating system.
+// Clears the terminal based on the operating system.
 func (mm *MenuManager) clearTerminal() {
 	switch runtime.GOOS {
 	case "linux", "darwin":
@@ -66,7 +66,7 @@ func (mm *MenuManager) clearTerminal() {
 	}
 }
 
-// drawLogo displays the TrustFlow Network ASCII art logo.
+// Displays the TrustFlow Network ASCII art logo.
 func (mm *MenuManager) drawLogo() {
 	color.Set(color.FgHiBlue)
 	fmt.Println(`
@@ -90,23 +90,85 @@ func (mm *MenuManager) Run() {
 	mm.main()
 }
 
+// Select prompt helper
+func (mm *MenuManager) selectPromptHelper(label string, items []string, cursPos int, size int, props *promptui.Select) (int, string, error) {
+	var prompt promptui.Select
+	if props != nil {
+		prompt = *props
+	} else {
+		prompt = promptui.Select{
+			Label:     label,
+			Items:     items,
+			CursorPos: cursPos,
+			Size:      size,
+		}
+	}
+
+	pos, result, err := prompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Prompt `%s` failed: %s", label, err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return -1, "", err
+	}
+
+	return pos, result, nil
+}
+
+// Input prompt helper
+func (mm *MenuManager) inputPromptHelper(label string, def string, validate promptui.ValidateFunc, props *promptui.Prompt) (string, error) {
+	var prompt promptui.Prompt
+	if props != nil {
+		prompt = *props
+	} else {
+		prompt = promptui.Prompt{
+			Label:       label,
+			Default:     def,
+			Validate:    validate,
+			AllowEdit:   true,
+			HideEntered: false,
+			IsConfirm:   false,
+			IsVimMode:   false,
+		}
+	}
+
+	result, err := prompt.Run()
+	if err != nil {
+		msg := fmt.Sprintf("Entering `%s` failed: %s", label, err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return "", err
+	}
+
+	return result, nil
+}
+
+// Confirm prompt helper
+func (mm *MenuManager) confirmPromptHelper(label string) (bool, error) {
+	prompt := promptui.Prompt{
+		Label:     label,
+		IsConfirm: true,
+	}
+	result, err := prompt.Run()
+	if err != nil && strings.ToLower(result) != "n" && strings.ToLower(result) != "y" {
+		fmt.Printf("Prompt `%s` failed %v\n", label, err)
+		return false, err
+	}
+	return strings.ToLower(result) == "y", nil
+}
+
 // Print main menu
 func (mm *MenuManager) main() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main",
-			Items: []string{"Workflows & Jobs", "Configure node", "Exit"},
-		}
-
-		_, result, err := prompt.Run()
+		_, val, err := mm.selectPromptHelper(
+			"Main",
+			[]string{"Workflows & Jobs", "Configure node", "Exit"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			return
 		}
 
-		switch result {
+		switch val {
 		case "Workflows & Jobs":
 			mm.workflows()
 		case "Configure node":
@@ -123,20 +185,15 @@ func (mm *MenuManager) main() {
 // Print rworkflows sub-menu
 func (mm *MenuManager) workflows() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Workflows & Jobs",
-			Items: []string{"Find services", "Request services", "List workflows", "Run workflow", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, val, err := mm.selectPromptHelper(
+			"Main \U000025B6 Workflows & Jobs",
+			[]string{"Find services", "Request services", "List workflows", "Run workflow", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
-		switch result {
+		switch val {
 		case "Find services":
 			mm.findServices()
 		case "Request services":
@@ -153,34 +210,22 @@ func (mm *MenuManager) workflows() {
 
 // Print find services sub-menu
 func (mm *MenuManager) findServices() error {
-	frsPrompt := promptui.Prompt{
-		Label:       "Search phrases: (comma-separated)",
-		Default:     "",
-		Validate:    mm.vm.MinLen,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	snResult, err := frsPrompt.Run()
+	// Search phrases
+	snResult, err := mm.inputPromptHelper("Search phrases: (comma-separated)", "", mm.vm.MinLen, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Entering search phrases failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return err
 	}
 
-	fmt.Println("Select service type:")
 	// Get service type
-	rPrompt := promptui.Select{
-		Label: "Main \U000025B6 Find services \U000025B6 Service Type",
-		Items: []string{"ANY", "DATA", "DOCKER EXECUTION ENVIRONMENT", "STANDALONE EXECUTABLE"},
-	}
-	_, rResult, err := rPrompt.Run()
+	fmt.Println("Select service type:")
+	_, rResult, err := mm.selectPromptHelper(
+		"Main \U000025B6 Find services \U000025B6 Service Type",
+		[]string{"ANY", "DATA", "DOCKER EXECUTION ENVIRONMENT", "STANDALONE EXECUTABLE"},
+		0, 10, nil)
 	if err != nil {
-		fmt.Printf("prompt failed: %s\n", err.Error())
 		return err
 	}
+
 	if rResult == "ANY" {
 		rResult = ""
 	}
@@ -222,23 +267,13 @@ func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceRe
 
 // Print request service sub-menu
 func (mm *MenuManager) requestService() error {
-	sidPrompt := promptui.Prompt{
-		Label:       "Service ID",
-		Default:     "",
-		Validate:    mm.vm.NotEmpty,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	sidResult, err := sidPrompt.Run()
+	// Service Id
+	sidResult, err := mm.inputPromptHelper("Service ID", "", mm.vm.NotEmpty, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Entering service ID failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return err
 	}
 
+	// Extract node id and service id
 	serviceIdPair := strings.Split(sidResult, "-")
 	if len(serviceIdPair) < 2 {
 		msg := fmt.Sprintf("Invalid Service ID: %s", sidResult)
@@ -248,11 +283,15 @@ func (mm *MenuManager) requestService() error {
 	}
 	peerId := serviceIdPair[0]
 	sid := serviceIdPair[1]
+
+	// Generate peer id
 	peer, err := mm.p2pm.GeneratePeerAddrInfo(peerId)
 	if err != nil {
 		fmt.Printf("Generating peer address info from %s failed: %s\n", peerId, err.Error())
 		return err
 	}
+
+	// Validate service id
 	serviceId, err := strconv.ParseInt(sid, 10, 32)
 	if err != nil {
 		fmt.Printf("Service Id %s seems to be invalid Id: %s\n", sid, err.Error())
@@ -265,16 +304,11 @@ func (mm *MenuManager) requestService() error {
 	var outputInterfaces []node_types.Interface
 
 	// Input nodes
-	rinPrompt := promptui.Prompt{
-		Label:     "Does the job require inputs to run or execute?",
-		IsConfirm: true,
-	}
-	rinResult, err := rinPrompt.Run()
-	if err != nil && strings.ToLower(rinResult) != "n" && strings.ToLower(rinResult) != "y" {
-		fmt.Printf("Prompt failed %v\n", err)
+	rinResult, err := mm.confirmPromptHelper("Does the job require inputs to run or execute")
+	if err != nil {
 		return err
 	}
-	if strings.ToLower(rinResult) == "y" {
+	if rinResult {
 		inputInterfaces, err = mm.jobInterfaces("INPUT", mm.p2pm.h.ID().String())
 		if err != nil {
 			fmt.Printf("Collecting input interfaces faileed %v\n", err)
@@ -284,16 +318,11 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Output nodes
-	routPrompt := promptui.Prompt{
-		Label:     "Does the job produce outputs?",
-		IsConfirm: true,
-	}
-	routResult, err := routPrompt.Run()
-	if err != nil && strings.ToLower(routResult) != "n" && strings.ToLower(routResult) != "y" {
-		fmt.Printf("Prompt failed %v\n", err)
+	routResult, err := mm.confirmPromptHelper("Does the job produce outputs")
+	if err != nil {
 		return err
 	}
-	if strings.ToLower(routResult) == "y" {
+	if routResult {
 		outputInterfaces, err = mm.jobInterfaces("OUTPUT", mm.p2pm.h.ID().String())
 		if err != nil {
 			fmt.Printf("Collecting output interfaces faileed %v\n", err)
@@ -303,15 +332,13 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	/*
-		fmt.Println("Select constraint type:")
 		// Get constraint type
-		cPrompt := promptui.Select{
-			Label: "Main \U000025B6 Request service \U000025B6 Constraint Type",
-			Items: []string{"NONE", "INPUTS READY", "DATETIME", "JOBS EXECUTED", "MANUAL START"},
-		}
-		_, cResult, err := cPrompt.Run()
+		fmt.Println("Select constraint type:")
+		_, cResult, err := mm.selectPromptHelper(
+			"Main \U000025B6 Request service \U000025B6 Constraint Type",
+			[]string{"NONE", "INPUTS READY", "DATETIME", "JOBS EXECUTED", "MANUAL START"},
+			0, 10, nil)
 		if err != nil {
-			fmt.Printf("prompt failed: %s\n", err.Error())
 			return err
 		}
 	*/
@@ -323,33 +350,15 @@ func (mm *MenuManager) requestService() error {
 	// Use existing workflow or create a new one service prompt
 	var workflowId int64
 
-	nwPrompt := promptui.Prompt{
-		Label:     "Should we integrate this service or job into an existing workflow?",
-		IsConfirm: true,
-	}
-	nwResult, err := nwPrompt.Run()
-	if err != nil && strings.ToLower(nwResult) != "n" && strings.ToLower(nwResult) != "y" {
-		fmt.Printf("Prompt failed %v\n", err)
-		mm.lm.Log("error", err.Error(), "menu")
+	nwResult, err := mm.confirmPromptHelper("Should we integrate this service or job into an existing workflow")
+	if err != nil {
 		return err
 	}
-	if strings.ToLower(nwResult) == "y" {
+	if nwResult {
 		// Add job to existing workflow
 		fmt.Println("Let's add this job to an existing workflow.")
-		wfidPrompt := promptui.Prompt{
-			Label:       "Workflow Id",
-			Default:     "",
-			Validate:    mm.wm.IsRunnableWorkflow,
-			AllowEdit:   true,
-			HideEntered: false,
-			IsConfirm:   false,
-			IsVimMode:   false,
-		}
-		wfidResult, err := wfidPrompt.Run()
+		wfidResult, err := mm.inputPromptHelper("Workflow Id", "", mm.wm.IsRunnableWorkflow, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Entering workflow id failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			return err
 		}
 
@@ -359,39 +368,16 @@ func (mm *MenuManager) requestService() error {
 			return err
 		}
 
-	} else if strings.ToLower(nwResult) == "n" {
+	} else {
 		// Create new workflow
 		fmt.Println("Let's create a new workflow.")
-		wfnPrompt := promptui.Prompt{
-			Label:       "Workflow name",
-			Default:     "",
-			Validate:    mm.vm.NotEmpty,
-			AllowEdit:   true,
-			HideEntered: false,
-			IsConfirm:   false,
-			IsVimMode:   false,
-		}
-		wfnResult, err := wfnPrompt.Run()
+		wfnResult, err := mm.inputPromptHelper("Workflow name", "", mm.vm.NotEmpty, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Entering workflow name failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			return err
 		}
 
-		wfdPrompt := promptui.Prompt{
-			Label:       "Workflow description",
-			Default:     "",
-			AllowEdit:   true,
-			HideEntered: false,
-			IsConfirm:   false,
-			IsVimMode:   false,
-		}
-		wfdResult, err := wfdPrompt.Run()
+		wfdResult, err := mm.inputPromptHelper("Workflow description", "", nil, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Entering workflow description failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			return err
 		}
 
@@ -414,49 +400,21 @@ func (mm *MenuManager) requestService() error {
 func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
 	var interfaces []node_types.Interface
 
-	tyPrompt := promptui.Select{
-		Label: "Interface type",
-		Items: []string{"FILE STREAM", "MOUNTED FILE SYSTEM", "STDIN/STDOUT"},
-	}
-
-	_, tyResult, err := tyPrompt.Run()
+	_, tyResult, err := mm.selectPromptHelper(
+		"Interface type",
+		[]string{"FILE STREAM", "MOUNTED FILE SYSTEM", "STDIN/STDOUT"},
+		0, 10, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return nil, err
 	}
 
-	pthPrompt := promptui.Prompt{
-		Label:       "Specific file path or file system mount point (optional)",
-		Default:     "",
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	pthResult, err := pthPrompt.Run()
+	pthResult, err := mm.inputPromptHelper("Specific file path or file system mount point (optional)", "", nil, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Entering file path or file system mount point failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return nil, err
 	}
 
-	nidPrompt := promptui.Prompt{
-		Label:       "Node ID",
-		Default:     nodeId,
-		Validate:    mm.p2pm.IsValidPeerId,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	nidResult, err := nidPrompt.Run()
+	nidResult, err := mm.inputPromptHelper("Node ID", "", mm.p2pm.IsValidPeerId, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Entering Node ID failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return nil, err
 	}
 
@@ -470,16 +428,11 @@ func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) 
 	interfaces = append(interfaces, intrfce)
 
 	// Print "add another interface" prompt
-	aaPrompt := promptui.Prompt{
-		Label:     "Add another interface?",
-		IsConfirm: true,
-	}
-	aaResult, err := aaPrompt.Run()
-	if err != nil && strings.ToLower(aaResult) != "n" && strings.ToLower(aaResult) != "y" {
-		fmt.Printf("Prompt failed %v\n", err)
+	aaResult, err := mm.confirmPromptHelper("Add another interface")
+	if err != nil {
 		return nil, err
 	}
-	if strings.ToLower(aaResult) == "y" {
+	if aaResult {
 		return mm.jobInterfaces(functionalInterface, nodeId)
 	}
 
@@ -536,16 +489,11 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 
 	if len(workflows) >= int(limit) {
 		// Print "load more" prompt
-		lmPrompt := promptui.Prompt{
-			Label:     "Load more?",
-			IsConfirm: true,
-		}
-		lmResult, err := lmPrompt.Run()
-		if err != nil && strings.ToLower(lmResult) != "n" && strings.ToLower(lmResult) != "y" {
-			fmt.Printf("Prompt failed %v\n", err)
+		lmResult, err := mm.confirmPromptHelper("Load more")
+		if err != nil {
 			return err
 		}
-		if strings.ToLower(lmResult) == "y" {
+		if lmResult {
 			return mm.printWorkflows(wm, offset+limit, limit)
 		}
 	}
@@ -555,20 +503,8 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 
 // Print run workflow sub-menu
 func (mm *MenuManager) runWorkflow() error {
-	widPrompt := promptui.Prompt{
-		Label:       "Workflow ID",
-		Default:     "",
-		Validate:    mm.wm.IsRunnableWorkflow,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	widResult, err := widPrompt.Run()
+	widResult, err := mm.inputPromptHelper("Workflow ID", "", mm.wm.IsRunnableWorkflow, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Entering workflow ID failed: %s", err.Error())
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
 		return err
 	}
 
@@ -618,16 +554,11 @@ func (mm *MenuManager) printJobRunResponse(jobRunResponse node_types.JobRunRespo
 // Print configure node sub-menu
 func (mm *MenuManager) configureNode() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Configure node",
-			Items: []string{"Blacklist", "Currencies", "Resources", "Services", "Settings", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, result, err := mm.selectPromptHelper(
+			"Main \U000025B6 Configure node",
+			[]string{"Blacklist", "Currencies", "Resources", "Services", "Settings", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
@@ -650,133 +581,119 @@ func (mm *MenuManager) configureNode() {
 // Print blacklist sub-menu
 func (mm *MenuManager) blacklist() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Configure node \U000025B6 Blacklist",
-			Items: []string{"List nodes", "Add node", "Remove node", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, result, err := mm.selectPromptHelper(
+			"Main \U000025B6 Configure node \U000025B6 Blacklist",
+			[]string{"List nodes", "Add node", "Remove node", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
 		switch result {
 		case "List nodes":
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+			err := mm.listBlacklistNodes()
 			if err != nil {
-				fmt.Println(err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 				continue
-			}
-			err = mm.printBlacklist(blacklistManager)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Add node":
-			// Get node ID
-			nidPrompt := promptui.Prompt{
-				Label:       "Node ID",
-				Default:     "",
-				Validate:    mm.vm.IsPeer,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			nidResult, err := nidPrompt.Run()
+			err := mm.addBlacklistNode()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering Node ID failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Get reason for blacklisting node
-			rsPrompt := promptui.Prompt{
-				Label:       "Reason (optional)",
-				Default:     "",
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rsResult, err := rsPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering reason for blacklisting node failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Add node to blacklist
-			err = blacklistManager.Add(nidResult, rsResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Node %s is added to blacklist\n", nidResult)
-
-			err = mm.printBlacklist(blacklistManager)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove node":
-			// Get node ID
-			nidPrompt := promptui.Prompt{
-				Label:       "Node ID",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			nidResult, err := nidPrompt.Run()
+			err := mm.removeNodeFromBlacklist()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering Node ID failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Remove node from blacklist
-			err = blacklistManager.Remove(nidResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Node %s is removed from blacklist\n", nidResult)
-
-			err = mm.printBlacklist(blacklistManager)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Back":
 			return
 		}
 	}
+}
+func (mm *MenuManager) listBlacklistNodes() error {
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	if err != nil {
+		fmt.Println(err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = mm.printBlacklist(blacklistManager)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) addBlacklistNode() error {
+	// Get node ID
+	nidResult, err := mm.inputPromptHelper("Node ID", "", mm.vm.IsPeer, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get reason for blacklisting node
+	rsResult, err := mm.inputPromptHelper("Reason (optional)", "", nil, nil)
+	if err != nil {
+		return err
+	}
+
+	// Add node to a blacklist
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = blacklistManager.Add(nidResult, rsResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Node %s is added to blacklist\n", nidResult)
+
+	// Print updated blacklist
+	err = mm.printBlacklist(blacklistManager)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) removeNodeFromBlacklist() error {
+	// Get node ID
+	nidResult, err := mm.inputPromptHelper("Node ID", "", mm.vm.IsPeer, nil)
+	if err != nil {
+		return err
+	}
+
+	// Remove node from blacklist
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = blacklistManager.Remove(nidResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Node %s is removed from blacklist\n", nidResult)
+
+	// Print updated blacklist
+	err = mm.printBlacklist(blacklistManager)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+
+	return nil
 }
 
 func (mm *MenuManager) printBlacklist(blnm *blacklist_node.BlacklistNodeManager) error {
@@ -800,114 +717,101 @@ func (mm *MenuManager) printBlacklist(blnm *blacklist_node.BlacklistNodeManager)
 // Print currencies sub-menu
 func (mm *MenuManager) currencies() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Configure node \U000025B6 Currencies",
-			Items: []string{"List currencies", "Add currency", "Remove currency", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, result, err := mm.selectPromptHelper(
+			"Main \U000025B6 Configure node \U000025B6 Currencies",
+			[]string{"List currencies", "Add currency", "Remove currency", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
 		switch result {
 		case "List currencies":
-			err = mm.printCurrencies(mm.cm)
+			err := mm.listCurrencies()
 			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
+				continue
 			}
 		case "Add currency":
-			// Get currency symbol
-			csPrompt := promptui.Prompt{
-				Label:       "Currency Symbol",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			csResult, err := csPrompt.Run()
+			err := mm.addCurrency()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering currency symbol failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Get currency name
-			cnPrompt := promptui.Prompt{
-				Label:       "Currency name",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			cnResult, err := cnPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering currency name failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Add currency
-			err = mm.cm.Add(cnResult, csResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Currency %s (%s) is added\n", cnResult, csResult)
-
-			err = mm.printCurrencies(mm.cm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove currency":
-			// Get currency symbol
-			csPrompt := promptui.Prompt{
-				Label:       "Currency Symbol",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			csResult, err := csPrompt.Run()
+			err := mm.removeCurrency()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering currency symbol failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Remove currency
-			err = mm.cm.Remove(csResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Currency %s is removed\n", csResult)
-
-			err = mm.printCurrencies(mm.cm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Back":
 			return
 		}
 	}
+}
+
+func (mm *MenuManager) listCurrencies() error {
+	err := mm.printCurrencies(mm.cm)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+	return err
+}
+
+func (mm *MenuManager) addCurrency() error {
+	// Get currency symbol
+	csResult, err := mm.inputPromptHelper("Currency Symbol", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get currency name
+	cnResult, err := mm.inputPromptHelper("Currency name", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Add currency
+	err = mm.cm.Add(cnResult, csResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Currency %s (%s) is added\n", cnResult, csResult)
+
+	// Print updated list of currencies
+	err = mm.printCurrencies(mm.cm)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) removeCurrency() error {
+	// Get currency symbol
+	csResult, err := mm.inputPromptHelper("Currency Symbol", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Remove currency
+	err = mm.cm.Remove(csResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Currency %s is removed\n", csResult)
+
+	// Print updated list of currencies
+	err = mm.printCurrencies(mm.cm)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+
+	return nil
 }
 
 func (mm *MenuManager) printCurrencies(cm *currency.CurrencyManager) error {
@@ -931,261 +835,182 @@ func (mm *MenuManager) printCurrencies(cm *currency.CurrencyManager) error {
 // Print resources sub-menu
 func (mm *MenuManager) resources() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Configure node \U000025B6 Resources",
-			Items: []string{"List resources", "Set resource active", "Set resource inactive", "Add resource", "Remove resource", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, result, err := mm.selectPromptHelper(
+			"Main \U000025B6 Configure node \U000025B6 Resources",
+			[]string{"List resources", "Set resource active", "Set resource inactive", "Add resource", "Remove resource", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
 		switch result {
 		case "List resources":
-			err = mm.printResources(mm.rm)
+			err := mm.listResources()
 			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
+				continue
 			}
 		case "Set resource active":
-			// Get resource Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Resource Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.setResourceActive()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			rn, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Set resource active
-			err = mm.rm.SetActive(rn)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Resource id %d is set to active\n", rn)
-
-			err = mm.printResources(mm.rm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set resource inactive":
-			// Get resource Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Resource Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.setResourceInactive()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			rn, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Set resource active
-			err = mm.rm.SetInactive(rn)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Resource id %d is set to inactive\n", rn)
-
-			err = mm.printResources(mm.rm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Add resource":
-			// Get resource group name
-			rgPrompt := promptui.Prompt{
-				Label:       "Resource group",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rgResult, err := rgPrompt.Run()
+			err := mm.addResource()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource group name failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Get resource name
-			rnPrompt := promptui.Prompt{
-				Label:       "Resource name",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource name failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Get resource unit name
-			ruPrompt := promptui.Prompt{
-				Label:       "Resource unit",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			ruResult, err := ruPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource unit name failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Get resource description
-			rdPrompt := promptui.Prompt{
-				Label:       "Resource description",
-				Default:     "",
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rdResult, err := rdPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource description failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Get resource state
-			raPrompt := promptui.Prompt{
-				Label:       "Is active?",
-				Default:     "",
-				Validate:    mm.vm.IsBool,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			raResult, err := raPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource active flag failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			active, err := mm.tm.ToBool(raResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Add resource
-			err = mm.rm.Add(rgResult, rnResult, ruResult, rdResult, active)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Resource %s is added\n", rnResult)
-
-			err = mm.printResources(mm.rm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove resource":
-			// Get resource id
-			rnPrompt := promptui.Prompt{
-				Label:       "Resource Id",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.removeResource()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering resource Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			rn, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			// Remove resource
-			err = mm.rm.Remove(rn)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Resource id %d is removed\n", rn)
-
-			err = mm.printResources(mm.rm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Back":
 			return
 		}
 	}
+}
+
+func (mm *MenuManager) listResources() error {
+	err := mm.printResources(mm.rm)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+	return err
+}
+
+func (mm *MenuManager) setResourceActive() error {
+	// Get resource Id
+	rnResult, err := mm.inputPromptHelper("Resource Id", "", mm.vm.IsInt64, nil)
+	if err != nil {
+		return err
+	}
+
+	// Set resource active
+	rn, err := mm.tm.ToInt64(rnResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = mm.rm.SetActive(rn)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Resource id %d is set to active\n", rn)
+
+	// Print updated list of resources
+	err = mm.listResources()
+
+	return err
+}
+
+func (mm *MenuManager) setResourceInactive() error {
+	// Get resource Id
+	rnResult, err := mm.inputPromptHelper("Resource Id", "", mm.vm.IsInt64, nil)
+	if err != nil {
+		return err
+	}
+
+	// Set resource inactive
+	rn, err := mm.tm.ToInt64(rnResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = mm.rm.SetInactive(rn)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Resource id %d is set to inactive\n", rn)
+
+	// Print updated list of resources
+	err = mm.listResources()
+
+	return err
+}
+
+func (mm *MenuManager) addResource() error {
+	// Get resource group name
+	rgResult, err := mm.inputPromptHelper("Resource group", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get resource name
+	rnResult, err := mm.inputPromptHelper("Resource name", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get resource unit name
+	ruResult, err := mm.inputPromptHelper("Resource unit", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get resource description
+	rdResult, err := mm.inputPromptHelper("Resource description", "", nil, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get resource state
+	raResult, err := mm.confirmPromptHelper("Is active")
+	if err != nil {
+		return err
+	}
+
+	// Add resource
+	err = mm.rm.Add(rgResult, rnResult, ruResult, rdResult, raResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Resource %s is added\n", rnResult)
+
+	// Print updated list of resources
+	err = mm.listResources()
+
+	return err
+}
+
+func (mm *MenuManager) removeResource() error {
+	// Get resource id
+	rnResult, err := mm.inputPromptHelper("Resource Id", "", mm.vm.IsInt64, nil)
+	if err != nil {
+		return err
+	}
+
+	// Remove resource
+	rn, err := mm.tm.ToInt64(rnResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	err = mm.rm.Remove(rn)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Resource id %d is removed\n", rn)
+
+	err = mm.listResources()
+
+	return err
 }
 
 func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
@@ -1209,478 +1034,355 @@ func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
 // Print services sub-menu
 func (mm *MenuManager) services() {
 	for {
-		prompt := promptui.Select{
-			Label: "Main \U000025B6 Configure node \U000025B6 Services",
-			Items: []string{"List services", "Show service details", "Add service", "Set service active", "Set service inactive", "Remove service", "Back"},
-		}
-
-		_, result, err := prompt.Run()
+		_, result, err := mm.selectPromptHelper(
+			"Main \U000025B6 Configure node \U000025B6 Services",
+			[]string{"List services", "Show service details", "Add service", "Set service active", "Set service inactive", "Remove service", "Back"},
+			0, 10, nil)
 		if err != nil {
-			msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-			fmt.Println(msg)
-			mm.lm.Log("error", msg, "menu")
 			continue
 		}
 
 		switch result {
 		case "List services":
-			err = mm.printServices(mm.sm)
+			err := mm.listServices()
 			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
+				continue
 			}
 		case "Show service details":
 		case "Add service":
-			// Get service name
-			snPrompt := promptui.Prompt{
-				Label:       "Service name",
-				Default:     "",
-				Validate:    mm.vm.NotEmpty,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			snResult, err := snPrompt.Run()
+			err := mm.addService()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service name failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Get service description
-			sdPrompt := promptui.Prompt{
-				Label:       "Service description",
-				Default:     "",
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			sdResult, err := sdPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service description failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			// Get service state
-			raPrompt := promptui.Prompt{
-				Label:       "Is active?",
-				Default:     "",
-				Validate:    mm.vm.IsBool,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			raResult, err := raPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service active flag failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			active, err := mm.tm.ToBool(raResult)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-
-			stPrompt := promptui.Select{
-				Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Service Type",
-				Items: []string{"DATA", "DOCKER EXECUTION ENVIRONMENT", "STANDALONE EXECUTABLE"},
-			}
-
-			_, stResult, err := stPrompt.Run()
-			if err != nil {
-				msg := fmt.Sprintf("Prompt failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-
-			switch stResult {
-			case "DATA":
-				// Get file/folder/data path
-				dpPrompt := promptui.Prompt{
-					Label:       "Path",
-					Default:     "",
-					Validate:    mm.vm.NotEmpty,
-					AllowEdit:   true,
-					HideEntered: false,
-					IsConfirm:   false,
-					IsVimMode:   false,
-				}
-				dpResult, err := dpPrompt.Run()
-				if err != nil {
-					msg := fmt.Sprintf("\U00002757 Entering service file/folder/data path failed: %s", err.Error())
-					fmt.Println(msg)
-					mm.lm.Log("error", msg, "menu")
-					continue
-				}
-
-				// Add service
-				id, err := mm.sm.Add(snResult, sdResult, stResult, active)
-				if err != nil {
-					fmt.Printf("\U00002757 %s\n", err.Error())
-					mm.lm.Log("error", err.Error(), "menu")
-					continue
-				}
-
-				// Add data service
-				_, err = mm.sm.AddData(id, dpResult)
-				if err != nil {
-					fmt.Printf("\U00002757 %s\n", err.Error())
-					mm.lm.Log("error", err.Error(), "menu")
-					mm.sm.Remove(id)
-					continue
-				}
-
-				// Print service pricing prompt
-				err = mm.printServicePrice(id)
-				if err != nil {
-					mm.lm.Log("error", err.Error(), "menu")
-					mm.sm.Remove(id)
-				}
-
-			case "DOCKER EXECUTION ENVIRONMENT":
-				// Do we have docker image prepared or
-				// we will create it fron git repo?
-				deetPrompt := promptui.Prompt{
-					Label:     "Have a pre-built Docker image? Enter 'Y' and image name to pull. Else, enter 'N' and Git repo URL with Dockerfile or docker-compose.yml.",
-					IsConfirm: true,
-				}
-				deetResult, err := deetPrompt.Run()
-				if err != nil && strings.ToLower(deetResult) != "n" && strings.ToLower(deetResult) != "y" {
-					fmt.Printf("Prompt failed %v\n", err)
-					continue
-				}
-				if strings.ToLower(deetResult) == "n" {
-					// Pull from git and compose Docker image
-					gruPrompt := promptui.Prompt{
-						Label:       "Git repository URL",
-						Default:     "",
-						Validate:    mm.vm.NotEmpty,
-						AllowEdit:   true,
-						HideEntered: false,
-						IsConfirm:   false,
-						IsVimMode:   false,
-					}
-					gruResult, err := gruPrompt.Run()
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Entering Git repository URL failed: %s", err.Error())
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					// If this is private repo ask for credentials
-					var username string = ""
-					var token string = ""
-					iprPrompt := promptui.Prompt{
-						Label:     "Is this private repo",
-						IsConfirm: true,
-					}
-					iprResult, err := iprPrompt.Run()
-					if err != nil && strings.ToLower(iprResult) != "n" && strings.ToLower(iprResult) != "y" {
-						fmt.Printf("Prompt failed %v\n", err)
-						continue
-					}
-					if strings.ToLower(iprResult) == "y" {
-						// Ask for Git credentials
-						unPrompt := promptui.Prompt{
-							Label:       "Git user",
-							Default:     "",
-							AllowEdit:   true,
-							HideEntered: false,
-							IsConfirm:   false,
-							IsVimMode:   false,
-						}
-						username, err = unPrompt.Run()
-						if err != nil {
-							msg := fmt.Sprintf("\U00002757 Entering Git username failed: %s", err.Error())
-							fmt.Println(msg)
-							mm.lm.Log("error", msg, "menu")
-							continue
-						}
-						tknPrompt := promptui.Prompt{
-							Label:       "Git token/password",
-							Default:     "",
-							AllowEdit:   true,
-							HideEntered: false,
-							IsConfirm:   false,
-							IsVimMode:   false,
-						}
-						token, err = tknPrompt.Run()
-						if err != nil {
-							msg := fmt.Sprintf("\U00002757 Entering Git token/password failed: %s", err.Error())
-							fmt.Println(msg)
-							mm.lm.Log("error", msg, "menu")
-							continue
-						}
-					}
-					gitManager := repo.NewGitManager()
-					err = gitManager.ValidateRepo(gruResult, username, token)
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\n", err)
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					// Ask for Git branch
-					bPrompt := promptui.Prompt{
-						Label:       "Set branch for pull/clone (optional, blank for default)",
-						Default:     "",
-						AllowEdit:   true,
-						HideEntered: false,
-						IsConfirm:   false,
-						IsVimMode:   false,
-					}
-					branch, err := bPrompt.Run()
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Entering Git branch failed: %s", err.Error())
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					// Pull/clone
-					configManager := utils.NewConfigManager("")
-					configs, err := configManager.ReadConfigs()
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Failed reading configs: %v\n", err)
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					gitRoot := configs["local_git_root"]
-					repoPath, err := gitManager.CloneOrPull(gitRoot, gruResult, branch, username, token)
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Failed pulling/cloning repo %s: %v\n", gruResult, err)
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					// Check for docker files
-					dockerCheckResult, err := gitManager.CheckDockerFiles(repoPath)
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Failed checking repo for docker files: %v\n", err)
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					if !dockerCheckResult.HasDockerfile && !dockerCheckResult.HasCompose {
-						msg := fmt.Sprintf("\U00002757 Repo '%s' has neither Dockerfile nor docker-compose.yml\n", gruResult)
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						os.RemoveAll(repoPath)
-						continue
-					}
-
-					// Run docker
-					dockerManager := repo.NewDockerManager()
-					// Build image(s)
-					_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil)
-					if errors != nil {
-						for _, err := range errors {
-							msg := fmt.Sprintf("\U00002757 Building image(s) from repo '%s' ended with following error: %s\n", gruResult, err.Error())
-							fmt.Println(msg)
-							mm.lm.Log("error", msg, "menu")
-						}
-						os.RemoveAll(repoPath)
-						continue
-					}
-					for _, img := range images {
-						msg := fmt.Sprintf("\U00002705 Successfully built image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, gruResult)
-						fmt.Println(msg)
-						mm.lm.Log("debug", msg, "menu")
-					}
-					// TODO, define inputs/outputs
-					// TODO, add service
-				} else {
-					// Pull existing Docker image
-					pediPrompt := promptui.Prompt{
-						Label:       "Pre-built Docker image name to pull",
-						Default:     "",
-						Validate:    mm.vm.NotEmpty,
-						AllowEdit:   true,
-						HideEntered: false,
-						IsConfirm:   false,
-						IsVimMode:   false,
-					}
-					pediResult, err := pediPrompt.Run()
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Entering Docker image name failed: %s", err.Error())
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					dockerManager := repo.NewDockerManager()
-					cmdOut, err := dockerManager.ValidateImage(pediResult)
-					if err != nil {
-						msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))
-						fmt.Println(msg)
-						mm.lm.Log("error", msg, "menu")
-						continue
-					}
-					// TODO, pull image, create container
-					// Pull image
-					_, images, errors := dockerManager.Run("", 0, true, pediResult, true, "", "", nil, nil, nil)
-					if errors != nil {
-						for _, err := range errors {
-							msg := fmt.Sprintf("\U00002757 Pulling image '%s' ended with following error: %s\n", pediResult, err.Error())
-							fmt.Println(msg)
-							mm.lm.Log("error", msg, "menu")
-						}
-						continue
-					}
-					for _, img := range images {
-						msg := fmt.Sprintf("\U00002705 Successfully pulled image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, pediResult)
-						fmt.Println(msg)
-						mm.lm.Log("debug", msg, "menu")
-					}
-				}
-
-			case "STANDALONE EXECUTABLE":
-			}
-
-			// Service is added
-			fmt.Printf("\U00002705 Service %s is added\n", snResult)
-
-			// Print service table
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set service active":
-			// Get service Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Service Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.setServiceActive(true)
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Set service active
-			id, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			err = mm.sm.SetActive(id)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
-
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Set service inactive":
-			// Get service Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Service Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.setServiceActive(false)
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Set service active
-			id, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			err = mm.sm.SetInactive(id)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
-
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Remove service":
-			// Get service Id
-			rnPrompt := promptui.Prompt{
-				Label:       "Service Id",
-				Default:     "",
-				Validate:    mm.vm.IsInt64,
-				AllowEdit:   true,
-				HideEntered: false,
-				IsConfirm:   false,
-				IsVimMode:   false,
-			}
-			rnResult, err := rnPrompt.Run()
+			err := mm.removeService()
 			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Entering service Id failed: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
 				continue
-			}
-
-			// Remove service
-			id, err := mm.tm.ToInt64(rnResult)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			err = mm.sm.Remove(id)
-			if err != nil {
-				msg := fmt.Sprintf("\U00002757 %s\n", err.Error())
-				fmt.Println(msg)
-				mm.lm.Log("error", msg, "menu")
-				continue
-			}
-			fmt.Printf("\U00002705 Service %s is removed\n", rnResult)
-
-			err = mm.printServices(mm.sm)
-			if err != nil {
-				fmt.Printf("\U00002757 %s\n", err.Error())
-				mm.lm.Log("error", err.Error(), "menu")
 			}
 		case "Back":
 			return
 		}
 	}
+}
+func (mm *MenuManager) listServices() error {
+	err := mm.printServices(mm.sm)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+	}
+	return err
+}
+
+func (mm *MenuManager) addService() error {
+	// Get service name
+	snResult, err := mm.inputPromptHelper("Service name", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get service description
+	sdResult, err := mm.inputPromptHelper("Service description", "", nil, nil)
+	if err != nil {
+		return err
+	}
+
+	// Get service state
+	raResult, err := mm.confirmPromptHelper("Is active")
+	if err != nil {
+		return err
+	}
+
+	_, stResult, err := mm.selectPromptHelper(
+		"Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Service Type",
+		[]string{"DATA", "DOCKER EXECUTION ENVIRONMENT", "STANDALONE EXECUTABLE"},
+		0, 10, nil)
+	if err != nil {
+		return err
+	}
+
+	switch stResult {
+	case "DATA":
+		err := mm.addDataService(snResult, sdResult, stResult, raResult)
+		if err != nil {
+			return err
+		}
+	case "DOCKER EXECUTION ENVIRONMENT":
+		err := mm.addDockerService()
+		if err != nil {
+			return err
+		}
+	case "STANDALONE EXECUTABLE":
+	}
+
+	// Service is added
+	fmt.Printf("\U00002705 Service %s is added\n", snResult)
+
+	// Print service table
+	err = mm.listServices()
+
+	return err
+}
+
+func (mm *MenuManager) addDataService(name, description, stype string, active bool) error {
+	// Get file/folder/data path
+	dpResult, err := mm.inputPromptHelper("Path", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Add service
+	id, err := mm.sm.Add(name, description, stype, active)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+
+	// Add data service
+	_, err = mm.sm.AddData(id, dpResult)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
+	}
+
+	// Print service pricing prompt
+	err = mm.printServicePrice(id)
+	if err != nil {
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) addDockerService() error {
+	// Do we have docker image prepared or
+	// we will create it fron git repo?
+	deetResult, err := mm.confirmPromptHelper("Have a pre-built Docker image? Enter 'Y' and image name to pull. Else, enter 'N' and Git repo URL with Dockerfile or docker-compose.yml")
+	if err != nil {
+		return err
+	}
+	if !deetResult {
+		return mm.addDockerServiceFromGit()
+	} else {
+		return mm.addDockerServiceFromRepo()
+	}
+}
+
+func (mm *MenuManager) addDockerServiceFromGit() error {
+	// Pull from git and compose Docker image
+	gruResult, err := mm.inputPromptHelper("Git repository URL", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// If this is private repo ask for credentials
+	var username string = ""
+	var token string = ""
+
+	iprResult, err := mm.confirmPromptHelper("Is this private repo")
+	if err != nil {
+		return err
+	}
+	if iprResult {
+		// Ask for Git credentials
+		username, err = mm.inputPromptHelper("Git user", "", nil, nil)
+		if err != nil {
+			return err
+		}
+		token, err = mm.inputPromptHelper("Git token/password", "", nil, nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Validate repo
+	gitManager := repo.NewGitManager()
+	err = gitManager.ValidateRepo(gruResult, username, token)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\n", err)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	// Ask for Git branch
+	branch, err := mm.inputPromptHelper("Set branch for pull/clone (optional, blank for default)", "", nil, nil)
+	if err != nil {
+		return err
+	}
+
+	// Pull/clone
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Failed reading configs: %v\n", err)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	gitRoot := configs["local_git_root"]
+	repoPath, err := gitManager.CloneOrPull(gitRoot, gruResult, branch, username, token)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Failed pulling/cloning repo %s: %v\n", gruResult, err)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	// Check for docker files
+	dockerCheckResult, err := gitManager.CheckDockerFiles(repoPath)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Failed checking repo for docker files: %v\n", err)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	if !dockerCheckResult.HasDockerfile && !dockerCheckResult.HasCompose {
+		msg := fmt.Sprintf("\U00002757 Repo '%s' has neither Dockerfile nor docker-compose.yml\n", gruResult)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		os.RemoveAll(repoPath)
+		return err
+	}
+
+	// Run docker & build image(s)
+	dockerManager := repo.NewDockerManager()
+	_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil)
+	if errors != nil {
+		for _, err := range errors {
+			msg := fmt.Sprintf("\U00002757 Building image(s) from repo '%s' ended with following error: %s\n", gruResult, err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+		}
+		os.RemoveAll(repoPath)
+		return err
+	}
+	for _, img := range images {
+		msg := fmt.Sprintf("\U00002705 Successfully built image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, gruResult)
+		fmt.Println(msg)
+		mm.lm.Log("debug", msg, "menu")
+	}
+	// TODO, define inputs/outputs
+	// TODO, add service
+	return nil
+}
+
+func (mm *MenuManager) addDockerServiceFromRepo() error {
+	// Pull existing Docker image
+	pediResult, err := mm.inputPromptHelper("Pre-built Docker image name to pull", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return err
+	}
+
+	// Validate docker image
+	dockerManager := repo.NewDockerManager()
+	cmdOut, err := dockerManager.ValidateImage(pediResult)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	// Pull image
+	_, images, errors := dockerManager.Run("", 0, true, pediResult, true, "", "", nil, nil, nil)
+	if errors != nil {
+		for _, err := range errors {
+			msg := fmt.Sprintf("\U00002757 Pulling image '%s' ended with following error: %s\n", pediResult, err.Error())
+			fmt.Println(msg)
+			mm.lm.Log("error", msg, "menu")
+		}
+		return err
+	}
+	for _, img := range images {
+		msg := fmt.Sprintf("\U00002705 Successfully pulled image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, pediResult)
+		fmt.Println(msg)
+		mm.lm.Log("debug", msg, "menu")
+	}
+
+	return nil
+}
+
+func (mm *MenuManager) setServiceActive(active bool) error {
+	// Get service Id
+	rnResult, err := mm.inputPromptHelper("Service Id", "", mm.vm.IsInt64, nil)
+	if err != nil {
+		return err
+	}
+
+	// Set service active or inactive
+	id, err := mm.tm.ToInt64(rnResult)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
+	if active {
+		err = mm.sm.SetActive(id)
+		if err != nil {
+			fmt.Printf("\U00002757 %s\n", err.Error())
+			mm.lm.Log("error", err.Error(), "menu")
+			return err
+		}
+		fmt.Printf("\U00002705 Service %s is set active\n", rnResult)
+	} else {
+		err = mm.sm.SetInactive(id)
+		if err != nil {
+			fmt.Printf("\U00002757 %s\n", err.Error())
+			mm.lm.Log("error", err.Error(), "menu")
+			return err
+		}
+		fmt.Printf("\U00002705 Service %s is set inactive\n", rnResult)
+	}
+
+	err = mm.listServices()
+
+	return err
+}
+
+func (mm *MenuManager) removeService() error {
+	// Get service Id
+	rnResult, err := mm.inputPromptHelper("Service Id", "", mm.vm.IsInt64, nil)
+	if err != nil {
+		return err
+	}
+
+	// Remove service
+	id, err := mm.tm.ToInt64(rnResult)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 Service Id is not valid int64: %s", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	err = mm.sm.Remove(id)
+	if err != nil {
+		msg := fmt.Sprintf("\U00002757 %s\n", err.Error())
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+	fmt.Printf("\U00002705 Service %s is removed\n", rnResult)
+
+	err = mm.listServices()
+
+	return err
 }
 
 func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error {
@@ -1728,16 +1430,11 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 
 	if len(services) >= int(limit) {
 		// Print "load more" prompt
-		lmPrompt := promptui.Prompt{
-			Label:     "Load more?",
-			IsConfirm: true,
-		}
-		lmResult, err := lmPrompt.Run()
-		if err != nil && strings.ToLower(lmResult) != "n" && strings.ToLower(lmResult) != "y" {
-			fmt.Printf("Prompt failed %v\n", err)
+		lmResult, err := mm.confirmPromptHelper("Load more")
+		if err != nil {
 			return err
 		}
-		if strings.ToLower(lmResult) == "y" {
+		if lmResult {
 			mm.printServices(sm, offset+limit, limit)
 		}
 	}
@@ -1747,6 +1444,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 
 func (mm *MenuManager) addServicePrice(id int64) error {
 	fmt.Println("Please add service resource price")
+
 	// Get resource
 	var rItems []string
 	rItemsMap := make(map[string]int64)
@@ -1759,30 +1457,19 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 		rItems = append(rItems, key)
 		rItemsMap[key] = resource.Id
 	}
-	rPrompt := promptui.Select{
-		Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Resource",
-		Items: rItems,
-	}
-	_, rResult, err := rPrompt.Run()
+
+	_, rResult, err := mm.selectPromptHelper(
+		"Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Resource",
+		rItems,
+		0, 10, nil)
 	if err != nil {
-		err = fmt.Errorf("prompt failed: %s", err.Error())
 		return err
 	}
 	r := rItemsMap[rResult]
 
 	// Get resource price
-	rpPrompt := promptui.Prompt{
-		Label:       "Service resource price",
-		Default:     "1.00",
-		Validate:    mm.vm.IsFloat64,
-		AllowEdit:   true,
-		HideEntered: false,
-		IsConfirm:   false,
-		IsVimMode:   false,
-	}
-	rpResult, err := rpPrompt.Run()
+	rpResult, err := mm.inputPromptHelper("Service resource price", "1.00", mm.vm.IsFloat64, nil)
 	if err != nil {
-		err = fmt.Errorf("\U00002757 Entering service resource price failed: %s", err.Error())
 		return err
 	}
 	rp, err := mm.tm.ToFloat64(rpResult)
@@ -1799,29 +1486,23 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 	for _, currency := range currencies {
 		cItems = append(cItems, currency.Symbol)
 	}
-	rscPrompt := promptui.Select{
-		Label: "Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Currency",
-		Items: cItems,
-	}
-	_, rscResult, err := rscPrompt.Run()
+	_, rscResult, err := mm.selectPromptHelper(
+		"Main \U000025B6 Configure node \U000025B6 Services \U000025B6 Add Service \U000025B6 Currency",
+		cItems,
+		0, 10, nil)
 	if err != nil {
-		err = fmt.Errorf("prompt failed: %s", err.Error())
 		return err
 	}
 
+	// Add price
 	mm.pm.Add(id, r, rp, rscResult)
 
 	// Add more resource prices prompt
-	srmPrompt := promptui.Prompt{
-		Label:     "Add more service resource prices?",
-		IsConfirm: true,
-	}
-	srmResult, err := srmPrompt.Run()
-	if err != nil && strings.ToLower(srmResult) != "n" && strings.ToLower(srmResult) != "y" {
-		mm.lm.Log("error", err.Error(), "menu")
+	srmResult, err := mm.confirmPromptHelper("Add more service resource prices")
+	if err != nil {
 		return err
 	}
-	if strings.ToLower(srmResult) == "y" {
+	if srmResult {
 		// Add another service price
 		return mm.addServicePrice(id)
 	}
@@ -1831,16 +1512,11 @@ func (mm *MenuManager) addServicePrice(id int64) error {
 
 func (mm *MenuManager) printServicePrice(id int64) error {
 	// Print free or paid service prompt
-	sfcPrompt := promptui.Prompt{
-		Label:     "Is this service free of charge",
-		IsConfirm: true,
-	}
-	sfcResult, err := sfcPrompt.Run()
-	if err != nil && strings.ToLower(sfcResult) != "n" && strings.ToLower(sfcResult) != "y" {
-		fmt.Printf("Prompt failed %v\n", err)
+	sfcResult, err := mm.confirmPromptHelper("Is this service free of charge")
+	if err != nil {
 		return err
 	}
-	if strings.ToLower(sfcResult) == "n" {
+	if !sfcResult {
 		// Add service price
 		err = mm.addServicePrice(id)
 		if err != nil {
