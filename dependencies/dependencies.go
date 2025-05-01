@@ -181,7 +181,21 @@ func installLinuxDependencies(missing []string) error {
 
 func initLinuxDependencies() error {
 	// Start docker
-	return exec.Command("sh", "-c", "sudo systemctl start docker").Run()
+	err := exec.Command("sh", "-c", "sudo systemctl start docker").Run()
+	if err != nil {
+		return err
+	}
+
+	// Docker API client version
+	maxApiVersion := patchDockerAPIVersion()
+
+	// Ask user to set it permanently in shell
+	if maxApiVersion != "" {
+		fmt.Println("⚠️ Please add the following to your shell profile:")
+		fmt.Printf("export DOCKER_API_VERSION=%s\n", maxApiVersion)
+	}
+
+	return nil
 }
 
 func installDarwinDependencies(missing []string) error {
@@ -242,7 +256,7 @@ func initDarwinDependencies() error {
 	fmt.Println("⚠️ Please add the following to your shell profile:")
 	fmt.Println(`export DOCKER_HOST="unix://$HOME/.colima/docker.sock"`)
 	if maxApiVersion != "" {
-		fmt.Printf(`export DOCKER_API_VERSION=%s\n`, maxApiVersion)
+		fmt.Printf("export DOCKER_API_VERSION=%s\n", maxApiVersion)
 	}
 
 	return nil
@@ -250,6 +264,7 @@ func initDarwinDependencies() error {
 
 func patchDockerAPIVersion() string {
 	var maxApiVersion string
+	os.Setenv("DOCKER_API_VERSION", "99.999")
 	cmd := exec.Command("docker", "ps")
 	output, err := cmd.CombinedOutput()
 	if err != nil && strings.Contains(strings.ToLower(string(output)), strings.ToLower("Maximum supported API version is")) {

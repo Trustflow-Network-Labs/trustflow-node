@@ -622,7 +622,6 @@ func (dm *DockerManager) Run(
 	}()
 
 	for _, svc := range project.Services {
-		fmt.Printf("svc.Name: %s, singleService: %s\n", svc.Name, singleService)
 		if singleService != "" && svc.Name != singleService {
 			continue
 		}
@@ -660,6 +659,10 @@ func (dm *DockerManager) Run(
 
 						images = append(images, image)
 					}
+				} else {
+					msg := fmt.Sprintf("Failed to pull image %s: %v", svc.Name, err)
+					dm.lm.Log("error", msg, "docker")
+					fmt.Println(msg)
 				}
 			} else {
 				// Run service
@@ -670,7 +673,9 @@ func (dm *DockerManager) Run(
 					mu.Unlock()
 				} else {
 					images = append(images, image)
-					dm.lm.Log("warn", fmt.Sprintf("Failed to start service %s: %v", svc.Name, err), "docker")
+					msg := fmt.Sprintf("Failed to start service %s: %v", svc.Name, err)
+					dm.lm.Log("warn", msg, "docker")
+					fmt.Println(msg)
 				}
 			}
 
