@@ -35,6 +35,12 @@ func installMissing(question string) bool {
 	return answer == "y" || answer == "yes"
 }
 
+func dockerSubcommandExists(subcmd string) bool {
+	cmd := exec.Command("docker", subcmd, "--help")
+	err := cmd.Run()
+	return err == nil
+}
+
 func CheckAndInstallDependencies() {
 	if CheckDependencies() {
 		// All good proceed
@@ -72,14 +78,14 @@ func CheckDependencies() bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		missing = append(missing, "Docker")
 	}
-	if _, err := exec.LookPath("docker-compose"); err != nil {
+	if !dockerSubcommandExists("compose") {
 		missing = append(missing, "Docker Compose")
 	}
-	if _, err := exec.LookPath("docker-buildx"); err != nil {
+	if !dockerSubcommandExists("buildx") {
 		missing = append(missing, "Docker Buildx")
 	}
 	if _, err := exec.LookPath("kubectl"); err != nil {
-		missing = append(missing, "Kubernets")
+		missing = append(missing, "Kubernetes")
 	}
 
 	switch runtime.GOOS {
@@ -115,12 +121,12 @@ func installDependencies(missing []string) bool {
 
 	switch runtime.GOOS {
 	case "linux":
-		err = checkLinuxDependencies(missing)
+		err = installLinuxDependencies(missing)
 	case "darwin":
-		err = checkDarwinDependencies(missing)
+		err = installDarwinDependencies(missing)
 		return err == nil
 	case "windows":
-		err = checkWindowsDependencies(missing)
+		err = installWindowsDependencies(missing)
 		return err == nil
 	default:
 		fmt.Println("Unsupported OS. Please install missing tools manually.")
@@ -134,7 +140,7 @@ func installDependencies(missing []string) bool {
 	return err == nil
 }
 
-func checkLinuxDependencies(missing []string) error {
+func installLinuxDependencies(missing []string) error {
 	fmt.Println("Detected Linux...")
 
 	if contains(missing, "Git") {
@@ -151,6 +157,24 @@ func checkLinuxDependencies(missing []string) error {
 		}
 		return err
 	}
+	if contains(missing, "Kubernetes") {
+		fmt.Println("Trying to install kubectl via Snap...")
+		err := exec.Command("sh", "-c", "sudo snap install kubectl --classic").Run()
+		if err != nil {
+			fmt.Printf("Snap install failed: %s\n", err.Error())
+			fmt.Println("Trying manual installation instead...")
+			// fallback to manual download
+			err = exec.Command("sh", "-c", `
+				curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" &&
+				chmod +x kubectl &&
+				sudo mv kubectl /usr/local/bin/
+			`).Run()
+			if err != nil {
+				fmt.Printf("Manual install failed: %s\n", err.Error())
+			}
+			return err
+		}
+	}
 
 	return nil
 }
@@ -160,7 +184,7 @@ func initLinuxDependencies() error {
 	return exec.Command("sh", "-c", "sudo systemctl start docker").Run()
 }
 
-func checkDarwinDependencies(missing []string) error {
+func installDarwinDependencies(missing []string) error {
 	fmt.Println("Detected macOS...")
 	if contains(missing, "Git") {
 		err := exec.Command("sh", "-c", "brew install git").Run()
@@ -170,8 +194,8 @@ func checkDarwinDependencies(missing []string) error {
 		return err
 	}
 	if contains(missing, "Docker") || contains(missing, "Colima") ||
-		contains(missing, "Docker Compose") || contains(missing, "Docker Buildx") || contains(missing, "Kubernets") {
-		fmt.Println("Installing Colima, Docker CLI tools, Kubernets, and plugins...")
+		contains(missing, "Docker Compose") || contains(missing, "Docker Buildx") || contains(missing, "Kubernetes") {
+		fmt.Println("Installing Colima, Docker CLI tools, Kubernetes, and plugins...")
 		commands := []string{
 			"brew install colima",
 			"brew install docker docker-compose docker-buildx",
@@ -243,7 +267,7 @@ func patchDockerAPIVersion() string {
 	return maxApiVersion
 }
 
-func checkWindowsDependencies(missing []string) error {
+func installWindowsDependencies(missing []string) error {
 	fmt.Println("Detected Windows...")
 	if contains(missing, "Git") {
 		err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://git-scm.com/download/win").Run()
