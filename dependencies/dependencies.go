@@ -197,16 +197,13 @@ func installLinuxDependencies(missing []string) error {
 }
 
 func initLinuxDependencies() error {
-	if isDockerRunningLinux() {
-		fmt.Println("✅ Docker is already running.")
-		return nil
-	}
-
-	// Start docker
-	fmt.Println("We will now try to start Docker on your system.")
-	err := exec.Command("sh", "-c", "sudo systemctl start docker").Run()
-	if err != nil {
-		return err
+	if !isDockerRunningLinux() {
+		// Start docker
+		fmt.Println("We will now try to start Docker on your system.")
+		err := exec.Command("sh", "-c", "sudo systemctl start docker").Run()
+		if err != nil {
+			return err
+		}
 	}
 
 	if isDockerRunningLinux() {
@@ -271,23 +268,21 @@ func installDarwinDependencies(missing []string) error {
 }
 
 func initDarwinDependencies() error {
-	if isColimaRunning() {
-		fmt.Println("✅ Colima (and Docker) already running.")
-		return nil
-	}
+	if !isColimaRunning() {
 
-	// Start docker
-	fmt.Println("Starting Colima")
-	commands := []string{
-		//		"colima start --with-kubernetes",
-		"colima start",
-	}
-	for _, cmd := range commands {
-		fmt.Printf("Executing: %s\n", cmd)
-		err := exec.Command("sh", "-c", cmd).Run()
-		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
-			return err
+		// Start docker
+		fmt.Println("Starting Colima")
+		commands := []string{
+			//		"colima start --with-kubernetes",
+			"colima start",
+		}
+		for _, cmd := range commands {
+			fmt.Printf("Executing: %s\n", cmd)
+			err := exec.Command("sh", "-c", cmd).Run()
+			if err != nil {
+				fmt.Printf("Error: %s\n", err.Error())
+				return err
+			}
 		}
 	}
 
@@ -307,6 +302,8 @@ func initDarwinDependencies() error {
 	if !isColimaRunning() {
 		return fmt.Errorf("colima did not start correctly")
 	}
+
+	fmt.Println("✅ Colima (and Docker) are running.")
 
 	return nil
 }

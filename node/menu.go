@@ -299,33 +299,31 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Collect job interfaces
-	var interfaces []node_types.Interface
-	var inputInterfaces []node_types.Interface
-	var outputInterfaces []node_types.Interface
+	var interfaces, inputInterfaces, outputInterfaces []node_types.Interface
 
-	// Input nodes
+	// Inputs
 	rinResult, err := mm.confirmPromptHelper("Does the job require inputs to run or execute")
 	if err != nil {
 		return err
 	}
 	if rinResult {
-		inputInterfaces, err = mm.jobInterfaces("INPUT", mm.p2pm.h.ID().String())
+		inputInterfaces, err = mm.serviceInterfaces("INPUT", mm.p2pm.h.ID().String())
 		if err != nil {
-			fmt.Printf("Collecting input interfaces faileed %v\n", err)
+			fmt.Printf("Collecting input interfaces failed %v\n", err)
 			return err
 		}
 		interfaces = append(interfaces, inputInterfaces...)
 	}
 
-	// Output nodes
+	// Outputs
 	routResult, err := mm.confirmPromptHelper("Does the job produce outputs")
 	if err != nil {
 		return err
 	}
 	if routResult {
-		outputInterfaces, err = mm.jobInterfaces("OUTPUT", mm.p2pm.h.ID().String())
+		outputInterfaces, err = mm.serviceInterfaces("OUTPUT", mm.p2pm.h.ID().String())
 		if err != nil {
-			fmt.Printf("Collecting output interfaces faileed %v\n", err)
+			fmt.Printf("Collecting output interfaces failed %v\n", err)
 			return err
 		}
 		interfaces = append(interfaces, outputInterfaces...)
@@ -397,7 +395,7 @@ func (mm *MenuManager) requestService() error {
 	return nil
 }
 
-func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
+func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
 	var interfaces []node_types.Interface
 
 	_, tyResult, err := mm.selectPromptHelper(
@@ -418,10 +416,16 @@ func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) 
 		return nil, err
 	}
 
+	dResult, err := mm.inputPromptHelper("Short description", "", mm.vm.NotEmpty, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	intrfce := node_types.Interface{
 		NodeId:              nidResult,
 		FunctionalInterface: functionalInterface,
 		InterfaceType:       tyResult,
+		Description:         dResult,
 		Path:                pthResult,
 	}
 
@@ -433,7 +437,7 @@ func (mm *MenuManager) jobInterfaces(functionalInterface string, nodeId string) 
 		return nil, err
 	}
 	if aaResult {
-		return mm.jobInterfaces(functionalInterface, nodeId)
+		return mm.serviceInterfaces(functionalInterface, nodeId)
 	}
 
 	return interfaces, nil
@@ -1117,7 +1121,7 @@ func (mm *MenuManager) addService() error {
 			return err
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
-		err := mm.addDockerService()
+		err := mm.addDockerService(snResult, sdResult, stResult, raResult)
 		if err != nil {
 			return err
 		}
@@ -1168,7 +1172,42 @@ func (mm *MenuManager) addDataService(name, description, stype string, active bo
 	return nil
 }
 
-func (mm *MenuManager) addDockerService() error {
+func (mm *MenuManager) addInterfaces(inMessage, outMessage string) ([]node_types.Interface, error) {
+	// Define inputs/outputs
+	var inputInterfaces, outputInterfaces, interfaces []node_types.Interface
+
+	// Inputs
+	rinResult, err := mm.confirmPromptHelper(inMessage)
+	if err != nil {
+		return nil, err
+	}
+	if rinResult {
+		inputInterfaces, err = mm.serviceInterfaces("INPUT", mm.p2pm.h.ID().String())
+		if err != nil {
+			fmt.Printf("Collecting input interfaces failed %v\n", err)
+			return nil, err
+		}
+		interfaces = append(interfaces, inputInterfaces...)
+	}
+
+	// Outputs
+	routResult, err := mm.confirmPromptHelper(outMessage)
+	if err != nil {
+		return nil, err
+	}
+	if routResult {
+		outputInterfaces, err = mm.serviceInterfaces("OUTPUT", mm.p2pm.h.ID().String())
+		if err != nil {
+			fmt.Printf("Collecting output interfaces failed %v\n", err)
+			return nil, err
+		}
+		interfaces = append(interfaces, outputInterfaces...)
+	}
+
+	return interfaces, nil
+}
+
+func (mm *MenuManager) addDockerService(name, description, stype string, active bool) error {
 	// Do we have docker image prepared or
 	// we will create it fron git repo?
 	deetResult, err := mm.confirmPromptHelper("Have a pre-built Docker image? Enter 'Y' and image name to pull. Else, enter 'N' and Git repo URL with Dockerfile or docker-compose.yml")
@@ -1176,13 +1215,13 @@ func (mm *MenuManager) addDockerService() error {
 		return err
 	}
 	if !deetResult {
-		return mm.addDockerServiceFromGit()
+		return mm.addDockerServiceFromGit(name, description, stype, active)
 	} else {
-		return mm.addDockerServiceFromRepo()
+		return mm.addDockerServiceFromRepo(name, description, stype, active)
 	}
 }
 
-func (mm *MenuManager) addDockerServiceFromGit() error {
+func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, active bool) error {
 	// Pull from git and compose Docker image
 	gruResult, err := mm.inputPromptHelper("Git repository URL", "", mm.vm.NotEmpty, nil)
 	if err != nil {
@@ -1271,17 +1310,58 @@ func (mm *MenuManager) addDockerServiceFromGit() error {
 		os.RemoveAll(repoPath)
 		return err
 	}
+
+	var imagesWithInterfaces []node_types.DockerImageWithInterfaces
 	for _, img := range images {
 		msg := fmt.Sprintf("\U00002705 Successfully built image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, gruResult)
 		fmt.Println(msg)
 		mm.lm.Log("debug", msg, "menu")
+
+		// Define inputs/outputs
+		interfaces, err := mm.addInterfaces(
+			"Does the service's image require inputs to run",
+			"Does the service's image produce outputs")
+		if err != nil {
+			return err
+		}
+
+		imageWithInterfaces := node_types.DockerImageWithInterfaces{
+			DockerImage: img,
+			Interfaces:  interfaces,
+		}
+
+		imagesWithInterfaces = append(imagesWithInterfaces, imageWithInterfaces)
 	}
-	// TODO, define inputs/outputs
-	// TODO, add service
+
+	// Add service
+	id, err := mm.sm.Add(name, description, stype, active)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+
+	// Add doker service
+	_, err = mm.sm.AddDocker(id, repoPath, gruResult, branch, username, token, dockerCheckResult, imagesWithInterfaces)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
+	}
+
+	// Print service pricing prompt
+	err = mm.printServicePrice(id)
+	if err != nil {
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
+	}
+
 	return nil
 }
 
-func (mm *MenuManager) addDockerServiceFromRepo() error {
+func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string, active bool) error {
 	// Pull existing Docker image
 	pediResult, err := mm.inputPromptHelper("Pre-built Docker image name to pull", "", mm.vm.NotEmpty, nil)
 	if err != nil {
@@ -1308,10 +1388,52 @@ func (mm *MenuManager) addDockerServiceFromRepo() error {
 		}
 		return err
 	}
+
+	var imagesWithInterfaces []node_types.DockerImageWithInterfaces
 	for _, img := range images {
 		msg := fmt.Sprintf("\U00002705 Successfully pulled image: %s (%s), tags: %v, digests: %v from repo %s\n", img.Name, img.Id, img.Tags, img.Digests, pediResult)
 		fmt.Println(msg)
 		mm.lm.Log("debug", msg, "menu")
+
+		// Define inputs/outputs
+		interfaces, err := mm.addInterfaces(
+			"Does the service's image require inputs to run",
+			"Does the service's image produce outputs")
+		if err != nil {
+			return err
+		}
+
+		imageWithInterfaces := node_types.DockerImageWithInterfaces{
+			DockerImage: img,
+			Interfaces:  interfaces,
+		}
+
+		imagesWithInterfaces = append(imagesWithInterfaces, imageWithInterfaces)
+	}
+
+	// Add service
+	id, err := mm.sm.Add(name, description, stype, active)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		return err
+	}
+
+	// Add doker service
+	_, err = mm.sm.AddDocker(id, "", "", "", "", "", repo.DockerFileCheckResult{}, imagesWithInterfaces)
+	if err != nil {
+		fmt.Printf("\U00002757 %s\n", err.Error())
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
+	}
+
+	// Print service pricing prompt
+	err = mm.printServicePrice(id)
+	if err != nil {
+		mm.lm.Log("error", err.Error(), "menu")
+		mm.sm.Remove(id)
+		return err
 	}
 
 	return nil

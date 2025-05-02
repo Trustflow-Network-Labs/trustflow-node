@@ -149,6 +149,7 @@ type Interface struct {
 	NodeId              string `json:"node_id"`
 	InterfaceType       string `json:"interface_type"`
 	FunctionalInterface string `json:"functional_interface"`
+	Description         string `json:"description"`
 	Path                string `json:"path"`
 }
 
@@ -302,4 +303,10 @@ type DockerImage struct {
 	Tags    []string  `json:"tags"`
 	Digests []string  `json:"digests"`
 	BuiltAt time.Time `json:"built_at"`
+}
+
+// Declare docker image with Interfaces type
+type DockerImageWithInterfaces struct {
+	DockerImage
+	Interfaces []Interface `json:"interfaces"`
 }

@@ -8,9 +8,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/price"
+	"github.com/adgsm/trustflow-node/repo"
 	"github.com/adgsm/trustflow-node/utils"
 )
 
@@ -209,7 +211,6 @@ func (sm *ServiceManager) Add(name string, description string, serviceType strin
 
 // Add a data service
 func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error) {
-	// Add data service
 	sm.lm.Log("debug", fmt.Sprintf("add data service path(s) %s to service ID %d", pathss, serviceId), "services")
 
 	configManager := utils.NewConfigManager("")
@@ -273,6 +274,113 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 	}
 
 	return id, nil
+}
+
+// Add a docker git repo
+func (sm *ServiceManager) AddDocker(
+	serviceId int64,
+	repo string,
+	remote string,
+	branch string,
+	username string,
+	token string,
+	dockerCheck repo.DockerFileCheckResult,
+	imagesWithInterfaces []node_types.DockerImageWithInterfaces) (int64, error) {
+	sm.lm.Log("debug", fmt.Sprintf("add docker service details for `%s` to service ID %d", remote, serviceId), "services")
+
+	var dockerFiles, dockerComposes string
+
+	// Do we have docker files
+	if dockerCheck.HasDockerfile {
+		dockerFiles = strings.Join(dockerCheck.Dockerfiles, ",")
+	}
+
+	// Do we have docker compose files
+	if dockerCheck.HasCompose {
+		dockerComposes = strings.Join(dockerCheck.Composes, ",")
+	}
+
+	result, err := sm.db.ExecContext(
+		context.Background(),
+		"insert into docker_service_details (service_id, repo, remote, branch, username, token, repo_docker_files, repo_docker_composes) values (?, ?, ?, ?, ?, ?, ?, ?);",
+		serviceId, repo, remote, branch, username, token, dockerFiles, dockerComposes)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		return 0, err
+	}
+
+	err = sm.addDockerImages(id, imagesWithInterfaces)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("error", msg, "services")
+		// TODO
+		//sm.removeDocker(id)
+		return 0, err
+	}
+
+	return id, nil
+}
+
+// Add a docker images
+func (sm *ServiceManager) addDockerImages(
+	dockerServiceId int64,
+	imagesWithInterfaces []node_types.DockerImageWithInterfaces) error {
+	sm.lm.Log("debug", fmt.Sprintf("add docker service images to docker service ID %d", dockerServiceId), "services")
+
+	for _, imageWithInterfaces := range imagesWithInterfaces {
+		tags := strings.Join(imageWithInterfaces.Tags, ",")
+		digests := strings.Join(imageWithInterfaces.Digests, ",")
+		timestamp := imageWithInterfaces.BuiltAt.Format(time.RFC3339)
+		result, err := sm.db.ExecContext(
+			context.Background(),
+			"insert into docker_service_images (service_details_id, image_id, image_name, image_tags, image_digests, timestamp) values (?, ?, ?, ?, ?, ?);",
+			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, tags, digests, timestamp)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return err
+		}
+
+		id, err := result.LastInsertId()
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return err
+		}
+
+		sm.addDockerImageInterfaces(id, imageWithInterfaces.Interfaces)
+	}
+
+	return nil
+}
+
+// Add a docker image interfaces
+func (sm *ServiceManager) addDockerImageInterfaces(
+	dockerImageId int64,
+	interfaces []node_types.Interface) error {
+	sm.lm.Log("debug", fmt.Sprintf("add docker image interfaces to docker image ID %d", dockerImageId), "services")
+
+	for _, intfce := range interfaces {
+		_, err := sm.db.ExecContext(
+			context.Background(),
+			"insert into docker_service_image_interfaces (service_image_id, interface_type, functional_interface, description, path) values (?, ?, ?, ?, ?);",
+			dockerImageId, intfce.InterfaceType, intfce.FunctionalInterface, intfce.Description, intfce.Path)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Remove service
@@ -366,8 +474,8 @@ func (sm *ServiceManager) removeData(id int64) error {
 	}
 
 	// Split comma separated paths
-	paths := strings.Split(data.Path, ",")
-	for _, path := range paths {
+	paths := strings.SplitSeq(data.Path, ",")
+	for path := range paths {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue

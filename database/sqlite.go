@@ -184,6 +184,10 @@ CREATE TABLE IF NOT EXISTS docker_service_details (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"repo" TEXT DEFAULT '',
+	"remote" TEXT DEFAULT '',
+	"branch" TEXT DEFAULT '',
+	"username" TEXT DEFAULT '',
+	"token" TEXT DEFAULT '',
 	"repo_docker_files" TEXT DEFAULT '',
 	"repo_docker_composes" TEXT DEFAULT '',
 	FOREIGN KEY("service_id") REFERENCES services("id")
@@ -205,6 +209,7 @@ CREATE TABLE IF NOT EXISTS docker_service_images (
 	"image_name" TEXT NOT NULL,
 	"image_tags" TEXT DEFAULT '',
 	"image_digests" TEXT DEFAULT '',
+	"timestamp" TEXT NOT NULL,
 	FOREIGN KEY("service_details_id") REFERENCES docker_service_details("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docker_service_images_id_idx ON docker_service_images ("id");
