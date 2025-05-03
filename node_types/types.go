@@ -87,6 +87,10 @@ type DockerService struct {
 	Id                 int64                `json:"id"`
 	ServiceId          int64                `json:"service_id"`
 	Repo               string               `json:"repo"`
+	Remote             string               `json:"remote"`
+	Branch             string               `json:"branch"`
+	Username           string               `json:"username"`
+	Token              string               `json:"token"`
 	RepoDockerFiles    []string             `json:"repo_docker_files"`
 	RepoDockerComposes []string             `json:"repo_docker_composes"`
 	Images             []DockerServiceImage `json:"images"`
@@ -100,6 +104,7 @@ type DockerServiceImage struct {
 	ImageName        string                        `json:"image_name"`
 	ImageTags        []string                      `json:"image_tags"`
 	ImageDigests     []string                      `json:"image_digests"`
+	Timestamp        time.Time                     `json:"timestamp"`
 	Intefaces        []DockerServiceImageInterface `json:"interfaces"`
 }
 

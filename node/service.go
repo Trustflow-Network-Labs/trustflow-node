@@ -96,6 +96,99 @@ func (sm *ServiceManager) GetData(serviceId int64) (node_types.DataService, erro
 	return dataService, nil
 }
 
+// Get Docker Service
+func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, error) {
+	var dockerService node_types.DockerService
+	var dockerServiceImages []node_types.DockerServiceImage
+	var dockerServiceImageInterfaces []node_types.DockerServiceImageInterface
+	var dockerFiles, dockerComposes string
+
+	if serviceId <= 0 {
+		msg := "invalid service id"
+		sm.lm.Log("error", msg, "servics")
+		return dockerService, errors.New(msg)
+	}
+
+	// Get docker service
+	row := sm.db.QueryRowContext(
+		context.Background(),
+		"select id, service_id, repo, remote, branch, username, token, repo_docker_files, repo_docker_composes from docker_service_details where service_id = ?;",
+		serviceId)
+
+	err := row.Scan(&dockerService.Id, &dockerService.ServiceId, &dockerService.Repo,
+		&dockerService.Remote, &dockerService.Branch, &dockerService.Username, &dockerService.Token,
+		&dockerFiles, &dockerComposes)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("debug", msg, "servics")
+		return dockerService, err
+	}
+
+	dockerService.RepoDockerFiles = strings.Split(dockerFiles, ",")
+	dockerService.RepoDockerComposes = strings.Split(dockerComposes, ",")
+
+	// Get docker service images with interfaces
+	rows, err := sm.db.QueryContext(
+		context.Background(),
+		"select id, service_details_id, image_id, image_name, image_tags, image_digests, timestamp where service_details_id = ?;",
+		dockerService.Id)
+	if err != nil {
+		msg := err.Error()
+		sm.lm.Log("debug", msg, "servics")
+		return dockerService, err
+	}
+	for rows.Next() {
+		var dockerServiceImage node_types.DockerServiceImage
+		var tmstmp string
+		err = rows.Scan(&dockerServiceImage.Id, &dockerServiceImage.ServiceDetailsId,
+			&dockerServiceImage.ImageId, &dockerServiceImage.ImageName,
+			&dockerServiceImage.ImageTags, &dockerServiceImage.ImageDigests, &tmstmp)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return dockerService, err
+		}
+		dockerServiceImage.Timestamp, err = time.Parse(time.RFC3339, tmstmp)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return dockerService, err
+		}
+		dockerServiceImages = append(dockerServiceImages, dockerServiceImage)
+	}
+	rows.Close()
+
+	for i, dockerServiceImage := range dockerServiceImages {
+		// Get docker service images with interfaces
+		rows, err := sm.db.QueryContext(
+			context.Background(),
+			"select id, service_image_id, interface_type, functional_interface, description, path where service_image_id = ?;",
+			dockerServiceImage.Id)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("debug", msg, "servics")
+			return dockerService, err
+		}
+		for rows.Next() {
+			var dockerServiceImageInterface node_types.DockerServiceImageInterface
+			err = rows.Scan(&dockerServiceImageInterface.Id, &dockerServiceImageInterface.ServiceImageId,
+				&dockerServiceImageInterface.InterfaceType, &dockerServiceImageInterface.FunctionalInterface,
+				&dockerServiceImageInterface.Description, &dockerServiceImageInterface.Path)
+			if err != nil {
+				msg := err.Error()
+				sm.lm.Log("error", msg, "services")
+				return dockerService, err
+			}
+			dockerServiceImageInterfaces = append(dockerServiceImageInterfaces, dockerServiceImageInterface)
+		}
+		dockerServiceImages[i].Intefaces = dockerServiceImageInterfaces
+		rows.Close()
+	}
+	dockerService.Images = dockerServiceImages
+
+	return dockerService, nil
+}
+
 // Get Services by node ID
 func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Service, error) {
 	var service node_types.Service
