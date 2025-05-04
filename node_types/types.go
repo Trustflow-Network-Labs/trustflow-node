@@ -151,7 +151,7 @@ type ServiceResourcesWithPricing struct {
 
 // Declare interface base struct
 type Interface struct {
-	NodeId              string `json:"node_id"`
+	//	NodeId              string `json:"node_id"`
 	InterfaceType       string `json:"interface_type"`
 	FunctionalInterface string `json:"functional_interface"`
 	Description         string `json:"description"`
@@ -234,8 +234,9 @@ type JobSql struct {
 
 // Declare job interfaces base struct
 type JobInterface struct {
-	InterfaceId int64 `json:"interface_id"`
-	JobId       int64 `json:"job_id"`
+	InterfaceId int64  `json:"interface_id"`
+	JobId       int64  `json:"job_id"`
+	NodeId      string `json:"node_id"`
 	Interface
 }
 

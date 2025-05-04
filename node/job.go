@@ -348,7 +348,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 
 	for _, intface := range serviceRequest.Interfaces {
 		result, err = jm.db.ExecContext(context.Background(), "insert into job_interfaces (job_id, node_id, interface_type, functional_interface, path) values (?, ?, ?, ?, ?);",
-			id, intface.NodeId, intface.InterfaceType, intface.FunctionalInterface, intface.Path)
+			id, serviceRequest.NodeId, intface.InterfaceType, intface.FunctionalInterface, intface.Path)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")

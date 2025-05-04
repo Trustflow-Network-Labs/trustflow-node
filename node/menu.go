@@ -411,18 +411,12 @@ func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId stri
 		return nil, err
 	}
 
-	nidResult, err := mm.inputPromptHelper("Node ID", "", mm.p2pm.IsValidPeerId, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	dResult, err := mm.inputPromptHelper("Short description", "", mm.vm.NotEmpty, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	intrfce := node_types.Interface{
-		NodeId:              nidResult,
 		FunctionalInterface: functionalInterface,
 		InterfaceType:       tyResult,
 		Description:         dResult,
