@@ -412,22 +412,30 @@ func (dm *DockerManager) runService(
 		if image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
 			return "", image, err
 		}
-	} else {
-		// Pull the image if build is not defined
+	}
+
+	// Check do we have image ready
+	exists, err := dm.imageExistsLocally(cli, svc.Image)
+	if err != nil {
+		return "", image, err
+	}
+	if !exists {
 		if err := dm.pullImage(cli, svc.Image); err != nil {
 			return "", image, fmt.Errorf("failed to pull image %s: %w", svc.Image, err)
 		}
+	}
 
-		// Inspect and attach metadata
-		if meta, err := dm.imageMetadata(cli, svc.Image); err == nil {
-			image = node_types.DockerImage{
-				Id:      meta.ID,
-				Name:    svc.Image,
-				Tags:    meta.RepoTags,
-				Digests: meta.RepoDigests,
-				BuiltAt: time.Now(), // Not really built, but we use it for consistency
-			}
-		}
+	// Inspect and attach metadata
+	meta, err := dm.imageMetadata(cli, svc.Image)
+	if err != nil {
+		return "", image, err
+	}
+	image = node_types.DockerImage{
+		Id:      meta.ID,
+		Name:    svc.Image,
+		Tags:    meta.RepoTags,
+		Digests: meta.RepoDigests,
+		BuiltAt: time.Now(), // Not really built, but we use it for consistency
 	}
 
 	hostConfig := &container.HostConfig{Binds: []string{}}
@@ -506,7 +514,7 @@ func (dm *DockerManager) runService(
 			_ = attachResp.CloseWrite()
 		}()
 	}
-	//	if output != nil {
+
 	wgIO.Add(1)
 	go func() {
 		defer wgIO.Done()
@@ -664,8 +672,9 @@ func (dm *DockerManager) Run(
 			var err error
 			var image node_types.DockerImage
 
-			if buildOnly && svc.Build != nil {
-				// Build from docker / compose
+			switch {
+			case buildOnly && svc.Build != nil:
+				// Build image from Dockerfile / Compose
 				dockerfile := svc.Build.Dockerfile
 				if dockerfile == "" {
 					dockerfile = "Dockerfile"
@@ -674,12 +683,11 @@ func (dm *DockerManager) Run(
 				if err == nil {
 					images = append(images, image)
 				}
-			} else if buildOnly && svc.Build == nil {
-				// Pull image
+			case buildOnly && svc.Build == nil:
+				// Pull image only
 				if err := dm.pullImage(cli, svc.Image); err == nil {
-
-					img, err := dm.imageMetadata(cli, singleService)
-					if err == nil {
+					img, ierr := dm.imageMetadata(cli, singleService)
+					if ierr == nil {
 						image := node_types.DockerImage{
 							Id:      img.ID,
 							Name:    singleService,
@@ -687,7 +695,6 @@ func (dm *DockerManager) Run(
 							Digests: img.RepoDigests,
 							BuiltAt: time.Now(),
 						}
-
 						images = append(images, image)
 					}
 				} else {
@@ -695,19 +702,36 @@ func (dm *DockerManager) Run(
 					dm.lm.Log("error", msg, "docker")
 					fmt.Println(msg)
 				}
-			} else {
-				// Run service
+			default:
+				// Pull image if not built or missing locally
+				exists, err := dm.imageExistsLocally(cli, svc.Image)
+				if err != nil {
+					msg := fmt.Sprintf("Failed to locate image %s in local repo: %v", svc.Name, err)
+					dm.lm.Log("error", msg, "docker")
+					fmt.Println(msg)
+					return
+				}
+				if svc.Build == nil && !exists {
+					if err := dm.pullImage(cli, svc.Image); err != nil {
+						errsMu.Lock()
+						errors = append(errors, fmt.Errorf("failed to pull image %s: %w", svc.Image, err))
+						errsMu.Unlock()
+						return
+					}
+				}
+
+				// Run container
 				id, image, err = dm.runService(jobId, cli, svc, input, output, mounts)
 				if err == nil {
 					mu.Lock()
 					started = append(started, id)
 					mu.Unlock()
 				} else {
-					images = append(images, image)
 					msg := fmt.Sprintf("Failed to start service %s: %v", svc.Name, err)
 					dm.lm.Log("warn", msg, "docker")
 					fmt.Println(msg)
 				}
+				images = append(images, image)
 			}
 
 			if err != nil {
