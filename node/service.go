@@ -19,6 +19,7 @@ import (
 type ServiceManager struct {
 	db   *sql.DB
 	lm   *utils.LogsManager
+	dm   *repo.DockerManager
 	p2pm *P2PManager
 }
 
@@ -26,6 +27,7 @@ func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		db:   p2pm.db,
 		lm:   utils.NewLogsManager(),
+		dm:   repo.NewDockerManager(),
 		p2pm: p2pm,
 	}
 }
@@ -101,7 +103,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 	var dockerService node_types.DockerService
 	var dockerServiceImages []node_types.DockerServiceImage
 	var dockerServiceImageInterfaces []node_types.DockerServiceImageInterface
-	var dockerFiles, dockerComposes string
+	var dockerFiles, dockerComposes, tags, digests string
 
 	if serviceId <= 0 {
 		msg := "invalid service id"
@@ -130,7 +132,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 	// Get docker service images with interfaces
 	rows, err := sm.db.QueryContext(
 		context.Background(),
-		"select id, service_details_id, image_id, image_name, image_tags, image_digests, timestamp where service_details_id = ?;",
+		"select id, service_details_id, image_id, image_name, image_tags, image_digests, timestamp from docker_service_images where service_details_id = ?;",
 		dockerService.Id)
 	if err != nil {
 		msg := err.Error()
@@ -142,12 +144,14 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		var tmstmp string
 		err = rows.Scan(&dockerServiceImage.Id, &dockerServiceImage.ServiceDetailsId,
 			&dockerServiceImage.ImageId, &dockerServiceImage.ImageName,
-			&dockerServiceImage.ImageTags, &dockerServiceImage.ImageDigests, &tmstmp)
+			&tags, &digests, &tmstmp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
 			return dockerService, err
 		}
+		dockerServiceImage.ImageTags = strings.Split(tags, ",")
+		dockerServiceImage.ImageDigests = strings.Split(digests, ",")
 		dockerServiceImage.Timestamp, err = time.Parse(time.RFC3339, tmstmp)
 		if err != nil {
 			msg := err.Error()
@@ -162,7 +166,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		// Get docker service images with interfaces
 		rows, err := sm.db.QueryContext(
 			context.Background(),
-			"select id, service_image_id, interface_type, functional_interface, description, path where service_image_id = ?;",
+			"select id, service_image_id, interface_type, functional_interface, description, path from docker_service_image_interfaces where service_image_id = ?;",
 			dockerServiceImage.Id)
 		if err != nil {
 			msg := err.Error()
@@ -524,16 +528,15 @@ func (sm *ServiceManager) Remove(id int64) error {
 
 	switch service.Type {
 	case "DATA":
-		data, err := sm.GetData(id)
+		err = sm.removeData(id)
 		if err != nil {
 			sm.lm.Log("error", err.Error(), "services")
-		} else {
-			err = sm.removeData(data.Id)
-			if err != nil {
-				sm.lm.Log("error", err.Error(), "services")
-			}
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
+		err = sm.removeDocker(id)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "services")
+		}
 	case "STANDALONE EXECUTABLE":
 	}
 
@@ -593,12 +596,73 @@ func (sm *ServiceManager) removeData(id int64) error {
 			}
 		}
 	}
+	/*
+		_, err = sm.db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)
+		if err != nil {
+			msg := err.Error()
+			sm.lm.Log("error", msg, "services")
+			return err
+		}
+	*/
+	return nil
+}
 
-	_, err = sm.db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)
+// Remove docker service
+func (sm *ServiceManager) removeDocker(id int64) error {
+	// Remove docker service
+	sm.lm.Log("debug", fmt.Sprintf("removing docker service %d", id), "services")
+
+	// Get docker service
+	docker, err := sm.GetDocker(id)
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("error", msg, "services")
+		sm.lm.Log("error", err.Error(), "services")
 		return err
+	}
+
+	// Check if same git repo is used by other services
+	var no int64 = 0
+	row := sm.db.QueryRowContext(
+		context.Background(),
+		"select count(id) from docker_service_details where repo = ? and remote = ?;",
+		docker.Repo, docker.Remote)
+
+	err = row.Scan(&no)
+	if err != nil {
+		sm.lm.Log("error", err.Error(), "servics")
+		return err
+	}
+
+	if no == 1 {
+		// Delete the local repo only if this is the only service using the repo
+		err = os.RemoveAll(docker.Repo)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "services")
+			return err
+		}
+	}
+
+	// Check if same docker image is used by other services
+	for _, image := range docker.Images {
+		no = 0
+		row = sm.db.QueryRowContext(
+			context.Background(),
+			"select count(id) from docker_service_images where image_id = ?;",
+			image.ImageId)
+
+		err = row.Scan(&no)
+		if err != nil {
+			sm.lm.Log("error", err.Error(), "servics")
+			return err
+		}
+
+		if no == 1 {
+			// Remove the image only if this is the only service using it
+			err := sm.dm.RemoveImage(image.ImageId, true)
+			if err != nil {
+				sm.lm.Log("error", err.Error(), "servics")
+				return err
+			}
+		}
 	}
 
 	return nil

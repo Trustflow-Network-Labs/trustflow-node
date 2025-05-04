@@ -37,13 +37,23 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 	}
 
 	// Init db connection
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", config["database_file"]))
+	db, err := sql.Open("sqlite",
+		fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1",
+			config["database_file"]))
 	if err != nil {
 		message := fmt.Sprintf("Can not create database connection. (%s)", err.Error())
 		logsManager.Log("error", message, "database")
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+
+	// Explicitly enable foreign key enforcement
+	_, err = db.Exec("PRAGMA foreign_keys = ON;")
+	if err != nil {
+		message := fmt.Sprintf("Failed to enable foreign keys: %s", err.Error())
+		logsManager.Log("error", message, "database")
+		return nil, err
+	}
 
 	if newDB {
 		// Create DB structure if it's not existing
@@ -168,7 +178,7 @@ CREATE TABLE IF NOT EXISTS data_service_details (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"path" TEXT NOT NULL,
-	FOREIGN KEY("service_id") REFERENCES services("id")
+	FOREIGN KEY("service_id") REFERENCES services("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS data_service_details_id_idx ON data_service_details ("id");
 `
@@ -190,7 +200,7 @@ CREATE TABLE IF NOT EXISTS docker_service_details (
 	"token" TEXT DEFAULT '',
 	"repo_docker_files" TEXT DEFAULT '',
 	"repo_docker_composes" TEXT DEFAULT '',
-	FOREIGN KEY("service_id") REFERENCES services("id")
+	FOREIGN KEY("service_id") REFERENCES services("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docker_service_details_id_idx ON docker_service_details ("id");
 `
@@ -210,7 +220,7 @@ CREATE TABLE IF NOT EXISTS docker_service_images (
 	"image_tags" TEXT DEFAULT '',
 	"image_digests" TEXT DEFAULT '',
 	"timestamp" TEXT NOT NULL,
-	FOREIGN KEY("service_details_id") REFERENCES docker_service_details("id")
+	FOREIGN KEY("service_details_id") REFERENCES docker_service_details("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docker_service_images_id_idx ON docker_service_images ("id");
 `
@@ -229,7 +239,7 @@ CREATE TABLE IF NOT EXISTS docker_service_image_interfaces (
 	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
 	"description" TEXT NOT NULL,
 	"path" TEXT DEFAULT '',
-	FOREIGN KEY("service_image_id") REFERENCES docker_service_images("id")
+	FOREIGN KEY("service_image_id") REFERENCES docker_service_images("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS docker_service_image_interfaces_id_idx ON docker_service_image_interfaces ("id");
 `
@@ -245,7 +255,7 @@ CREATE TABLE IF NOT EXISTS executable_service_details (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_id" INTEGER NOT NULL,
 	"path" TEXT NOT NULL,
-	FOREIGN KEY("service_id") REFERENCES services("id")
+	FOREIGN KEY("service_id") REFERENCES services("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS executable_service_details_id_idx ON executable_service_details ("id");
 `
@@ -263,9 +273,9 @@ CREATE TABLE IF NOT EXISTS prices (
 	"resource_id" INTEGER NOT NULL,
 	"price" DOUBLE PRECISION DEFAULT 0.0,
 	"currency_symbol" VARCHAR(255) NOT NULL,
-	FOREIGN KEY("resource_id") REFERENCES resources("id"),
-	FOREIGN KEY("service_id") REFERENCES services("id"),
-	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol")
+	FOREIGN KEY("resource_id") REFERENCES resources("id") ON DELETE CASCADE,
+	FOREIGN KEY("service_id") REFERENCES services("id") ON DELETE CASCADE,
+	FOREIGN KEY("currency_symbol") REFERENCES currencies("symbol") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS prices_id_idx ON prices ("id");
 `
@@ -306,7 +316,7 @@ CREATE TABLE IF NOT EXISTS job_interfaces (
 	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('FILE STREAM', 'MOUNTED FILE SYSTEM', 'STDIN/STDOUT') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
 	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
 	"path" TEXT DEFAULT '',
-	FOREIGN KEY("job_id") REFERENCES jobs("id")
+	FOREIGN KEY("job_id") REFERENCES jobs("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS job_interfaces_id_idx ON job_interfaces ("id");
 `

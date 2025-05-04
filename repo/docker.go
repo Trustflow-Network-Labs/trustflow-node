@@ -319,6 +319,37 @@ func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, d
 	return dockerImage, err
 }
 
+func (dm *DockerManager) RemoveImage(imageName string, force bool) error {
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		dm.lm.Log("error", fmt.Sprintf("Docker client error: %v", err), "docker")
+		return err
+	}
+	ctx := context.Background()
+
+	dm.lm.Log("info", fmt.Sprintf("Removing image %s (force=%v)...", imageName, force), "docker")
+
+	options := image.RemoveOptions{
+		Force:         force,
+		PruneChildren: true,
+	}
+	removedImages, err := cli.ImageRemove(ctx, imageName, options)
+	if err != nil {
+		return fmt.Errorf("failed to remove image %s: %w", imageName, err)
+	}
+
+	for _, img := range removedImages {
+		if img.Deleted != "" {
+			dm.lm.Log("info", fmt.Sprintf("Deleted image: %s", img.Deleted), "docker")
+		}
+		if img.Untagged != "" {
+			dm.lm.Log("info", fmt.Sprintf("Untagged image: %s", img.Untagged), "docker")
+		}
+	}
+
+	return nil
+}
+
 func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceConfig {
 	var services []composetypes.ServiceConfig
 

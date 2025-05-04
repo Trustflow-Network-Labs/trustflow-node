@@ -100,7 +100,7 @@ type DockerService struct {
 type DockerServiceImage struct {
 	Id               int64                         `json:"id"`
 	ServiceDetailsId int64                         `json:"service_details_id"`
-	ImageId          int64                         `json:"image_id"`
+	ImageId          string                        `json:"image_id"`
 	ImageName        string                        `json:"image_name"`
 	ImageTags        []string                      `json:"image_tags"`
 	ImageDigests     []string                      `json:"image_digests"`
