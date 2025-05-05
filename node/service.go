@@ -596,14 +596,7 @@ func (sm *ServiceManager) removeData(id int64) error {
 			}
 		}
 	}
-	/*
-		_, err = sm.db.ExecContext(context.Background(), "delete from data_service_details where id = ?;", id)
-		if err != nil {
-			msg := err.Error()
-			sm.lm.Log("error", msg, "services")
-			return err
-		}
-	*/
+
 	return nil
 }
 
@@ -830,7 +823,6 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 		sm.lm.Log("error", msg, "services")
 		return nil, err
 	}
-	//	defer rows.Close()
 
 	for rows.Next() {
 		var serviceOffer node_types.ServiceOffer
@@ -847,6 +839,15 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	rows.Close()
 
 	for i := range services {
+		if services[i].Type == "DOCKER EXECUTION ENVIRONMENT" {
+			ds, _ := sm.GetDocker(services[i].Id)
+			for _, image := range ds.Images {
+				for _, dintfce := range image.Intefaces {
+					services[i].Interfaces = append(services[i].Interfaces, dintfce.Interface)
+				}
+			}
+		}
+
 		// Query service resources with prices
 		sql = fmt.Sprintf(`SELECT r.resource_group, r.resource, r.resource_unit, r.description, p.price, c.currency, c.symbol
 			FROM prices p

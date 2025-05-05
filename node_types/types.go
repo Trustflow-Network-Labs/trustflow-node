@@ -1,6 +1,8 @@
 package node_types
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -110,12 +112,9 @@ type DockerServiceImage struct {
 
 // Declare docker image type
 type DockerServiceImageInterface struct {
-	Id                  int64  `json:"id"`
-	ServiceImageId      int64  `json:"service_image_id"`
-	InterfaceType       string `json:"interface_type"`
-	FunctionalInterface string `json:"functional_interface"`
-	Description         string `json:"description"`
-	Path                string `json:"path"`
+	Id             int64 `json:"id"`
+	ServiceImageId int64 `json:"service_image_id"`
+	Interface
 }
 
 // Declare executable service type
@@ -151,7 +150,6 @@ type ServiceResourcesWithPricing struct {
 
 // Declare interface base struct
 type Interface struct {
-	//	NodeId              string `json:"node_id"`
 	InterfaceType       string `json:"interface_type"`
 	FunctionalInterface string `json:"functional_interface"`
 	Description         string `json:"description"`
@@ -160,12 +158,18 @@ type Interface struct {
 
 // Declare service request type
 type ServiceRequest struct {
-	NodeId                    string      `json:"node_id"`
-	WorkflowId                int64       `json:"workflow_id"`
-	ServiceId                 int64       `json:"service_id"`
-	Interfaces                []Interface `json:"interfaces"`
-	ExecutionConstraint       string      `json:"execution_constraint"`
-	ExecutionConstraintDetail string      `json:"execution_constraint_detail"`
+	NodeId                    string                    `json:"node_id"`
+	WorkflowId                int64                     `json:"workflow_id"`
+	ServiceId                 int64                     `json:"service_id"`
+	Interfaces                []ServiceRequestInterface `json:"interfaces"`
+	ExecutionConstraint       string                    `json:"execution_constraint"`
+	ExecutionConstraintDetail string                    `json:"execution_constraint_detail"`
+}
+
+// Declare service request interface
+type ServiceRequestInterface struct {
+	NodeId string `json:"node_id"`
+	Interface
 }
 
 // Declare response type for a service request
@@ -179,13 +183,41 @@ type ServiceResponse struct {
 
 // Declare service offer type
 type ServiceOffer struct {
-	Id                int64                         `json:"id"`
-	Name              string                        `json:"name"`
-	Description       string                        `json:"description"`
+	Service
 	NodeId            string                        `json:"node_id"`
-	Type              string                        `json:"type"`
-	Active            bool                          `json:"active"`
+	Interfaces        []Interface                   `json:"interfaces"`
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
+	LastSeen          time.Time                     `json:"last_seen"`
+}
+
+type ServiceOffersCache struct {
+	sync.Mutex
+	ServiceOffers map[string]ServiceOffer // key = PeerID + "-" + ServiceId
+}
+
+func NewServiceOffersCache() *ServiceOffersCache {
+	return &ServiceOffersCache{
+		ServiceOffers: make(map[string]ServiceOffer),
+	}
+}
+
+func (sc *ServiceOffersCache) AddOrUpdate(serviceOffer ServiceOffer) {
+	sc.Lock()
+	defer sc.Unlock()
+	key := fmt.Sprintf("%s-%d", serviceOffer.NodeId, serviceOffer.Id)
+	serviceOffer.LastSeen = time.Now()
+	sc.ServiceOffers[key] = serviceOffer
+}
+
+func (sc *ServiceOffersCache) PruneExpired(ttl time.Duration) {
+	sc.Lock()
+	defer sc.Unlock()
+	now := time.Now()
+	for key, service := range sc.ServiceOffers {
+		if now.Sub(service.LastSeen) > ttl {
+			delete(sc.ServiceOffers, key)
+		}
+	}
 }
 
 // Declare workflow struct
@@ -234,10 +266,13 @@ type JobSql struct {
 
 // Declare job interfaces base struct
 type JobInterface struct {
-	InterfaceId int64  `json:"interface_id"`
-	JobId       int64  `json:"job_id"`
-	NodeId      string `json:"node_id"`
-	Interface
+	InterfaceId int64 `json:"interface_id"`
+	JobId       int64 `json:"job_id"`
+	ServiceRequestInterface
+	/*
+	   NodeId      string `json:"node_id"`
+	   Interface
+	*/
 }
 
 const timeLayout = time.RFC3339

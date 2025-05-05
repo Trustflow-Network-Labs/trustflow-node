@@ -253,11 +253,139 @@ func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
 	}
 	defer reader.Close()
 
+	// Save image logs
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return err
+	}
+
+	err = dm.processDockerPullOutput(reader, imageName, configs)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName string, configs map[string]string) error {
+	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "pull.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return err
+	}
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	// MultiWriter to log everything
+	mw := io.MultiWriter(logFile)
+
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
-		dm.lm.Log("info", fmt.Sprintf("Pulling %s: %s", imageName, scanner.Text()), "docker")
+		line := scanner.Bytes()
+
+		// Write raw line to log file
+		_, _ = mw.Write(append(line, '\n'))
+
+		// Parse JSON
+		var msg map[string]any
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue // skip non-JSON lines
+		}
+
+		id := fmt.Sprintf("%v", msg["id"])
+		status := fmt.Sprintf("%v", msg["status"])
+		progress := fmt.Sprintf("%v", msg["progress"])
+
+		// Extract human-readable byte progress from "progress"
+		fmt.Println("id:", id)
+		fmt.Println("status:", status)
+		if progress != "<nil>" {
+			fmt.Println("progress:", dm.extractProgressAmount(progress))
+			fmt.Println(dm.extractProgressBar(progress))
+		}
+		fmt.Println()
 	}
-	return scanner.Err()
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (dm *DockerManager) extractProgressAmount(progress string) string {
+	// Example: "[==========>      ]   720B/3.156kB"
+	// Split by "]" to isolate the amount
+	parts := []rune(progress)
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] == ']' {
+			return string(parts[i+1:])
+		}
+	}
+	return progress
+}
+
+func (dm *DockerManager) extractProgressBar(progress string) string {
+	// Extract between '[' and ']'
+	start := -1
+	end := -1
+	for i, ch := range progress {
+		if ch == '[' {
+			start = i
+		}
+		if ch == ']' && start != -1 {
+			end = i
+			break
+		}
+	}
+	if start != -1 && end != -1 {
+		return progress[start : end+1]
+	}
+	return ""
+}
+
+// Parses and formats Docker build output
+func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName string, configs map[string]string) error {
+	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "build.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return err
+	}
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	mw := io.MultiWriter(logFile)
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		// Write raw line to log
+		_, _ = mw.Write(append(line, '\n'))
+
+		// Parse JSON
+		var msg map[string]interface{}
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue // skip non-JSON lines
+		}
+
+		if stream, ok := msg["stream"].(string); ok {
+			fmt.Print(stream) // stream usually contains newlines
+		} else if errMsg, ok := msg["error"].(string); ok {
+			fmt.Fprintf(os.Stderr, "Build error: %s\n", errMsg)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) (node_types.DockerImage, error) {
@@ -283,25 +411,18 @@ func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, d
 		return dockerImage, err
 	}
 
+	// Save image logs
 	configManager := utils.NewConfigManager("")
 	configs, err := configManager.ReadConfigs()
 	if err != nil {
 		return dockerImage, err
 	}
-	// Save image logs
-	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "build.log")
-	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return dockerImage, err
-	}
-	defer logFile.Close()
+	defer resp.Body.Close()
 
-	_, err = io.Copy(io.MultiWriter(os.Stdout, logFile), resp.Body)
+	err = dm.processDockerBuildOutput(resp.Body, imageName, configs)
 	if err != nil {
 		return dockerImage, err
 	}
-	resp.Body.Close()
 
 	img, err := dm.imageMetadata(cli, imageName)
 	if err != nil {

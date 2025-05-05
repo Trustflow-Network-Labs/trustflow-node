@@ -243,6 +243,16 @@ func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 	table.Append(row)
 	table.Render() // Prints the table
 	fmt.Printf("---\nDescription: %s\n", service.Description)
+	if len(service.Interfaces) > 0 {
+		fmt.Print("---\nService expects following inputs/outputs:")
+		for i, intfce := range service.Interfaces {
+			fmt.Printf("\n%d.	%s	%s\n	%s\n	%s",
+				i+1, intfce.FunctionalInterface, intfce.InterfaceType,
+				intfce.Description, intfce.Path)
+		}
+	} else {
+		fmt.Print("---\nService does not expect any inputs or outputs.\n")
+	}
 	fmt.Print("---\nPrice model:")
 	if len(service.ServicePriceModel) > 0 {
 		for i, priceComponent := range service.ServicePriceModel {
@@ -281,6 +291,16 @@ func (mm *MenuManager) requestService() error {
 		mm.lm.Log("error", msg, "menu")
 		return err
 	}
+
+	// Check Service Offers Cache
+	serviceOffer, exists := mm.p2pm.sc.ServiceOffers[sidResult]
+	if !exists {
+		msg := fmt.Sprintf("Could not find provided Service ID `%s` in Service Offers Cache.\nPlease use `Find Services` option first to look up for remote services.", sidResult)
+		fmt.Println(msg)
+		mm.lm.Log("error", msg, "menu")
+		return err
+	}
+
 	peerId := serviceIdPair[0]
 	sid := serviceIdPair[1]
 
@@ -299,35 +319,80 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Collect job interfaces
-	var interfaces, inputInterfaces, outputInterfaces []node_types.Interface
+	var inputInterfaces, outputInterfaces []node_types.Interface
+	var serviceRequestInterfaces, serviceRequestInputInterfaces, serviceRequestOutputInterfaces []node_types.ServiceRequestInterface
+
+	for _, intfce := range serviceOffer.Interfaces {
+		if intfce.FunctionalInterface == "INPUT" {
+			inputInterfaces = append(inputInterfaces, intfce)
+		} else if intfce.FunctionalInterface == "OUTPUT" {
+			outputInterfaces = append(outputInterfaces, intfce)
+		}
+	}
 
 	// Inputs
-	rinResult, err := mm.confirmPromptHelper("Does the job require inputs to run or execute")
-	if err != nil {
-		return err
-	}
-	if rinResult {
-		inputInterfaces, err = mm.serviceInterfaces("INPUT", mm.p2pm.h.ID().String())
-		if err != nil {
-			fmt.Printf("Collecting input interfaces failed %v\n", err)
-			return err
+	if len(inputInterfaces) == 0 {
+		fmt.Println("The service does not require inputs to run or execute.")
+	} else {
+		for _, intfce := range inputInterfaces {
+			fmt.Println("The following is the Input Description as defined in the Service Definition:")
+			fmt.Println(intfce.Description)
+			nsResult, err := mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			if err != nil {
+				return err
+			}
+			switch intfce.InterfaceType {
+			case "FILE STREAM":
+				fnResult, err := mm.inputPromptHelper("Please specify the file name that this node will provide", "", mm.vm.NotEmpty, nil)
+				if err != nil {
+					return err
+				}
+				intfce.Path = fnResult
+				serviceRequestInputInterfaces = append(serviceRequestInputInterfaces, node_types.ServiceRequestInterface{
+					NodeId:    nsResult,
+					Interface: intfce,
+				})
+			case "MOUNTED FILE SYSTEM":
+			case "STDIN/STDOUT":
+			default:
+				fmt.Printf("Unknown input interfaces type %s. Skipping...\n", intfce.InterfaceType)
+			}
 		}
-		interfaces = append(interfaces, inputInterfaces...)
 	}
 
+	serviceRequestInterfaces = append(serviceRequestInterfaces, serviceRequestInputInterfaces...)
+
 	// Outputs
-	routResult, err := mm.confirmPromptHelper("Does the job produce outputs")
-	if err != nil {
-		return err
-	}
-	if routResult {
-		outputInterfaces, err = mm.serviceInterfaces("OUTPUT", mm.p2pm.h.ID().String())
-		if err != nil {
-			fmt.Printf("Collecting output interfaces failed %v\n", err)
-			return err
+	if len(outputInterfaces) == 0 {
+		fmt.Println("The service does not produce any outputs.")
+	} else {
+		for _, intfce := range outputInterfaces {
+			fmt.Println("The following is the Output Description as defined in the Service Definition:")
+			fmt.Println(intfce.Description)
+			nsResult, err := mm.inputPromptHelper("Please specify the NodeId that will receive the output", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			if err != nil {
+				return err
+			}
+			switch intfce.InterfaceType {
+			case "FILE STREAM":
+				fnResult, err := mm.inputPromptHelper("Please specify the file name that the node will receive", "", mm.vm.NotEmpty, nil)
+				if err != nil {
+					return err
+				}
+				intfce.Path = fnResult
+				serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
+					NodeId:    nsResult,
+					Interface: intfce,
+				})
+			case "MOUNTED FILE SYSTEM":
+			case "STDIN/STDOUT":
+			default:
+				fmt.Printf("Unknown output interfaces type %s. Skipping...\n", intfce.InterfaceType)
+			}
 		}
-		interfaces = append(interfaces, outputInterfaces...)
 	}
+
+	serviceRequestInterfaces = append(serviceRequestInterfaces, serviceRequestOutputInterfaces...)
 
 	/*
 		// Get constraint type
@@ -386,7 +451,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	}
 
-	err = mm.jm.RequestService(peer, workflowId, serviceId, interfaces, cResult, "")
+	err = mm.jm.RequestService(peer, workflowId, serviceId, serviceRequestInterfaces, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err

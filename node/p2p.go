@@ -52,6 +52,7 @@ type P2PManager struct {
 	db                 *sql.DB
 	lm                 *utils.LogsManager
 	wm                 *workflow.WorkflowManager
+	sc                 *node_types.ServiceOffersCache
 }
 
 func NewP2PManager() *P2PManager {
@@ -74,6 +75,7 @@ func NewP2PManager() *P2PManager {
 		db:                 db,
 		lm:                 utils.NewLogsManager(),
 		wm:                 workflow.NewWorkflowManager(db),
+		sc:                 node_types.NewServiceOffersCache(),
 	}
 }
 
@@ -762,6 +764,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				// Skip if this is our service advertized on remote node
 				if localNodeId == nodeId {
 					continue
+				}
+				// Add/Update Service Offers Cache
+				p2pm.sc.PruneExpired(time.Hour)
+				p2pm.sc.AddOrUpdate(service)
+				for key, serviceOffer := range p2pm.sc.ServiceOffers {
+					fmt.Printf("%s: %v\n", key, serviceOffer)
 				}
 				// If we are in interactive mode print Service Offer to CLI
 				if !p2pm.daemon {
@@ -1474,9 +1482,4 @@ func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {
 	}
 
 	return pID, nil
-}
-
-func (p2pm *P2PManager) IsValidPeerId(peerId string) error {
-	_, err := peer.Decode(peerId)
-	return err
 }

@@ -209,7 +209,7 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	return nil
 }
 
-func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, Interfaces []node_types.Interface, constr string, constrDet string) error {
+func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, Interfaces []node_types.ServiceRequestInterface, constr string, constrDet string) error {
 	_, err := jm.p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
@@ -363,9 +363,9 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 		}
 
 		jobInterface := node_types.JobInterface{
-			InterfaceId: interfaceId,
-			JobId:       id,
-			Interface:   intface,
+			InterfaceId:             interfaceId,
+			JobId:                   id,
+			ServiceRequestInterface: intface,
 		}
 
 		jobInterfaces = append(jobInterfaces, jobInterface)
