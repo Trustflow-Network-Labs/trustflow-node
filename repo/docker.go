@@ -494,7 +494,7 @@ func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceCo
 
 		if info.Name() == "Dockerfile" {
 			ctxDir := filepath.Dir(path)
-			name := filepath.Base(ctxDir)
+			name := strings.ToLower(filepath.Base(ctxDir))
 			services = append(services, composetypes.ServiceConfig{
 				Name:  name,
 				Image: name + ":latest",
@@ -731,8 +731,8 @@ func (dm *DockerManager) Run(
 			if singleService != "" {
 				dm.lm.Log("info", fmt.Sprintf("No compose or Dockerfile found. Assuming remote image: %s", singleService), "docker")
 				services = append(services, composetypes.ServiceConfig{
-					Name:  singleService,
-					Image: singleService,
+					Name:  strings.ToLower(singleService),
+					Image: strings.ToLower(singleService),
 				})
 			} else {
 				dm.lm.Log("error", "No docker-compose.yml, Dockerfiles, or image specified", "docker")
