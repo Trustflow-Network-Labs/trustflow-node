@@ -343,20 +343,31 @@ func (mm *MenuManager) requestService() error {
 			}
 			switch intfce.InterfaceType {
 			case "FILE STREAM":
-				fnResult, err := mm.inputPromptHelper("Please specify the file name that this node will provide", "", mm.vm.NotEmpty, nil)
+				if intfce.Path != "" {
+					fmt.Printf("The predefined input file name and path for the service is as follows:\n%s\n",
+						intfce.Path)
+				} else {
+					fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileName, nil)
+					if err != nil {
+						return err
+					}
+					intfce.Path = fnResult
+				}
+			case "MOUNTED FILE SYSTEM":
+				fnResult, err := mm.inputPromptHelper("Please specify the file system mount point within the service's host environment", "", mm.vm.IsValidMountPoint, nil)
 				if err != nil {
 					return err
 				}
-				intfce.Path = fnResult
-				serviceRequestInputInterfaces = append(serviceRequestInputInterfaces, node_types.ServiceRequestInterface{
-					NodeId:    nsResult,
-					Interface: intfce,
-				})
-			case "MOUNTED FILE SYSTEM":
+				intfce.Path = fnResult + ":" + intfce.Path
 			case "STDIN/STDOUT":
 			default:
 				fmt.Printf("Unknown input interfaces type %s. Skipping...\n", intfce.InterfaceType)
 			}
+
+			serviceRequestInputInterfaces = append(serviceRequestInputInterfaces, node_types.ServiceRequestInterface{
+				NodeId:    nsResult,
+				Interface: intfce,
+			})
 		}
 	}
 
@@ -375,20 +386,31 @@ func (mm *MenuManager) requestService() error {
 			}
 			switch intfce.InterfaceType {
 			case "FILE STREAM":
-				fnResult, err := mm.inputPromptHelper("Please specify the file name that the node will receive", "", mm.vm.NotEmpty, nil)
+				if intfce.Path != "" {
+					fmt.Printf("The predefined output file name and path for the service is as follows:\n%s\n",
+						intfce.Path)
+				} else {
+					fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileName, nil)
+					if err != nil {
+						return err
+					}
+					intfce.Path = fnResult
+				}
+			case "MOUNTED FILE SYSTEM":
+				fnResult, err := mm.inputPromptHelper("Please specify the file system mount point within the service's host environment", "", mm.vm.IsValidMountPoint, nil)
 				if err != nil {
 					return err
 				}
-				intfce.Path = fnResult
-				serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
-					NodeId:    nsResult,
-					Interface: intfce,
-				})
-			case "MOUNTED FILE SYSTEM":
+				intfce.Path = fnResult + ":" + intfce.Path
 			case "STDIN/STDOUT":
 			default:
 				fmt.Printf("Unknown output interfaces type %s. Skipping...\n", intfce.InterfaceType)
 			}
+
+			serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
+				NodeId:    nsResult,
+				Interface: intfce,
+			})
 		}
 	}
 
@@ -462,6 +484,8 @@ func (mm *MenuManager) requestService() error {
 
 func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
 	var interfaces []node_types.Interface
+	var pthResult string = ""
+	var addition string = ""
 
 	_, tyResult, err := mm.selectPromptHelper(
 		"Interface type",
@@ -471,9 +495,26 @@ func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId stri
 		return nil, err
 	}
 
-	pthResult, err := mm.inputPromptHelper("Specific file path or file system mount point (optional)", "", nil, nil)
-	if err != nil {
-		return nil, err
+	if functionalInterface == "INPUT" {
+		addition = "expected by the service"
+	} else if functionalInterface == "OUTPUT" {
+		addition = "produced by the service"
+	}
+
+	switch tyResult {
+	case "FILE STREAM":
+		msg := fmt.Sprintf("Specify the file name and path %s (optional). Leave blank for a non-specific file name", addition)
+		pthResult, err = mm.inputPromptHelper(msg, "", nil, nil)
+		if err != nil {
+			return nil, err
+		}
+	case "MOUNTED FILE SYSTEM":
+		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "./", mm.vm.IsValidMountPoint, nil)
+		if err != nil {
+			return nil, err
+		}
+	case "STDIN/STDOUT":
+	default:
 	}
 
 	dResult, err := mm.inputPromptHelper("Short description", "", mm.vm.NotEmpty, nil)

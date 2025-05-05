@@ -768,9 +768,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				// Add/Update Service Offers Cache
 				p2pm.sc.PruneExpired(time.Hour)
 				p2pm.sc.AddOrUpdate(service)
-				for key, serviceOffer := range p2pm.sc.ServiceOffers {
-					fmt.Printf("%s: %v\n", key, serviceOffer)
-				}
 				// If we are in interactive mode print Service Offer to CLI
 				if !p2pm.daemon {
 					menuManager := NewMenuManager(p2pm)
