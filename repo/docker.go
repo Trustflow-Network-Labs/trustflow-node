@@ -719,25 +719,33 @@ func (dm *DockerManager) Run(
 		errors  []error
 	)
 
-	if _, statErr := os.Stat(composeFile); statErr == nil {
-		project, err = dm.parseCompose(composeFile, envFile)
-		if err != nil {
-			dm.lm.Log("error", fmt.Sprintf("Parse error: %v", err), "docker")
-			return nil, images, []error{err}
-		}
-	} else {
-		services := dm.detectDockerfiles(path)
-		if len(services) == 0 {
-			if singleService != "" {
-				dm.lm.Log("info", fmt.Sprintf("No compose or Dockerfile found. Assuming remote image: %s", singleService), "docker")
-				services = append(services, composetypes.ServiceConfig{
-					Name:  strings.ToLower(singleService),
-					Image: strings.ToLower(singleService),
-				})
-			} else {
-				dm.lm.Log("error", "No docker-compose.yml, Dockerfiles, or image specified", "docker")
+	// Try to load compose file if specified
+	if composeFile != "" {
+		if _, statErr := os.Stat(composeFile); statErr == nil {
+			project, err = dm.parseCompose(composeFile, envFile)
+			if err != nil {
+				dm.lm.Log("error", fmt.Sprintf("Parse error: %v", err), "docker")
 				return nil, images, []error{err}
 			}
+		}
+	}
+
+	// If no compose file and singleService is specified, create a minimal project
+	if project == nil && singleService != "" {
+		project = &composetypes.Project{
+			Services: []composetypes.ServiceConfig{
+				{
+					Name:  strings.ToLower(singleService),
+					Image: strings.ToLower(singleService),
+				},
+			},
+		}
+	} else if project == nil {
+		// Fallback: Scan for Dockerfiles
+		services := dm.detectDockerfiles(path)
+		if len(services) == 0 {
+			dm.lm.Log("error", "No docker-compose.yml, Dockerfiles, or image specified", "docker")
+			return nil, images, []error{err}
 		}
 		project = &composetypes.Project{Services: services}
 	}
