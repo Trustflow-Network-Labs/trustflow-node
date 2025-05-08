@@ -400,7 +400,7 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
-func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStream network.Stream) error {
+func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, jobId int64, existingStream network.Stream) error {
 	_, err := p2pm.ConnectNode(peer)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
@@ -463,17 +463,18 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, existingStr
 	var str []byte = []byte(p2pm.h.ID().String())
 	var str255 [255]byte
 	copy(str255[:], str)
-	go p2pm.streamProposal(s, str255, t)
+	go p2pm.streamProposal(s, str255, t, jobId)
 	go sendStream(p2pm, s, data)
 
 	return nil
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16) {
+func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, i int64) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
 		Type:   t,
 		PeerId: p,
+		JobId:  i,
 	}
 
 	// Send stream data
@@ -811,7 +812,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &jobRunResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -829,7 +830,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &jobRunResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -844,7 +845,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunResponse.Message = msg
-				err = StreamData(p2pm, peer, &jobRunResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -862,7 +863,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &jobRunResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -875,7 +876,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 			jobRunResponse.Message = fmt.Sprintf("READY flag is set for job Id %d.", jobRunRequest.JobId)
 			jobRunResponse.Accepted = true
-			err = StreamData(p2pm, peer, &jobRunResponse, nil)
+			err = StreamData(p2pm, peer, &jobRunResponse, 0, nil)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Close()
@@ -919,7 +920,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", err.Error(), "p2p")
 
 				serviceResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &serviceResponse, nil)
+				err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -934,7 +935,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				serviceResponse.Message = msg
-				err = StreamData(p2pm, peer, &serviceResponse, nil)
+				err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -951,7 +952,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", err.Error(), "p2p")
 
 				serviceResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &serviceResponse, nil)
+				err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -968,7 +969,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 					p2pm.lm.Log("error", err.Error(), "p2p")
 
 					serviceResponse.Message = err.Error()
-					err = StreamData(p2pm, peer, &serviceResponse, nil)
+					err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 					if err != nil {
 						p2pm.lm.Log("error", err.Error(), "p2p")
 						s.Close()
@@ -983,7 +984,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				serviceResponse.Message = ""
 			}
 
-			// TODO, check if requested service got all its inputs, outputs, constraints requirements
 			// TODO, service price and payment
 
 			// Create a job
@@ -993,7 +993,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", err.Error(), "p2p")
 
 				serviceResponse.Message = err.Error()
-				err = StreamData(p2pm, peer, &serviceResponse, nil)
+				err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -1007,7 +1007,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			// Send response
 			serviceResponse.JobId = job.Id
 			serviceResponse.Accepted = true
-			err = StreamData(p2pm, peer, &serviceResponse, nil)
+			err = StreamData(p2pm, peer, &serviceResponse, 0, nil)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Close()
@@ -1140,7 +1140,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunStatusResponse.Status = "ERRORED"
-				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -1158,7 +1158,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunStatusResponse.Status = "ERRORED"
-				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -1173,7 +1173,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 
 				jobRunStatusResponse.Status = "ERRORED"
-				err = StreamData(p2pm, peer, &jobRunStatusResponse, nil)
+				err = StreamData(p2pm, peer, &jobRunStatusResponse, 0, nil)
 				if err != nil {
 					p2pm.lm.Log("error", err.Error(), "p2p")
 					s.Close()
@@ -1211,7 +1211,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 
 		peerId := s.Conn().RemotePeer().String()
-		fdir = configs["received_files_storage"] + peerId + "/"
+		fdir = configs["received_files_storage"] + peerId + "/" + fmt.Sprintf("%d", streamData.JobId) + "/"
 		fpath = fdir + utils.RandomString(32)
 
 		cs := configs["chunk_size"]
@@ -1370,7 +1370,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			// Stream back offered services with prices
 			// (only if there we have matching services to offer)
 			if len(services) > 0 {
-				err = StreamData(p2pm, peerAddrInfo, &services, nil)
+				err = StreamData(p2pm, peerAddrInfo, &services, 0, nil)
 				if err != nil {
 					msg := err.Error()
 					p2pm.lm.Log("error", msg, "p2p")

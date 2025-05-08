@@ -839,13 +839,37 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 	rows.Close()
 
 	for i := range services {
-		if services[i].Type == "DOCKER EXECUTION ENVIRONMENT" {
-			ds, _ := sm.GetDocker(services[i].Id)
-			for _, image := range ds.Images {
+		switch services[i].Type {
+		case "DATA":
+			dataService, err := sm.GetData(services[i].Id)
+			if err != nil {
+				sm.lm.Log("error", err.Error(), "services")
+				return nil, err
+			}
+			inrfce := node_types.Interface{
+				InterfaceType:       "FILE STREAM",
+				FunctionalInterface: "OUTPUT",
+				Description:         services[i].Description,
+				Path:                dataService.Path,
+			}
+			services[i].Interfaces = []node_types.Interface{inrfce}
+		case "DOCKER EXECUTION ENVIRONMENT":
+			dockerService, err := sm.GetDocker(services[i].Id)
+			if err != nil {
+				sm.lm.Log("error", err.Error(), "services")
+				return nil, err
+			}
+			for _, image := range dockerService.Images {
 				for _, dintfce := range image.Intefaces {
 					services[i].Interfaces = append(services[i].Interfaces, dintfce.Interface)
 				}
 			}
+		case "STANDALONE EXECUTABLE":
+			// TODO
+		default:
+			err := fmt.Errorf("unknown service type %s", services[i].Type)
+			sm.lm.Log("warn", err.Error(), "services")
+			return nil, err
 		}
 
 		// Query service resources with prices

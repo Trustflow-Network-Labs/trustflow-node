@@ -380,7 +380,7 @@ func (mm *MenuManager) requestService() error {
 		for _, intfce := range outputInterfaces {
 			fmt.Println("The following is the Output Description as defined in the Service Definition:")
 			fmt.Println(intfce.Description)
-			nsResult, err := mm.inputPromptHelper("Please specify the NodeId that will receive the output", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			nsResult, err := mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
 			if err != nil {
 				return err
 			}
@@ -407,10 +407,14 @@ func (mm *MenuManager) requestService() error {
 				fmt.Printf("Unknown output interfaces type %s. Skipping...\n", intfce.InterfaceType)
 			}
 
-			serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
-				NodeId:    nsResult,
-				Interface: intfce,
-			})
+			nids := strings.SplitSeq(nsResult, ",")
+			for nid := range nids {
+				nid = strings.TrimSpace(nid)
+				serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
+					NodeId:    nid,
+					Interface: intfce,
+				})
+			}
 		}
 	}
 

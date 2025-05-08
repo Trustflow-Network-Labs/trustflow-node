@@ -32,6 +32,7 @@ type Blacklist struct {
 type StreamData struct {
 	Type   uint16
 	PeerId [255]byte
+	JobId  int64
 }
 
 // Declare currency type
@@ -269,10 +270,6 @@ type JobInterface struct {
 	InterfaceId int64 `json:"interface_id"`
 	JobId       int64 `json:"job_id"`
 	ServiceRequestInterface
-	/*
-	   NodeId      string `json:"node_id"`
-	   Interface
-	*/
 }
 
 const timeLayout = time.RFC3339

@@ -226,7 +226,7 @@ func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, servi
 		ExecutionConstraintDetail: constrDet,
 	}
 
-	err = StreamData(jm.p2pm, peer, &serviceRequest, nil)
+	err = StreamData(jm.p2pm, peer, &serviceRequest, 0, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -250,7 +250,7 @@ func (jm *JobManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId 
 		JobId:      jobId,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunRequest, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunRequest, 0, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -279,7 +279,7 @@ func (jm *JobManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, job
 		Status:              status,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunStatus, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunStatus, 0, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -303,7 +303,7 @@ func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, 
 		JobId:      jobId,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunStatusRequest, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunStatusRequest, 0, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -348,7 +348,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 
 	for _, intface := range serviceRequest.Interfaces {
 		result, err = jm.db.ExecContext(context.Background(), "insert into job_interfaces (job_id, node_id, interface_type, functional_interface, path) values (?, ?, ?, ?, ?);",
-			id, serviceRequest.NodeId, intface.InterfaceType, intface.FunctionalInterface, intface.Path)
+			id, intface.NodeId, intface.InterfaceType, intface.FunctionalInterface, intface.Path)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -528,29 +528,17 @@ func (jm *JobManager) StartJob(id int64) error {
 
 	switch serviceType {
 	case "DATA":
-		err := jm.StreamDataJob(job)
+		err := jm.streamDataJob(job)
 		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-
-			jm.lm.Log("debug", fmt.Sprintf("error: running job id %d", id), "jobs")
-
-			// Set job status to ERRORED
-			err1 := jm.UpdateJobStatus(job.Id, "ERRORED")
-			if err1 != nil {
-				jm.lm.Log("error", err1.Error(), "jobs")
-			}
-
-			// Send job status update to remote node
-			go func() {
-				err := jm.StatusUpdate(job, "ERRORED")
-				if err != nil {
-					jm.lm.Log("error", err.Error(), "jobs")
-				}
-			}()
-
+			jm.logAndEmitJobError(job, err)
 			return err
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
+		err := jm.dockerExecutionJob(job)
+		if err != nil {
+			jm.logAndEmitJobError(job, err)
+			return err
+		}
 	case "WASM EXECUTION ENVIRONMENT":
 	default:
 		msg := fmt.Sprintf("Unknown service type %s", serviceType)
@@ -584,6 +572,26 @@ func (jm *JobManager) StartJob(id int64) error {
 	return nil
 }
 
+func (jm *JobManager) logAndEmitJobError(job node_types.Job, err error) {
+	jm.lm.Log("error", err.Error(), "jobs")
+
+	jm.lm.Log("debug", fmt.Sprintf("error: running job id %d", job.Id), "jobs")
+
+	// Set job status to ERRORED
+	err1 := jm.UpdateJobStatus(job.Id, "ERRORED")
+	if err1 != nil {
+		jm.lm.Log("error", err1.Error(), "jobs")
+	}
+
+	// Send job status update to remote node
+	go func() {
+		err := jm.StatusUpdate(job, "ERRORED")
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+		}
+	}()
+}
+
 func (jm *JobManager) StatusUpdate(job node_types.Job, status string) error {
 	// Send job status update to remote node
 	nodeId := jm.p2pm.h.ID().String()
@@ -592,30 +600,28 @@ func (jm *JobManager) StatusUpdate(job node_types.Job, status string) error {
 	return err
 }
 
-func (jm *JobManager) StreamDataJob(job node_types.Job) error {
+func (jm *JobManager) streamDataJob(job node_types.Job) error {
 	// Get data source path
 	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 	dataService, err := jm.sm.GetData(service.Id)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
 	paths := strings.Split(dataService.Path, ",")
 	if len(paths) > 0 {
-		return jm.StreamDataJobEngine(job, paths, 0)
+		return jm.streamDataJobEngine(job, paths, 0)
 	}
 
 	return nil
 }
 
-func (jm *JobManager) StreamDataJobEngine(job node_types.Job, paths []string, index int) error {
+func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, index int) error {
 	configManager := utils.NewConfigManager("")
 	configs, err := configManager.ReadConfigs()
 	if err != nil {
@@ -654,18 +660,114 @@ func (jm *JobManager) StreamDataJobEngine(job node_types.Job, paths []string, in
 			}
 
 			// Connect to peer and start streaming
-			err = StreamData(jm.p2pm, p, file, nil)
+			err = StreamData(jm.p2pm, p, file, job.Id, nil)
 			if err != nil {
-				msg := err.Error()
-				jm.lm.Log("error", msg, "jobs")
+				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
 		}
 	}
 
 	if len(paths) > index+1 {
-		return jm.StreamDataJobEngine(job, paths, index+1)
+		return jm.streamDataJobEngine(job, paths, index+1)
 	}
 
+	return nil
+}
+
+func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
+	// Get docker job
+	service, err := jm.sm.Get(job.ServiceId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	docker, err := jm.sm.GetDocker(service.Id)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	// TODO, check are job inputs ready
+	inputs, _, err := jm.dockerExecutionJobInterfaces(job.JobInterfaces)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	for _, input := range inputs {
+		switch input.InterfaceType {
+		case "FILE STREAM":
+			err := jm.checkFileStreamInput(input)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+		case "MOUNTED FILE SYSTEM":
+			err := jm.checkMountedFileSystemInput(input)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+		case "STDIN/STDOUT":
+		default:
+			err := fmt.Errorf("unknown interface type `%s`", input.InterfaceType)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+	}
+
+	if len(docker.RepoDockerComposes) > 0 {
+		// TODO, Run docker-compose
+	} else if len(docker.RepoDockerFiles) > 0 {
+		// TODO, Run dockerfiles
+	} else if len(docker.Images) > 0 {
+		// TODO, Run images
+	} else {
+		err := errors.New("no docker-compose.yml, Dockerfiles, or images existing")
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
+}
+
+func (jm *JobManager) dockerExecutionJobInterfaces(jobInterfaces []node_types.JobInterface) ([]node_types.JobInterface, []node_types.JobInterface, error) {
+	var inputs []node_types.JobInterface
+	var outputs []node_types.JobInterface
+	for _, intrfce := range jobInterfaces {
+		if intrfce.FunctionalInterface == "INPUT" {
+			inputs = append(inputs, intrfce)
+		} else if intrfce.FunctionalInterface == "OUTPUT" {
+			outputs = append(inputs, intrfce)
+		}
+	}
+	return inputs, outputs, nil
+}
+
+func (jm *JobManager) checkFileStreamInput(input node_types.JobInterface) error {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	path := configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.JobId) + "/" + strings.TrimSpace(input.Path)
+
+	// Check if the file exists
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		err = fmt.Errorf("file %s does not exist", path)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	} else if err != nil {
+		// Handle other potential errors
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	return nil
+}
+
+func (jm *JobManager) checkMountedFileSystemInput(input node_types.JobInterface) error {
 	return nil
 }
