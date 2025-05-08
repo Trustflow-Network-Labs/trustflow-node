@@ -752,19 +752,24 @@ func (jm *JobManager) checkFileStreamInput(input node_types.JobInterface) error 
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-	path := configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.JobId) + "/" + strings.TrimSpace(input.Path)
 
-	// Check if the file exists
-	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		err = fmt.Errorf("file %s does not exist", path)
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	} else if err != nil {
-		// Handle other potential errors
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
+	paths := strings.SplitSeq(input.Path, ",")
+	for path := range paths {
+		path = configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.JobId) + "/" + strings.TrimSpace(path)
+
+		// Check if the file exists
+		_, err = os.Stat(path)
+		if os.IsNotExist(err) {
+			err = fmt.Errorf("file %s does not exist", path)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		} else if err != nil {
+			// Handle other potential errors
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
 	}
+
 	return nil
 }
 
