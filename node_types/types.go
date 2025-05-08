@@ -30,9 +30,10 @@ type Blacklist struct {
 
 // Declare stream data type
 type StreamData struct {
-	Type   uint16
-	PeerId [255]byte
-	JobId  int64
+	Type       uint16
+	PeerId     [255]byte
+	WorkflowId int64
+	JobId      int64
 }
 
 // Declare currency type
@@ -268,6 +269,7 @@ type JobSql struct {
 // Declare job interfaces base struct
 type JobInterface struct {
 	InterfaceId int64 `json:"interface_id"`
+	WorkflowId  int64 `json:"workflow_id"`
 	JobId       int64 `json:"job_id"`
 	ServiceRequestInterface
 }

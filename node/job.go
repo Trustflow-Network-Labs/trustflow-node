@@ -100,6 +100,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 			jm.lm.Log("error", msg, "jobs")
 			return job, err
 		}
+		jobInterface.WorkflowId = jobSql.WorkflowId
 		job.JobInterfaces = append(job.JobInterfaces, jobInterface)
 	}
 
@@ -174,6 +175,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 				jm.lm.Log("error", msg, "jobs")
 				return jobs, err
 			}
+			jobInterface.WorkflowId = jobSql.WorkflowId
 			jobs[i].JobInterfaces = append(jobs[i].JobInterfaces, jobInterface)
 		}
 		rows.Close()
@@ -226,7 +228,7 @@ func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, servi
 		ExecutionConstraintDetail: constrDet,
 	}
 
-	err = StreamData(jm.p2pm, peer, &serviceRequest, 0, nil)
+	err = StreamData(jm.p2pm, peer, &serviceRequest, nil, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -250,7 +252,7 @@ func (jm *JobManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId 
 		JobId:      jobId,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunRequest, 0, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunRequest, nil, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -279,7 +281,7 @@ func (jm *JobManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, job
 		Status:              status,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunStatus, 0, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunStatus, nil, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -303,7 +305,7 @@ func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, 
 		JobId:      jobId,
 	}
 
-	err = StreamData(jm.p2pm, peer, &jobRunStatusRequest, 0, nil)
+	err = StreamData(jm.p2pm, peer, &jobRunStatusRequest, nil, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -365,6 +367,7 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 		jobInterface := node_types.JobInterface{
 			InterfaceId:             interfaceId,
 			JobId:                   id,
+			WorkflowId:              serviceRequest.WorkflowId,
 			ServiceRequestInterface: intface,
 		}
 
@@ -660,7 +663,7 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 			}
 
 			// Connect to peer and start streaming
-			err = StreamData(jm.p2pm, p, file, job.Id, nil)
+			err = StreamData(jm.p2pm, p, file, &job, nil)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
@@ -755,7 +758,7 @@ func (jm *JobManager) checkFileStreamInput(input node_types.JobInterface) error 
 
 	paths := strings.SplitSeq(input.Path, ",")
 	for path := range paths {
-		path = configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.JobId) + "/" + strings.TrimSpace(path)
+		path = configs["received_files_storage"] + fmt.Sprintf("%d", input.WorkflowId) + "/" + input.NodeId + "/" + strings.TrimSpace(path)
 
 		// Check if the file exists
 		_, err = os.Stat(path)
