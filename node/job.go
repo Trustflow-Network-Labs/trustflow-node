@@ -1,10 +1,12 @@
 package node
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node/repo"
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -21,6 +24,7 @@ type JobManager struct {
 	lm   *utils.LogsManager
 	sm   *ServiceManager
 	wm   *WorkerManager
+	dm   *repo.DockerManager
 	p2pm *P2PManager
 	tm   *utils.TextManager
 }
@@ -31,6 +35,7 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		lm:   utils.NewLogsManager(),
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),
+		dm:   repo.NewDockerManager(),
 		p2pm: p2pm,
 		tm:   utils.NewTextManager(),
 	}
@@ -394,7 +399,8 @@ func (jm *JobManager) ProcessQueue() {
 
 	// TODO, implement other cases ('NONE'/'READY' is just one case)
 	rows, err := jm.db.QueryContext(context.Background(),
-		"select id from jobs where execution_constraint = 'NONE' and status = 'READY';")
+		//		"select id from jobs where execution_constraint = 'NONE' and status = 'READY';")
+		"select id from jobs where status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
@@ -725,7 +731,20 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
-				if err = utils.FileCopy(path, fdir+filepath.Base(path), 48*1024); err != nil {
+				dest := fdir + filepath.Base(path)
+				if err = utils.FileCopy(path, dest, 48*1024); err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+
+				// Uncompress received file
+				err = utils.Uncompress(dest, fdir)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+				err = os.RemoveAll(dest)
+				if err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
@@ -755,6 +774,20 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 }
 
 func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
+	var inputFiles []*os.File
+	var combinedInput io.Reader
+	var combinedOutput io.Writer
+	var outputFiles []*os.File
+	var mounts = make(map[string]string)
+	var multiErr error
+
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
 	// Get docker job
 	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
@@ -768,7 +801,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	}
 
 	// Check are job inputs ready
-	inputs, _, err := jm.dockerExecutionJobInterfaces(job.JobInterfaces)
+	inputs, outputs, err := jm.dockerExecutionJobInterfaces(job.JobInterfaces)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
@@ -777,13 +810,27 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	for _, input := range inputs {
 		switch input.InterfaceType {
 		case "FILE STREAM":
-			err := jm.checkFileStreamInput(input)
+			inputFiles, err = jm.validateFiles(configs["received_files_storage"], input, inputFiles)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
+			defer func() {
+				for _, file := range inputFiles {
+					file.Close()
+				}
+			}()
+
+			// Convert to buffered readers
+			bufferedInputs := make([]io.Reader, len(inputFiles))
+			for i, file := range inputFiles {
+				bufferedInputs[i] = bufio.NewReader(file)
+			}
+
+			// Combine into a single reader (optional)
+			combinedInput = io.MultiReader(bufferedInputs...)
 		case "MOUNTED FILE SYSTEM":
-			err := jm.checkMountedFileSystemInput(input)
+			mounts, err = jm.validateMounts(configs["received_files_storage"], input, mounts)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
@@ -796,12 +843,95 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		}
 	}
 
+	for _, output := range outputs {
+		switch output.InterfaceType {
+		case "FILE STREAM":
+			outputFiles, err = jm.createFiles(configs["received_files_storage"], output, outputFiles)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+			defer func() {
+				for _, file := range outputFiles {
+					file.Close()
+				}
+			}()
+
+			// Convert to buffered readers
+			bufferedOutputs := make([]io.Writer, len(outputFiles))
+			for i, file := range outputFiles {
+				bufferedOutputs[i] = bufio.NewWriter(file)
+			}
+
+			// Ensure all buffers are flushed at the end
+			defer func() {
+				for _, w := range bufferedOutputs {
+					if bw, ok := w.(*bufio.Writer); ok {
+						bw.Flush() // Flush any remaining data
+					}
+				}
+			}()
+
+			// Combine into a single reader (optional)
+			combinedOutput = io.MultiWriter(bufferedOutputs...)
+		case "MOUNTED FILE SYSTEM":
+			mounts, err = jm.validateMounts(configs["received_files_storage"], output, mounts)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+		case "STDIN/STDOUT":
+		default:
+			err := fmt.Errorf("unknown interface type `%s`", output.InterfaceType)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+	}
+
 	if len(docker.RepoDockerComposes) > 0 {
-		// TODO, Run docker-compose
+		// Run docker-compose
+		for _, compose := range docker.RepoDockerComposes {
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, compose, "", combinedInput, combinedOutput, mounts)
+			for _, err := range errs {
+				jm.lm.Log("error", err.Error(), "jobs")
+				multiErr = errors.Join(multiErr, err)
+			}
+			if multiErr != nil {
+				return fmt.Errorf("docker compose errors: %w", multiErr)
+			}
+			jm.lm.Log("debug", fmt.Sprintf("the following containers were running %s", strings.Join(containers, ", ")), "jobs")
+		}
 	} else if len(docker.RepoDockerFiles) > 0 {
-		// TODO, Run dockerfiles
+		// Run dockerfiles
+		for range docker.RepoDockerFiles {
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, "", "", combinedInput, combinedOutput, mounts)
+			for _, err := range errs {
+				jm.lm.Log("error", err.Error(), "jobs")
+				multiErr = errors.Join(multiErr, err)
+			}
+			if multiErr != nil {
+				return fmt.Errorf("docker compose errors: %w", multiErr)
+			}
+			jm.lm.Log("debug", fmt.Sprintf("the following containers were running %s", strings.Join(containers, ", ")), "jobs")
+		}
 	} else if len(docker.Images) > 0 {
-		// TODO, Run images
+		// Run images
+		for _, image := range docker.Images {
+			if len(image.ImageTags) == 0 {
+				err := fmt.Errorf("image %s has no tags", image.ImageName)
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, image.ImageTags[0], true, "", "", combinedInput, combinedOutput, mounts)
+			for _, err := range errs {
+				jm.lm.Log("error", err.Error(), "jobs")
+				multiErr = errors.Join(multiErr, err)
+			}
+			if multiErr != nil {
+				return fmt.Errorf("docker compose errors: %w", multiErr)
+			}
+			jm.lm.Log("debug", fmt.Sprintf("the following containers were running %s", strings.Join(containers, ", ")), "jobs")
+		}
 	} else {
 		err := errors.New("no docker-compose.yml, Dockerfiles, or images existing")
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -824,34 +954,96 @@ func (jm *JobManager) dockerExecutionJobInterfaces(jobInterfaces []node_types.Jo
 	return inputs, outputs, nil
 }
 
-func (jm *JobManager) checkFileStreamInput(input node_types.JobInterface) error {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
+func (jm *JobManager) validateFiles(base string, inrfce node_types.JobInterface, files []*os.File) ([]*os.File, error) {
+	paths := strings.SplitSeq(inrfce.Path, ",")
+	for path := range paths {
+		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
+
+		// Check if the path exists
+		err := jm.pathExists(path)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			for _, file := range files {
+				file.Close()
+			}
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+		//		defer file.Close()
+
+		files = append(files, file)
+	}
+
+	return files, nil
+}
+
+func (jm *JobManager) createFiles(base string, inrfce node_types.JobInterface, files []*os.File) ([]*os.File, error) {
+	paths := strings.SplitSeq(inrfce.Path, ",")
+	for path := range paths {
+		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
+
+		// Make sure file path is created
+		fdir := filepath.Dir(path)
+		if err := os.MkdirAll(fdir, 0755); err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+
+		file, err := os.Create(path)
+		if err != nil {
+			for _, file := range files {
+				file.Close()
+			}
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+		//		defer file.Close()
+
+		files = append(files, file)
+	}
+
+	return files, nil
+}
+
+func (jm *JobManager) validateMounts(base string, inrfce node_types.JobInterface, mounts map[string]string) (map[string]string, error) {
+	paths := strings.Split(inrfce.Path, ":")
+
+	if len(paths) != 2 {
+		err := fmt.Errorf("invalid mount path %s", inrfce.Path)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	path := base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(paths[0])
+
+	// Check if the path exists
+	err := jm.pathExists(path)
 	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	mounts[path] = paths[1]
+	return mounts, nil
+}
+
+func (jm *JobManager) pathExists(path string) error {
+	// Check if the path exists
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		err = fmt.Errorf("path %s does not exist", path)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	} else if err != nil {
+		// Handle other potential errors
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
-	paths := strings.SplitSeq(input.Path, ",")
-	for path := range paths {
-		path = configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.WorkflowId) + "/" + strings.TrimSpace(path)
-
-		// Check if the file exists
-		_, err = os.Stat(path)
-		if os.IsNotExist(err) {
-			err = fmt.Errorf("file %s does not exist", path)
-			jm.lm.Log("error", err.Error(), "jobs")
-			return err
-		} else if err != nil {
-			// Handle other potential errors
-			jm.lm.Log("error", err.Error(), "jobs")
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (jm *JobManager) checkMountedFileSystemInput(input node_types.JobInterface) error {
 	return nil
 }

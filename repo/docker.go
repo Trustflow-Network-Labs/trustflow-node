@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -606,7 +608,14 @@ func (dm *DockerManager) runService(
 	}
 
 	// Save container logs
-	logDir := filepath.Join("jobs", strconv.FormatInt(jobId, 10), svc.Name, "logs")
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		dm.lm.Log("error", err.Error(), "docker")
+		return "", image, err
+	}
+
+	logDir := filepath.Join(configs["local_docker_root"], svc.Name, "jobs", strconv.FormatInt(jobId, 10))
 	_ = os.MkdirAll(logDir, 0755)
 	stdoutFile, _ := os.Create(filepath.Join(logDir, "stdout.log"))
 	stderrFile, _ := os.Create(filepath.Join(logDir, "stderr.log"))
@@ -637,7 +646,9 @@ func (dm *DockerManager) runService(
 		wgIO.Add(1)
 		go func() {
 			defer wgIO.Done()
-			_, _ = io.Copy(io.MultiWriter(attachResp.Conn, stdinFile), input)
+			if input != nil {
+				_, _ = io.Copy(io.MultiWriter(attachResp.Conn, stdinFile), input)
+			}
 			_ = attachResp.CloseWrite()
 		}()
 	}
@@ -645,7 +656,11 @@ func (dm *DockerManager) runService(
 	wgIO.Add(1)
 	go func() {
 		defer wgIO.Done()
-		_, _ = stdcopy.StdCopy(io.MultiWriter(output, stdoutFile), stderrFile, attachResp.Reader)
+		var stdoutWriter io.Writer = stdoutFile
+		if output != nil {
+			stdoutWriter = io.MultiWriter(output, stdoutFile)
+		}
+		_, _ = stdcopy.StdCopy(stdoutWriter, stderrFile, attachResp.Reader)
 	}()
 
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
@@ -719,10 +734,11 @@ func (dm *DockerManager) Run(
 	output io.Writer,
 	mounts map[string]string) ([]string, []node_types.DockerImage, []error) {
 	var (
-		project *composetypes.Project
-		images  []node_types.DockerImage
-		err     error
-		errors  []error
+		project     *composetypes.Project
+		images      []node_types.DockerImage
+		err         error
+		errrs       []error
+		ssImageName string = dm.generateContainerName(jobId, strings.ToLower(singleService))
 	)
 
 	// Try to load compose file if specified
@@ -741,7 +757,7 @@ func (dm *DockerManager) Run(
 		project = &composetypes.Project{
 			Services: []composetypes.ServiceConfig{
 				{
-					Name:  strings.ToLower(singleService),
+					Name:  ssImageName,
 					Image: strings.ToLower(singleService),
 				},
 			},
@@ -796,7 +812,7 @@ func (dm *DockerManager) Run(
 	}()
 
 	for _, svc := range project.Services {
-		if singleService != "" && svc.Name != singleService {
+		if singleService != "" && svc.Name != ssImageName {
 			continue
 		}
 
@@ -821,11 +837,11 @@ func (dm *DockerManager) Run(
 			case buildOnly && svc.Build == nil:
 				// Pull image only
 				if err := dm.pullImage(cli, svc.Image); err == nil {
-					img, ierr := dm.imageMetadata(cli, singleService)
+					img, ierr := dm.imageMetadata(cli, svc.Image)
 					if ierr == nil {
 						image := node_types.DockerImage{
 							Id:      img.ID,
-							Name:    singleService,
+							Name:    svc.Name,
 							Tags:    img.RepoTags,
 							Digests: img.RepoDigests,
 							BuiltAt: time.Now(),
@@ -849,7 +865,7 @@ func (dm *DockerManager) Run(
 				if svc.Build == nil && !exists {
 					if err := dm.pullImage(cli, svc.Image); err != nil {
 						errsMu.Lock()
-						errors = append(errors, fmt.Errorf("failed to pull image %s: %w", svc.Image, err))
+						errrs = append(errrs, fmt.Errorf("failed to pull image %s: %w", svc.Image, err))
 						errsMu.Unlock()
 						return
 					}
@@ -871,14 +887,14 @@ func (dm *DockerManager) Run(
 
 			if err != nil {
 				errsMu.Lock()
-				errors = append(errors, fmt.Errorf("service %s: %w", svc.Name, err))
+				errrs = append(errrs, fmt.Errorf("service %s: %w", svc.Name, err))
 				errsMu.Unlock()
 			}
 		}(svc)
 	}
 	wg.Wait()
 
-	if cleanup || len(errors) > 0 {
+	if cleanup || len(errrs) > 0 {
 		stopOptions := container.StopOptions{}
 		for _, id := range started {
 			_ = cli.ContainerStop(ctx, id, stopOptions)
@@ -887,5 +903,24 @@ func (dm *DockerManager) Run(
 		}
 	}
 
-	return started, images, errors
+	return started, images, errrs
+}
+
+func (dm *DockerManager) generateContainerName(jobId int64, image string) string {
+	// Extract base name (strip tag)
+	base := strings.Split(image, ":")[0]
+	// Replace invalid chars
+	base = strings.ReplaceAll(base, "/", "_")
+	// Create random suffix
+	rnd, _ := dm.secureRandomString(6)
+	// Add job ID and random suffix
+	return fmt.Sprintf("job_%d_%s_%s", jobId, base, rnd)
+}
+
+func (dm *DockerManager) secureRandomString(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes)[:length], nil
 }

@@ -126,8 +126,13 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		return dockerService, err
 	}
 
-	dockerService.RepoDockerFiles = strings.Split(dockerFiles, ",")
-	dockerService.RepoDockerComposes = strings.Split(dockerComposes, ",")
+	// Make sure to exclude empty strings
+	dockerService.RepoDockerFiles = strings.FieldsFunc(dockerFiles, func(r rune) bool {
+		return r == ','
+	})
+	dockerService.RepoDockerComposes = strings.FieldsFunc(dockerComposes, func(r rune) bool {
+		return r == ','
+	})
 
 	// Get docker service images with interfaces
 	rows, err := sm.db.QueryContext(

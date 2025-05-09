@@ -1257,13 +1257,13 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			file.Write(buf[:n])
 		}
 
+		/* TODO, allow remote nodes to receive files per requests from a workflow
 		// Create CID
 		cid, err := utils.HashFileToCID(fpath)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return
 		}
-
 		// Check are we expecting this file
 		expected, err := p2pm.wm.ExpectedOutputFound(peerId, cid)
 		if err != nil || !expected {
@@ -1271,7 +1271,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			os.RemoveAll(fpath)
 			return
 		}
-
+		*/
 		// Uncompress received file
 		//		err = utils.Uncompress(fpath, fdir+cid+"/")
 		err = utils.Uncompress(fpath, fdir)
