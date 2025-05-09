@@ -24,6 +24,9 @@ local_docker_root = ./local_storage/docker/
 max_job_run_retries = 10
 job_initial_backoff = 60
 
+[docker]
+docker_scan_skip = .git, packages, node_modules, .idea, .vscode
+
 [repo]
 
 [node]

@@ -111,11 +111,30 @@ type DockerFileCheckResult struct {
 // Check Docker files in git repo
 func (gm *GitManager) CheckDockerFiles(path string) (DockerFileCheckResult, error) {
 	result := DockerFileCheckResult{}
+	skipDirs := make(map[string]bool)
 
-	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return result, err
+	}
+
+	dockerScanSkip := strings.SplitSeq(configs["docker_scan_skip"], ",")
+	for skip := range dockerScanSkip {
+		skip = strings.TrimSpace(skip)
+		skipDirs[skip] = true
+	}
+
+	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
 			return nil
 		}
+
+		// Skip unwanted directories
+		if info.IsDir() && skipDirs[info.Name()] {
+			return filepath.SkipDir
+		}
+
 		switch strings.ToLower(info.Name()) {
 		case "Dockerfile", "dockerfile":
 			result.HasDockerfile = true

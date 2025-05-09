@@ -767,7 +767,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		return err
 	}
 
-	// TODO, check are job inputs ready
+	// Check are job inputs ready
 	inputs, _, err := jm.dockerExecutionJobInterfaces(job.JobInterfaces)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")

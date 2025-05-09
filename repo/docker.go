@@ -473,16 +473,22 @@ func (dm *DockerManager) RemoveImage(imageName string, force bool) error {
 
 func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceConfig {
 	var services []composetypes.ServiceConfig
+	var skipDirs = make(map[string]bool)
 
-	skipDirs := map[string]bool{
-		".git":         true,
-		"packages":     true,
-		"node_modules": true,
-		".idea":        true,
-		".vscode":      true,
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		dm.lm.Log("error", err.Error(), "docker")
+		return services
 	}
 
-	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+	dockerScanSkip := strings.SplitSeq(configs["docker_scan_skip"], ",")
+	for skip := range dockerScanSkip {
+		skip = strings.TrimSpace(skip)
+		skipDirs[skip] = true
+	}
+
+	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -493,7 +499,7 @@ func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceCo
 		}
 
 		if info.Name() == "Dockerfile" {
-			ctxDir := filepath.Dir(path)
+			ctxDir := filepath.Dir(filePath)
 			name := strings.ToLower(filepath.Base(ctxDir))
 			services = append(services, composetypes.ServiceConfig{
 				Name:  name,
