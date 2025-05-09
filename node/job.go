@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/adgsm/trustflow-node/node_types"
 	"github.com/adgsm/trustflow-node/utils"
@@ -19,6 +22,7 @@ type JobManager struct {
 	sm   *ServiceManager
 	wm   *WorkerManager
 	p2pm *P2PManager
+	tm   *utils.TextManager
 }
 
 func NewJobManager(p2pm *P2PManager) *JobManager {
@@ -28,6 +32,7 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),
 		p2pm: p2pm,
+		tm:   utils.NewTextManager(),
 	}
 }
 
@@ -158,7 +163,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	}
 	rows.Close()
 
-	for i, _ := range jobs {
+	for i := range jobs {
 		// Get job interfaces
 		var jobInterface node_types.JobInterface
 		rows, err := jm.db.QueryContext(context.Background(), "select id, job_id, node_id, interface_type, functional_interface, path from job_interfaces where job_id = ?;", jobs[i].Id)
@@ -406,8 +411,27 @@ func (jm *JobManager) ProcessQueue() {
 	}
 	rows.Close()
 
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+
+	maxRetries, err := jm.tm.ToInt(configs["max_job_run_retries"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+	initialBackoff, err := jm.tm.ToInt(configs["job_initial_backoff"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return
+	}
+	backOff := time.Duration(initialBackoff) * time.Second
 	for _, id := range ids {
-		err = jm.RunJob(id)
+		err = jm.RunJobWithRetry(context.Background(), id, maxRetries, backOff)
+		//		err = jm.RunJob(id)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
@@ -484,6 +508,43 @@ func (jm *JobManager) RunJob(jobId int64) error {
 	}
 
 	return nil
+}
+
+func (jm *JobManager) RunJobWithRetry(
+	ctx context.Context,
+	jobId int64,
+	maxRetries int,
+	initialBackoff time.Duration) error {
+	backoff := initialBackoff
+	var lastErr error
+
+	for i := range maxRetries {
+		// Check if context is cancelled before each attempt
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		err := jm.RunJob(jobId)
+		if err == nil {
+			return nil // success
+		}
+
+		lastErr = err
+		if i < maxRetries-1 {
+			// Add jitter to prevent thundering herd
+			jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
+			sleepDuration := backoff + jitter
+
+			select {
+			case <-time.After(sleepDuration):
+				backoff *= 2
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	return fmt.Errorf("after %d retries, last error: %v", maxRetries, lastErr)
 }
 
 func (jm *JobManager) StartJob(id int64) error {
@@ -653,20 +714,35 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 	}
 	//	defer file.Close() // This should be done after streaming is finished
 
+	host := jm.p2pm.h.ID().String()
 	for _, jobInterface := range job.JobInterfaces {
 		// Get peer
 		if jobInterface.FunctionalInterface == "OUTPUT" {
-			p, err := jm.p2pm.GeneratePeerAddrInfo(jobInterface.NodeId)
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
-			}
+			if jobInterface.NodeId == host {
+				// It's own service / data
+				fdir := configs["received_files_storage"] + host + "/" + fmt.Sprintf("%d", job.WorkflowId) + "/"
+				if err = os.MkdirAll(fdir, 0755); err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+				if err = utils.FileCopy(path, fdir+filepath.Base(path), 48*1024); err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+			} else {
+				// Send data to the requesting node
+				p, err := jm.p2pm.GeneratePeerAddrInfo(jobInterface.NodeId)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
 
-			// Connect to peer and start streaming
-			err = StreamData(jm.p2pm, p, file, &job, nil)
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
+				// Connect to peer and start streaming
+				err = StreamData(jm.p2pm, p, file, &job, nil)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
 			}
 		}
 	}
@@ -758,7 +834,7 @@ func (jm *JobManager) checkFileStreamInput(input node_types.JobInterface) error 
 
 	paths := strings.SplitSeq(input.Path, ",")
 	for path := range paths {
-		path = configs["received_files_storage"] + fmt.Sprintf("%d", input.WorkflowId) + "/" + input.NodeId + "/" + strings.TrimSpace(path)
+		path = configs["received_files_storage"] + input.NodeId + "/" + fmt.Sprintf("%d", input.WorkflowId) + "/" + strings.TrimSpace(path)
 
 		// Check if the file exists
 		_, err = os.Stat(path)

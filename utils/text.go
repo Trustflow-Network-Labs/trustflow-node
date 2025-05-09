@@ -47,6 +47,14 @@ func (tm *TextManager) ToInt64(s string) (int64, error) {
 	return i, nil
 }
 
+func (tm *TextManager) ToInt(s string) (int, error) {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
 func (tm *TextManager) ToFloat64(s string) (float64, error) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {

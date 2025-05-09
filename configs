@@ -20,6 +20,10 @@ local_tmp = ./local_storage/tmp/
 local_git_root = ./local_storage/git/
 local_docker_root = ./local_storage/docker/
 
+[job]
+max_job_run_retries = 10
+job_initial_backoff = 60
+
 [repo]
 
 [node]
