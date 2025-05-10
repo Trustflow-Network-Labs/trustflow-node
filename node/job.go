@@ -1,12 +1,10 @@
 package node
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -774,10 +772,8 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 }
 
 func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
-	var inputFiles []*os.File
-	var combinedInput io.Reader
-	var combinedOutput io.Writer
-	var outputFiles []*os.File
+	var inputFiles []string
+	var outputFiles []string
 	var mounts = make(map[string]string)
 	var multiErr error
 
@@ -809,33 +805,18 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 
 	for _, input := range inputs {
 		switch input.InterfaceType {
-		case "FILE STREAM":
-			inputFiles, err = jm.validateFiles(configs["received_files_storage"], input, inputFiles)
+		case "STDIN/STDOUT", "FILE STREAM":
+			inputFiles, err = jm.validatePaths(configs["received_files_storage"], input, inputFiles)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-			defer func() {
-				for _, file := range inputFiles {
-					file.Close()
-				}
-			}()
-
-			// Convert to buffered readers
-			bufferedInputs := make([]io.Reader, len(inputFiles))
-			for i, file := range inputFiles {
-				bufferedInputs[i] = bufio.NewReader(file)
-			}
-
-			// Combine into a single reader (optional)
-			combinedInput = io.MultiReader(bufferedInputs...)
 		case "MOUNTED FILE SYSTEM":
 			mounts, err = jm.validateMounts(configs["received_files_storage"], input, mounts)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-		case "STDIN/STDOUT":
 		default:
 			err := fmt.Errorf("unknown interface type `%s`", input.InterfaceType)
 			jm.lm.Log("error", err.Error(), "jobs")
@@ -845,42 +826,18 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 
 	for _, output := range outputs {
 		switch output.InterfaceType {
-		case "FILE STREAM":
-			outputFiles, err = jm.createFiles(configs["received_files_storage"], output, outputFiles)
+		case "STDIN/STDOUT", "FILE STREAM":
+			outputFiles, err = jm.createPaths(configs["received_files_storage"], output, outputFiles)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-			defer func() {
-				for _, file := range outputFiles {
-					file.Close()
-				}
-			}()
-
-			// Convert to buffered readers
-			bufferedOutputs := make([]io.Writer, len(outputFiles))
-			for i, file := range outputFiles {
-				bufferedOutputs[i] = bufio.NewWriter(file)
-			}
-
-			// Ensure all buffers are flushed at the end
-			defer func() {
-				for _, w := range bufferedOutputs {
-					if bw, ok := w.(*bufio.Writer); ok {
-						bw.Flush() // Flush any remaining data
-					}
-				}
-			}()
-
-			// Combine into a single reader (optional)
-			combinedOutput = io.MultiWriter(bufferedOutputs...)
 		case "MOUNTED FILE SYSTEM":
 			mounts, err = jm.validateMounts(configs["received_files_storage"], output, mounts)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-		case "STDIN/STDOUT":
 		default:
 			err := fmt.Errorf("unknown interface type `%s`", output.InterfaceType)
 			jm.lm.Log("error", err.Error(), "jobs")
@@ -891,7 +848,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	if len(docker.RepoDockerComposes) > 0 {
 		// Run docker-compose
 		for _, compose := range docker.RepoDockerComposes {
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, compose, "", combinedInput, combinedOutput, mounts)
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, compose, "", inputFiles, outputFiles, mounts)
 			for _, err := range errs {
 				jm.lm.Log("error", err.Error(), "jobs")
 				multiErr = errors.Join(multiErr, err)
@@ -904,7 +861,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	} else if len(docker.RepoDockerFiles) > 0 {
 		// Run dockerfiles
 		for range docker.RepoDockerFiles {
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, "", "", combinedInput, combinedOutput, mounts)
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, "", "", inputFiles, outputFiles, mounts)
 			for _, err := range errs {
 				jm.lm.Log("error", err.Error(), "jobs")
 				multiErr = errors.Join(multiErr, err)
@@ -922,7 +879,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, image.ImageTags[0], true, "", "", combinedInput, combinedOutput, mounts)
+			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, image.ImageTags[0], true, "", "", inputFiles, outputFiles, mounts)
 			for _, err := range errs {
 				jm.lm.Log("error", err.Error(), "jobs")
 				multiErr = errors.Join(multiErr, err)
@@ -954,7 +911,7 @@ func (jm *JobManager) dockerExecutionJobInterfaces(jobInterfaces []node_types.Jo
 	return inputs, outputs, nil
 }
 
-func (jm *JobManager) validateFiles(base string, inrfce node_types.JobInterface, files []*os.File) ([]*os.File, error) {
+func (jm *JobManager) validatePaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
 	paths := strings.SplitSeq(inrfce.Path, ",")
 	for path := range paths {
 		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
@@ -966,23 +923,13 @@ func (jm *JobManager) validateFiles(base string, inrfce node_types.JobInterface,
 			return nil, err
 		}
 
-		file, err := os.Open(path)
-		if err != nil {
-			for _, file := range files {
-				file.Close()
-			}
-			jm.lm.Log("error", err.Error(), "jobs")
-			return nil, err
-		}
-		//		defer file.Close()
-
-		files = append(files, file)
+		files = append(files, path)
 	}
 
 	return files, nil
 }
 
-func (jm *JobManager) createFiles(base string, inrfce node_types.JobInterface, files []*os.File) ([]*os.File, error) {
+func (jm *JobManager) createPaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
 	paths := strings.SplitSeq(inrfce.Path, ",")
 	for path := range paths {
 		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
@@ -994,17 +941,8 @@ func (jm *JobManager) createFiles(base string, inrfce node_types.JobInterface, f
 			return nil, err
 		}
 
-		file, err := os.Create(path)
-		if err != nil {
-			for _, file := range files {
-				file.Close()
-			}
-			jm.lm.Log("error", err.Error(), "jobs")
-			return nil, err
-		}
-		//		defer file.Close()
+		files = append(files, path)
 
-		files = append(files, file)
 	}
 
 	return files, nil

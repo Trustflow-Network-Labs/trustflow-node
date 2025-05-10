@@ -525,13 +525,16 @@ func (dm *DockerManager) runService(
 	jobId int64,
 	cli *client.Client,
 	svc composetypes.ServiceConfig,
-	input io.Reader,
-	output io.Writer,
+	inputs []string,
+	outputs []string,
 	mounts map[string]string,
 ) (string, node_types.DockerImage, error) {
 	var image node_types.DockerImage
 	var err error
-	ctx := context.Background()
+
+	// Add context with timeout to container operations
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	if svc.Build != nil {
 		dockerfile := svc.Build.Dockerfile
@@ -597,11 +600,11 @@ func (dm *DockerManager) runService(
 		Image:        svc.Image,
 		Cmd:          cmd,
 		Tty:          false,
-		OpenStdin:    input != nil,
-		StdinOnce:    input != nil,
-		AttachStdin:  input != nil,
-		AttachStdout: output != nil,
-		AttachStderr: output != nil,
+		OpenStdin:    inputs != nil,
+		StdinOnce:    inputs != nil,
+		AttachStdin:  inputs != nil,
+		AttachStdout: outputs != nil,
+		AttachStderr: outputs != nil,
 	}, hostConfig, netConfig, platform, svc.Name)
 	if err != nil {
 		return "", image, err
@@ -626,7 +629,7 @@ func (dm *DockerManager) runService(
 
 	attachResp, err := cli.ContainerAttach(ctx, resp.ID, container.AttachOptions{
 		Stream: true,
-		Stdin:  input != nil,
+		Stdin:  inputs != nil,
 		Stdout: true,
 		Stderr: true,
 	})
@@ -642,25 +645,94 @@ func (dm *DockerManager) runService(
 	dm.lm.Log("info", fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12]), "docker")
 
 	var wgIO sync.WaitGroup
-	if input != nil {
+	errChanIn := make(chan error, 1)
+	if inputs != nil {
 		wgIO.Add(1)
 		go func() {
 			defer wgIO.Done()
-			if input != nil {
-				_, _ = io.Copy(io.MultiWriter(attachResp.Conn, stdinFile), input)
+			var files []*os.File
+			// Convert to buffered readers
+			bufferedInputs := make([]io.Reader, len(inputs))
+			for i, input := range inputs {
+				file, err := os.Open(input)
+				if err != nil {
+					errChanIn <- err
+					return
+				}
+				files = append(files, file)
+				bufferedInputs[i] = bufio.NewReader(file)
 			}
-			_ = attachResp.CloseWrite()
+			defer func() {
+				for _, f := range files {
+					f.Close()
+				}
+			}()
+
+			// Combine into a single reader (optional)
+			combinedInput := io.MultiReader(bufferedInputs...)
+
+			written, err := io.Copy(io.MultiWriter(attachResp.Conn, stdinFile), combinedInput)
+			if err != nil {
+				dm.lm.Log("error", fmt.Sprintf("Failed to copy to stdin: %v", err), "docker")
+				errChanIn <- err
+				return
+			}
+			dm.lm.Log("debug", fmt.Sprintf("Copied %d bytes to stdin", written), "docker")
+			if err := attachResp.CloseWrite(); err != nil {
+				dm.lm.Log("error", fmt.Sprintf("Failed to close stdin: %v", err), "docker")
+				errChanIn <- err
+				return
+			}
+			errChanIn <- nil
 		}()
 	}
 
+	errChanOut := make(chan error, 1)
 	wgIO.Add(1)
 	go func() {
 		defer wgIO.Done()
 		var stdoutWriter io.Writer = stdoutFile
-		if output != nil {
-			stdoutWriter = io.MultiWriter(output, stdoutFile)
+		if outputs != nil {
+			var files []*os.File
+			// Convert to buffered readers
+			bufferedOutputs := make([]io.Writer, len(outputs))
+			for i, output := range outputs {
+				file, err := os.Create(output)
+				if err != nil {
+					errChanIn <- err
+					return
+				}
+				files = append(files, file)
+				bufferedOutputs[i] = bufio.NewWriter(file)
+			}
+			defer func() {
+				for _, f := range files {
+					f.Close()
+				}
+			}()
+
+			// Ensure all buffers are flushed at the end
+			defer func() {
+				for _, w := range bufferedOutputs {
+					if bw, ok := w.(*bufio.Writer); ok {
+						bw.Flush() // Flush any remaining data
+					}
+				}
+			}()
+
+			// Combine into a single reader (optional)
+			combinedOutput := io.MultiWriter(bufferedOutputs...)
+
+			stdoutWriter = io.MultiWriter(combinedOutput, stdoutFile)
 		}
-		_, _ = stdcopy.StdCopy(stdoutWriter, stderrFile, attachResp.Reader)
+		written, err := stdcopy.StdCopy(stdoutWriter, stderrFile, attachResp.Reader)
+		if err != nil {
+			dm.lm.Log("error", fmt.Sprintf("Failed to copy to stdout: %v", err), "docker")
+			errChanOut <- err
+			return
+		}
+		dm.lm.Log("debug", fmt.Sprintf("Copied %d bytes to stdout", written), "docker")
+		errChanOut <- nil
 	}()
 
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
@@ -670,7 +742,15 @@ func (dm *DockerManager) runService(
 		return resp.ID, image, err
 	}
 
+	// Wait for the goroutine to complete and get the error
 	wgIO.Wait()
+	if errIn := <-errChanIn; errIn != nil {
+		return "", image, fmt.Errorf("input copy failed: %w", errIn)
+	}
+	if errOut := <-errChanOut; errOut != nil {
+		return "", image, fmt.Errorf("output copy failed: %w", errOut)
+	}
+
 	attachResp.Close()
 
 	go dm.streamLogs(cli, resp.ID, svc.Name)
@@ -730,8 +810,8 @@ func (dm *DockerManager) Run(
 	cleanup bool,
 	composeFile string,
 	envFile string,
-	input io.Reader,
-	output io.Writer,
+	inputs []string,
+	outputs []string,
 	mounts map[string]string) ([]string, []node_types.DockerImage, []error) {
 	var (
 		project     *composetypes.Project
@@ -872,7 +952,7 @@ func (dm *DockerManager) Run(
 				}
 
 				// Run container
-				id, image, err = dm.runService(jobId, cli, svc, input, output, mounts)
+				id, image, err = dm.runService(jobId, cli, svc, inputs, outputs, mounts)
 				if err == nil {
 					mu.Lock()
 					started = append(started, id)
