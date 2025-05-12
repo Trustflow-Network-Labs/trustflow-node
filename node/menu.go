@@ -17,6 +17,7 @@ import (
 	"github.com/adgsm/trustflow-node/utils"
 	"github.com/adgsm/trustflow-node/workflow"
 	"github.com/fatih/color"
+	"github.com/google/shlex"
 	"github.com/manifoldco/promptui"
 	"github.com/olekukonko/tablewriter"
 )
@@ -1589,12 +1590,9 @@ func (mm *MenuManager) imageEntrypointCommands(epoint, cmd []string) ([]string, 
 		return nil, nil, err
 	}
 
-	// Make sure to exclude empty strings
-	entrypoint := strings.FieldsFunc(epResult, func(r rune) bool {
-		return r == ' '
-	})
-	for i, _ := range entrypoint {
-		entrypoint[i] = strings.TrimSpace(entrypoint[i])
+	entrypoint, err := shlex.Split(epResult)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Ask for custom commands
@@ -1603,12 +1601,9 @@ func (mm *MenuManager) imageEntrypointCommands(epoint, cmd []string) ([]string, 
 		return nil, nil, err
 	}
 
-	// Make sure to exclude empty strings
-	commands := strings.FieldsFunc(cmdResult, func(r rune) bool {
-		return r == ' '
-	})
-	for i, _ := range commands {
-		commands[i] = strings.TrimSpace(commands[i])
+	commands, err := shlex.Split(cmdResult)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return entrypoint, commands, nil

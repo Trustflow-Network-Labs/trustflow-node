@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/shlex"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -290,13 +291,9 @@ const timeLayout = time.RFC3339
 func (js *JobSql) ToJob() Job {
 	var started, ended time.Time
 
-	entrypoint := strings.FieldsFunc(js.Entrypoint, func(r rune) bool {
-		return r == ' '
-	})
+	entrypoint, _ := shlex.Split(js.Entrypoint)
 
-	commands := strings.FieldsFunc(js.Commands, func(r rune) bool {
-		return r == ' '
-	})
+	commands, _ := shlex.Split(js.Commands)
 
 	if js.Started != "" {
 		started, _ = time.Parse(timeLayout, js.Started)
