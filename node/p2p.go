@@ -1191,7 +1191,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				return
 			}
 
-			err = jobManager.StatusUpdate(job, job.Status)
+			err = jobManager.StatusUpdate(job.Id, job.Status)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Close()

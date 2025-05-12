@@ -217,6 +217,8 @@ CREATE TABLE IF NOT EXISTS docker_service_images (
 	"service_details_id" INTEGER NOT NULL,
 	"image_id" TEXT NOT NULL,
 	"image_name" TEXT NOT NULL,
+	"image_entry_points" TEXT DEFAULT '',
+	"image_commands" TEXT DEFAULT '',
 	"image_tags" TEXT DEFAULT '',
 	"image_digests" TEXT DEFAULT '',
 	"timestamp" TEXT NOT NULL,
@@ -295,6 +297,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"execution_constraint" VARCHAR(20) CHECK( "execution_constraint" IN ('NONE', 'INPUTS READY', 'DATETIME', 'JOBS EXECUTED', 'MANUAL START') ) NOT NULL DEFAULT 'NONE',
 	"execution_constraint_detail" TEXT DEFAULT '',
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'READY', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
+	"entrypoint" TEXT DEFAULT '',
+	"commands" TEXT DEFAULT '',
 	"started" TEXT DEFAULT '',
 	"ended" TEXT DEFAULT '',
 	FOREIGN KEY("service_id") REFERENCES services("id")

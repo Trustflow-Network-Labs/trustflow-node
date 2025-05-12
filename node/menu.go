@@ -277,6 +277,8 @@ func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceRe
 
 // Print request service sub-menu
 func (mm *MenuManager) requestService() error {
+	var entrypoint, commands []string
+
 	// Service Id
 	sidResult, err := mm.inputPromptHelper("Service ID", "", mm.vm.NotEmpty, nil)
 	if err != nil {
@@ -316,6 +318,13 @@ func (mm *MenuManager) requestService() error {
 	if err != nil {
 		fmt.Printf("Service Id %s seems to be invalid Id: %s\n", sid, err.Error())
 		return err
+	}
+	if !(serviceOffer.Type == "DATA") {
+		entrypoint, commands, err = mm.imageEntrypointCommands(serviceOffer.Entrypoint, serviceOffer.Commands)
+		if err != nil {
+			fmt.Printf("Collecting service entrypoint and commands failed for service ID: %s. Error: %s\n", sid, err.Error())
+			return err
+		}
 	}
 
 	// Collect job interfaces
@@ -477,7 +486,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	}
 
-	err = mm.jm.RequestService(peer, workflowId, serviceId, serviceRequestInterfaces, cResult, "")
+	err = mm.jm.RequestService(peer, workflowId, serviceId, entrypoint, commands, serviceRequestInterfaces, cResult, "")
 	if err != nil {
 		fmt.Printf("Requesting service failed: %s\n", err.Error())
 		return err
@@ -1404,7 +1413,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 
 	// Run docker & build image(s)
 	dockerManager := repo.NewDockerManager()
-	_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil)
+	_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
 			msg := fmt.Sprintf("\U00002757 Building image(s) from repo '%s' ended with following error: %s\n", gruResult, err.Error())
@@ -1427,6 +1436,19 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 			"Does the service's image produce outputs")
 		if err != nil {
 			return err
+		}
+
+		entrypoint, commands, err := mm.imageEntrypointCommands(img.EntryPoints, img.Commands)
+		if err != nil {
+			return err
+		}
+
+		if len(entrypoint) > 0 {
+			img.EntryPoints = entrypoint
+		}
+
+		if len(commands) > 0 {
+			img.Commands = commands
 		}
 
 		imageWithInterfaces := node_types.DockerImageWithInterfaces{
@@ -1483,7 +1505,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Pull image
-	_, images, errors := dockerManager.Run("", 0, true, pediResult, true, "", "", nil, nil, nil)
+	_, images, errors := dockerManager.Run("", 0, true, pediResult, true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
 			msg := fmt.Sprintf("\U00002757 Pulling image '%s' ended with following error: %s\n", pediResult, err.Error())
@@ -1505,6 +1527,19 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 			"Does the service's image produce outputs")
 		if err != nil {
 			return err
+		}
+
+		entrypoint, commands, err := mm.imageEntrypointCommands(img.EntryPoints, img.Commands)
+		if err != nil {
+			return err
+		}
+
+		if len(entrypoint) > 0 {
+			img.EntryPoints = entrypoint
+		}
+
+		if len(commands) > 0 {
+			img.Commands = commands
 		}
 
 		imageWithInterfaces := node_types.DockerImageWithInterfaces{
@@ -1541,6 +1576,42 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	return nil
+}
+
+func (mm *MenuManager) imageEntrypointCommands(epoint, cmd []string) ([]string, []string, error) {
+	// Extract defaults
+	sentrypoint := strings.Join(epoint, " ")
+	scommands := strings.Join(cmd, " ")
+
+	// Ask for custom entrypoint
+	epResult, err := mm.inputPromptHelper("Please provide the Docker image Entrypoint (optional)", sentrypoint, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Make sure to exclude empty strings
+	entrypoint := strings.FieldsFunc(epResult, func(r rune) bool {
+		return r == ' '
+	})
+	for i, _ := range entrypoint {
+		entrypoint[i] = strings.TrimSpace(entrypoint[i])
+	}
+
+	// Ask for custom commands
+	cmdResult, err := mm.inputPromptHelper("Please provide the Docker image Commands (optional)", scommands, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Make sure to exclude empty strings
+	commands := strings.FieldsFunc(cmdResult, func(r rune) bool {
+		return r == ' '
+	})
+	for i, _ := range commands {
+		commands[i] = strings.TrimSpace(commands[i])
+	}
+
+	return entrypoint, commands, nil
 }
 
 func (mm *MenuManager) setServiceActive(active bool) error {

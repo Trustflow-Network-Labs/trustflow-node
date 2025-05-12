@@ -31,7 +31,7 @@ func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(id int64, jm *JobManager) error {
+func (wm *WorkerManager) StartWorker(mctx context.Context, id int64, jm *JobManager) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -39,7 +39,7 @@ func (wm *WorkerManager) StartWorker(id int64, jm *JobManager) error {
 		return fmt.Errorf("worker %d already exists", id)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(mctx)
 	worker := &Worker{
 		ID:       id,
 		ctx:      ctx,
@@ -111,6 +111,14 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 		errCh := make(chan error, 1)
 
 		go func() {
+			// Set job status to RUNNING
+			jm.UpdateJobStatus(w.ID, "RUNNING")
+
+			// Send job status update to remote node
+			go func() {
+				jm.StatusUpdate(w.ID, "RUNNING")
+			}()
+
 			errCh <- jm.StartJob(w.ID)
 		}()
 
@@ -118,10 +126,23 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 		case <-w.ctx.Done():
 			msg := fmt.Sprintf("Worker %d: Context cancelled\n", w.ID)
 			p2pm.lm.Log("info", msg, "worker")
+
+			// Set job status to COMPLETED
+			jm.UpdateJobStatus(w.ID, "COMPLETED")
+
+			// Send job status update to remote node
+			go func() {
+				jm.StatusUpdate(w.ID, "COMPLETED")
+			}()
+
 		case err := <-errCh:
 			if err != nil {
 				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
 				p2pm.lm.Log("error", msg, "worker")
+
+				// Set job status to ERRORED
+				// Send job status update to remote node
+				jm.logAndEmitJobError(w.ID, err)
 			}
 		}
 	}()

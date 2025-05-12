@@ -2,6 +2,7 @@ package node_types
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,8 @@ type DockerServiceImage struct {
 	ServiceDetailsId int64                         `json:"service_details_id"`
 	ImageId          string                        `json:"image_id"`
 	ImageName        string                        `json:"image_name"`
+	ImageEntryPoints []string                      `json:"image_entry_points"`
+	ImageCommands    []string                      `json:"image_commands"`
 	ImageTags        []string                      `json:"image_tags"`
 	ImageDigests     []string                      `json:"image_digests"`
 	Timestamp        time.Time                     `json:"timestamp"`
@@ -163,6 +166,8 @@ type ServiceRequest struct {
 	NodeId                    string                    `json:"node_id"`
 	WorkflowId                int64                     `json:"workflow_id"`
 	ServiceId                 int64                     `json:"service_id"`
+	Entrypoint                []string                  `json:"entrypoint"`
+	Commands                  []string                  `json:"commands"`
 	Interfaces                []ServiceRequestInterface `json:"interfaces"`
 	ExecutionConstraint       string                    `json:"execution_constraint"`
 	ExecutionConstraintDetail string                    `json:"execution_constraint_detail"`
@@ -188,6 +193,8 @@ type ServiceOffer struct {
 	Service
 	NodeId            string                        `json:"node_id"`
 	Interfaces        []Interface                   `json:"interfaces"`
+	Entrypoint        []string                      `json:"entrypoint"`
+	Commands          []string                      `json:"commands"`
 	ServicePriceModel []ServiceResourcesWithPricing `json:"service_price_model"`
 	LastSeen          time.Time                     `json:"last_seen"`
 }
@@ -254,6 +261,8 @@ type JobBase struct {
 // Declare job type
 type Job struct {
 	JobBase
+	Entrypoint    []string       `json:"entrypoint"`
+	Commands      []string       `json:"commands"`
 	JobInterfaces []JobInterface `json:"job_interfaces"`
 	Started       time.Time      `json:"started"`
 	Ended         time.Time      `json:"ended"`
@@ -262,8 +271,10 @@ type Job struct {
 // Declare job sql type
 type JobSql struct {
 	JobBase
-	Started string `json:"started"`
-	Ended   string `json:"ended"`
+	Entrypoint string `json:"entrypoint"`
+	Commands   string `json:"commands"`
+	Started    string `json:"started"`
+	Ended      string `json:"ended"`
 }
 
 // Declare job interfaces base struct
@@ -279,6 +290,14 @@ const timeLayout = time.RFC3339
 func (js *JobSql) ToJob() Job {
 	var started, ended time.Time
 
+	entrypoint := strings.FieldsFunc(js.Entrypoint, func(r rune) bool {
+		return r == ' '
+	})
+
+	commands := strings.FieldsFunc(js.Commands, func(r rune) bool {
+		return r == ' '
+	})
+
 	if js.Started != "" {
 		started, _ = time.Parse(timeLayout, js.Started)
 	}
@@ -287,14 +306,19 @@ func (js *JobSql) ToJob() Job {
 	}
 
 	return Job{
-		JobBase: js.JobBase,
-		Started: started,
-		Ended:   ended,
+		JobBase:    js.JobBase,
+		Entrypoint: entrypoint,
+		Commands:   commands,
+		Started:    started,
+		Ended:      ended,
 	}
 }
 
 func (j *Job) ToJobSql() JobSql {
 	var started, ended string
+
+	entrypoint := strings.Join(j.Entrypoint, " ")
+	commands := strings.Join(j.Commands, " ")
 
 	if !j.Started.IsZero() {
 		started = j.Started.Format(timeLayout)
@@ -303,9 +327,11 @@ func (j *Job) ToJobSql() JobSql {
 		ended = j.Ended.Format(timeLayout)
 	}
 	return JobSql{
-		JobBase: j.JobBase,
-		Started: started,
-		Ended:   ended,
+		JobBase:    j.JobBase,
+		Entrypoint: entrypoint,
+		Commands:   commands,
+		Started:    started,
+		Ended:      ended,
 	}
 }
 
@@ -338,11 +364,13 @@ type JobRunStatus struct {
 
 // Declare docker image type
 type DockerImage struct {
-	Id      string    `json:"id"`
-	Name    string    `json:"name"`
-	Tags    []string  `json:"tags"`
-	Digests []string  `json:"digests"`
-	BuiltAt time.Time `json:"built_at"`
+	Id          string    `json:"id"`
+	Name        string    `json:"name"`
+	EntryPoints []string  `json:"entry_points"`
+	Commands    []string  `json:"commands"`
+	Tags        []string  `json:"tags"`
+	Digests     []string  `json:"digests"`
+	BuiltAt     time.Time `json:"built_at"`
 }
 
 // Declare docker image with Interfaces type

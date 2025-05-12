@@ -390,7 +390,11 @@ func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName st
 	return nil
 }
 
-func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, dockerfile string) (node_types.DockerImage, error) {
+func (dm *DockerManager) buildImage(
+	cli *client.Client,
+	contextDir, imageName, dockerfile string,
+	entrypoint, cmd []string,
+) (node_types.DockerImage, error) {
 	var dockerImage node_types.DockerImage
 	ctx := context.Background()
 	tarBuf, err := dm.tarDirectory(contextDir)
@@ -432,11 +436,13 @@ func (dm *DockerManager) buildImage(cli *client.Client, contextDir, imageName, d
 	}
 
 	dockerImage = node_types.DockerImage{
-		Id:      img.ID,
-		Name:    imageName,
-		Tags:    img.RepoTags,
-		Digests: img.RepoDigests,
-		BuiltAt: time.Now(),
+		Id:          img.ID,
+		Name:        imageName,
+		EntryPoints: entrypoint,
+		Commands:    cmd,
+		Tags:        img.RepoTags,
+		Digests:     img.RepoDigests,
+		BuiltAt:     time.Now(),
 	}
 
 	return dockerImage, err
@@ -528,6 +534,7 @@ func (dm *DockerManager) runService(
 	inputs []string,
 	outputs []string,
 	mounts map[string]string,
+	entrypoint, cmd []string,
 ) (string, node_types.DockerImage, error) {
 	var image node_types.DockerImage
 	var err error
@@ -541,7 +548,14 @@ func (dm *DockerManager) runService(
 		if dockerfile == "" {
 			dockerfile = "Dockerfile"
 		}
-		if image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile); err != nil {
+		if image, err = dm.buildImage(
+			cli,
+			svc.Build.Context,
+			svc.Image,
+			dockerfile,
+			entrypoint,
+			cmd,
+		); err != nil {
 			return "", image, err
 		}
 	}
@@ -563,11 +577,13 @@ func (dm *DockerManager) runService(
 		return "", image, err
 	}
 	image = node_types.DockerImage{
-		Id:      meta.ID,
-		Name:    svc.Image,
-		Tags:    meta.RepoTags,
-		Digests: meta.RepoDigests,
-		BuiltAt: time.Now(), // Not really built, but we use it for consistency
+		Id:          meta.ID,
+		Name:        svc.Image,
+		EntryPoints: meta.Config.Entrypoint,
+		Commands:    meta.Config.Cmd,
+		Tags:        meta.RepoTags,
+		Digests:     meta.RepoDigests,
+		BuiltAt:     time.Now(), // Not really built, but we use it for consistency
 	}
 
 	hostConfig := &container.HostConfig{Binds: []string{}}
@@ -589,16 +605,24 @@ func (dm *DockerManager) runService(
 		netConfig.EndpointsConfig[name] = &network.EndpointSettings{}
 	}
 
-	var cmd strslice.StrSlice
-	if len(svc.Command) > 0 {
-		cmd = strslice.StrSlice(svc.Command)
+	// Use custom entrypoint/cmd if provided, otherwise fall back to image defaults
+	containerCmd := cmd
+	if len(containerCmd) == 0 && len(svc.Command) > 0 {
+		containerCmd = svc.Command
 	}
+	containerCmd = strslice.StrSlice(containerCmd)
+	entryPoint := entrypoint
+	if len(entryPoint) == 0 && len(svc.Entrypoint) > 0 {
+		entryPoint = svc.Entrypoint
+	}
+	entryPoint = strslice.StrSlice(entryPoint)
 
 	platform := dm.getPlatform(cli)
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        svc.Image,
-		Cmd:          cmd,
+		Entrypoint:   entrypoint,
+		Cmd:          containerCmd,
 		Tty:          false,
 		OpenStdin:    inputs != nil,
 		StdinOnce:    inputs != nil,
@@ -685,6 +709,12 @@ func (dm *DockerManager) runService(
 			}
 			errChanIn <- nil
 		}()
+	} else {
+		errChanIn <- nil
+	}
+
+	if errIn := <-errChanIn; errIn != nil {
+		return "", image, fmt.Errorf("input copy failed: %w", errIn)
 	}
 
 	errChanOut := make(chan error, 1)
@@ -699,7 +729,7 @@ func (dm *DockerManager) runService(
 			for i, output := range outputs {
 				file, err := os.Create(output)
 				if err != nil {
-					errChanIn <- err
+					errChanOut <- err
 					return
 				}
 				files = append(files, file)
@@ -725,6 +755,7 @@ func (dm *DockerManager) runService(
 
 			stdoutWriter = io.MultiWriter(combinedOutput, stdoutFile)
 		}
+
 		written, err := stdcopy.StdCopy(stdoutWriter, stderrFile, attachResp.Reader)
 		if err != nil {
 			dm.lm.Log("error", fmt.Sprintf("Failed to copy to stdout: %v", err), "docker")
@@ -735,6 +766,10 @@ func (dm *DockerManager) runService(
 		errChanOut <- nil
 	}()
 
+	if errOut := <-errChanOut; errOut != nil {
+		return "", image, fmt.Errorf("output copy failed: %w", errOut)
+	}
+
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case <-statusCh:
@@ -744,12 +779,6 @@ func (dm *DockerManager) runService(
 
 	// Wait for the goroutine to complete and get the error
 	wgIO.Wait()
-	if errIn := <-errChanIn; errIn != nil {
-		return "", image, fmt.Errorf("input copy failed: %w", errIn)
-	}
-	if errOut := <-errChanOut; errOut != nil {
-		return "", image, fmt.Errorf("output copy failed: %w", errOut)
-	}
 
 	attachResp.Close()
 
@@ -810,9 +839,10 @@ func (dm *DockerManager) Run(
 	cleanup bool,
 	composeFile string,
 	envFile string,
-	inputs []string,
-	outputs []string,
-	mounts map[string]string) ([]string, []node_types.DockerImage, []error) {
+	inputs, outputs []string,
+	mounts map[string]string,
+	entrypoint, cmd []string,
+) ([]string, []node_types.DockerImage, []error) {
 	var (
 		project     *composetypes.Project
 		images      []node_types.DockerImage
@@ -910,7 +940,14 @@ func (dm *DockerManager) Run(
 				if dockerfile == "" {
 					dockerfile = "Dockerfile"
 				}
-				image, err = dm.buildImage(cli, svc.Build.Context, svc.Image, dockerfile)
+				image, err = dm.buildImage(
+					cli,
+					svc.Build.Context,
+					svc.Image,
+					dockerfile,
+					entrypoint,
+					cmd,
+				)
 				if err == nil {
 					images = append(images, image)
 				}
@@ -920,11 +957,13 @@ func (dm *DockerManager) Run(
 					img, ierr := dm.imageMetadata(cli, svc.Image)
 					if ierr == nil {
 						image := node_types.DockerImage{
-							Id:      img.ID,
-							Name:    svc.Name,
-							Tags:    img.RepoTags,
-							Digests: img.RepoDigests,
-							BuiltAt: time.Now(),
+							Id:          img.ID,
+							Name:        svc.Name,
+							EntryPoints: img.Config.Entrypoint,
+							Commands:    img.Config.Cmd,
+							Tags:        img.RepoTags,
+							Digests:     img.RepoDigests,
+							BuiltAt:     time.Now(),
 						}
 						images = append(images, image)
 					}
@@ -952,19 +991,27 @@ func (dm *DockerManager) Run(
 				}
 
 				// Run container
-				id, image, err = dm.runService(jobId, cli, svc, inputs, outputs, mounts)
+				id, image, err = dm.runService(
+					jobId,
+					cli,
+					svc,
+					inputs,
+					outputs,
+					mounts,
+					entrypoint,
+					cmd,
+				)
 				if err == nil {
 					mu.Lock()
 					started = append(started, id)
 					mu.Unlock()
 				} else {
 					msg := fmt.Sprintf("Failed to start service %s: %v", svc.Name, err)
-					dm.lm.Log("warn", msg, "docker")
+					dm.lm.Log("error", msg, "docker")
 					fmt.Println(msg)
 				}
 				images = append(images, image)
 			}
-
 			if err != nil {
 				errsMu.Lock()
 				errrs = append(errrs, fmt.Errorf("service %s: %w", svc.Name, err))

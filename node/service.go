@@ -103,7 +103,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 	var dockerService node_types.DockerService
 	var dockerServiceImages []node_types.DockerServiceImage
 	var dockerServiceImageInterfaces []node_types.DockerServiceImageInterface
-	var dockerFiles, dockerComposes, tags, digests string
+	var dockerFiles, dockerComposes, entryPoints, commands, tags, digests string
 
 	if serviceId <= 0 {
 		msg := "invalid service id"
@@ -137,7 +137,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 	// Get docker service images with interfaces
 	rows, err := sm.db.QueryContext(
 		context.Background(),
-		"select id, service_details_id, image_id, image_name, image_tags, image_digests, timestamp from docker_service_images where service_details_id = ?;",
+		"select id, service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, timestamp from docker_service_images where service_details_id = ?;",
 		dockerService.Id)
 	if err != nil {
 		msg := err.Error()
@@ -149,12 +149,14 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		var tmstmp string
 		err = rows.Scan(&dockerServiceImage.Id, &dockerServiceImage.ServiceDetailsId,
 			&dockerServiceImage.ImageId, &dockerServiceImage.ImageName,
-			&tags, &digests, &tmstmp)
+			&entryPoints, &commands, &tags, &digests, &tmstmp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
 			return dockerService, err
 		}
+		dockerServiceImage.ImageEntryPoints = strings.Split(entryPoints, ",")
+		dockerServiceImage.ImageCommands = strings.Split(commands, ",")
 		dockerServiceImage.ImageTags = strings.Split(tags, ",")
 		dockerServiceImage.ImageDigests = strings.Split(digests, ",")
 		dockerServiceImage.Timestamp, err = time.Parse(time.RFC3339, tmstmp)
@@ -438,13 +440,15 @@ func (sm *ServiceManager) addDockerImages(
 	sm.lm.Log("debug", fmt.Sprintf("add docker service images to docker service ID %d", dockerServiceId), "services")
 
 	for _, imageWithInterfaces := range imagesWithInterfaces {
+		entryPoints := strings.Join(imageWithInterfaces.EntryPoints, ",")
+		commands := strings.Join(imageWithInterfaces.Commands, ",")
 		tags := strings.Join(imageWithInterfaces.Tags, ",")
 		digests := strings.Join(imageWithInterfaces.Digests, ",")
 		timestamp := imageWithInterfaces.BuiltAt.Format(time.RFC3339)
 		result, err := sm.db.ExecContext(
 			context.Background(),
-			"insert into docker_service_images (service_details_id, image_id, image_name, image_tags, image_digests, timestamp) values (?, ?, ?, ?, ?, ?);",
-			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, tags, digests, timestamp)
+			"insert into docker_service_images (service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, timestamp) values (?, ?, ?, ?, ?, ?, ?, ?);",
+			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, entryPoints, commands, tags, digests, timestamp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -867,6 +871,8 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 			for _, image := range dockerService.Images {
 				for _, dintfce := range image.Intefaces {
 					services[i].Interfaces = append(services[i].Interfaces, dintfce.Interface)
+					services[i].Entrypoint = image.ImageEntryPoints
+					services[i].Commands = image.ImageCommands
 				}
 			}
 		case "STANDALONE EXECUTABLE":

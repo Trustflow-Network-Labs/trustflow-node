@@ -81,9 +81,9 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	}
 
 	// Get job
-	row := jm.db.QueryRowContext(context.Background(), "select id, workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
+	row := jm.db.QueryRowContext(context.Background(), "select id, workflow_id, service_id, entrypoint, commands, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where id = ?;", id)
 
-	err = row.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+	err = row.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.Entrypoint, &jobSql.Commands, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("debug", msg, "jobs")
@@ -146,7 +146,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 		sqlPatch = " AND (status = 'IDLE' OR status = 'READY' OR status = 'RUNNING') "
 	}
 
-	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
+	rows, err := jm.db.QueryContext(context.Background(), fmt.Sprintf("select id, workflow_id, service_id, entrypoint, commands, ordering_node_id, execution_constraint, execution_constraint_detail, status, started, ended from jobs where service_id = ? %s limit ? offset ?;", sqlPatch),
 		serviceId, limit, offset)
 	if err != nil {
 		msg := err.Error()
@@ -155,7 +155,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
+		err = rows.Scan(&jobSql.Id, &jobSql.WorkflowId, &jobSql.ServiceId, &jobSql.Entrypoint, &jobSql.Commands, &jobSql.OrderingNodeId, &jobSql.ExecutionConstraint, &jobSql.ExecutionConstraintDetail, &jobSql.Status, &jobSql.Started, &jobSql.Ended)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -219,7 +219,14 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	return nil
 }
 
-func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, serviceId int64, Interfaces []node_types.ServiceRequestInterface, constr string, constrDet string) error {
+func (jm *JobManager) RequestService(
+	peer peer.AddrInfo,
+	workflowId int64,
+	serviceId int64,
+	entrypoint, commands []string,
+	Interfaces []node_types.ServiceRequestInterface,
+	constr, constrDet string,
+) error {
 	_, err := jm.p2pm.ConnectNode(peer)
 	if err != nil {
 		msg := err.Error()
@@ -231,6 +238,8 @@ func (jm *JobManager) RequestService(peer peer.AddrInfo, workflowId int64, servi
 		NodeId:                    peer.ID.String(),
 		WorkflowId:                workflowId,
 		ServiceId:                 serviceId,
+		Entrypoint:                entrypoint,
+		Commands:                  commands,
 		Interfaces:                Interfaces,
 		ExecutionConstraint:       constr,
 		ExecutionConstraintDetail: constrDet,
@@ -331,8 +340,11 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 	// Create new job
 	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
 
-	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (workflow_id, service_id, ordering_node_id, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?);",
-		serviceRequest.WorkflowId, serviceRequest.ServiceId, orderingNode, serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
+	entrypoint := strings.Join(serviceRequest.Entrypoint, " ")
+	commands := strings.Join(serviceRequest.Commands, " ")
+
+	result, err := jm.db.ExecContext(context.Background(), "insert into jobs (workflow_id, service_id, entrypoint, commands, ordering_node_id, execution_constraint, execution_constraint_detail) values (?, ?, ?, ?, ?, ?, ?);",
+		serviceRequest.WorkflowId, serviceRequest.ServiceId, entrypoint, commands, orderingNode, serviceRequest.ExecutionConstraint, serviceRequest.ExecutionConstraintDetail)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -384,6 +396,8 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 
 	job = node_types.Job{
 		JobBase:       jobBase,
+		Entrypoint:    serviceRequest.Entrypoint,
+		Commands:      serviceRequest.Commands,
 		JobInterfaces: jobInterfaces,
 	}
 
@@ -434,12 +448,7 @@ func (jm *JobManager) ProcessQueue() {
 	}
 	backOff := time.Duration(initialBackoff) * time.Second
 	for _, id := range ids {
-		err = jm.RunJobWithRetry(context.Background(), id, maxRetries, backOff)
-		//		err = jm.RunJob(id)
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-			return
-		}
+		go jm.RunJobWithRetry(context.Background(), id, maxRetries, backOff)
 	}
 }
 
@@ -478,7 +487,7 @@ func (jm *JobManager) RequestWorkflowJobsStatusUpdates() {
 }
 
 // Run job from a queue
-func (jm *JobManager) RunJob(jobId int64) error {
+func (jm *JobManager) RunJob(ctx context.Context, jobId int64) error {
 	// Get job from a queue
 	job, err := jm.GetJob(jobId)
 	if err != nil {
@@ -496,7 +505,7 @@ func (jm *JobManager) RunJob(jobId int64) error {
 		return err
 	}
 
-	err = jm.wm.StartWorker(jobId, jm)
+	err = jm.wm.StartWorker(ctx, jobId, jm)
 	if err != nil {
 		// Stop worker
 		serr := jm.wm.StopWorker(jobId)
@@ -518,7 +527,8 @@ func (jm *JobManager) RunJobWithRetry(
 	ctx context.Context,
 	jobId int64,
 	maxRetries int,
-	initialBackoff time.Duration) error {
+	initialBackoff time.Duration,
+) error {
 	backoff := initialBackoff
 	var lastErr error
 
@@ -528,7 +538,7 @@ func (jm *JobManager) RunJobWithRetry(
 			return ctx.Err()
 		}
 
-		err := jm.RunJob(jobId)
+		err := jm.RunJob(ctx, jobId)
 		if err == nil {
 			return nil // success
 		}
@@ -548,7 +558,7 @@ func (jm *JobManager) RunJobWithRetry(
 		}
 	}
 
-	return fmt.Errorf("after %d retries, last error: %v", maxRetries, lastErr)
+	return lastErr
 }
 
 func (jm *JobManager) StartJob(id int64) error {
@@ -577,34 +587,17 @@ func (jm *JobManager) StartJob(id int64) error {
 	// Determine service type
 	serviceType := service.Type
 
-	// Set job status to RUNNING
-	err = jm.UpdateJobStatus(job.Id, "RUNNING")
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-
 	jm.lm.Log("debug", fmt.Sprintf("started running job id %d", id), "jobs")
-
-	// Send job status update to remote node
-	go func() {
-		err := jm.StatusUpdate(job, "RUNNING")
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-		}
-	}()
 
 	switch serviceType {
 	case "DATA":
 		err := jm.streamDataJob(job)
 		if err != nil {
-			jm.logAndEmitJobError(job, err)
 			return err
 		}
 	case "DOCKER EXECUTION ENVIRONMENT":
 		err := jm.dockerExecutionJob(job)
 		if err != nil {
-			jm.logAndEmitJobError(job, err)
 			return err
 		}
 	case "WASM EXECUTION ENVIRONMENT":
@@ -616,21 +609,6 @@ func (jm *JobManager) StartJob(id int64) error {
 
 	jm.lm.Log("debug", fmt.Sprintf("ended running job id %d", id), "jobs")
 
-	// Set job status to COMPLETED
-	err = jm.UpdateJobStatus(job.Id, "COMPLETED")
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-
-	// Send job status update to remote node
-	go func() {
-		err := jm.StatusUpdate(job, "COMPLETED")
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-		}
-	}()
-
 	err = jm.wm.StopWorker(job.Id)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -640,32 +618,36 @@ func (jm *JobManager) StartJob(id int64) error {
 	return nil
 }
 
-func (jm *JobManager) logAndEmitJobError(job node_types.Job, err error) {
+func (jm *JobManager) logAndEmitJobError(jobId int64, err error) {
 	jm.lm.Log("error", err.Error(), "jobs")
 
-	jm.lm.Log("debug", fmt.Sprintf("error: running job id %d", job.Id), "jobs")
-
 	// Set job status to ERRORED
-	err1 := jm.UpdateJobStatus(job.Id, "ERRORED")
+	err1 := jm.UpdateJobStatus(jobId, "ERRORED")
 	if err1 != nil {
 		jm.lm.Log("error", err1.Error(), "jobs")
 	}
 
 	// Send job status update to remote node
 	go func() {
-		err := jm.StatusUpdate(job, "ERRORED")
+		err := jm.StatusUpdate(jobId, "ERRORED")
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 		}
 	}()
 }
 
-func (jm *JobManager) StatusUpdate(job node_types.Job, status string) error {
+func (jm *JobManager) StatusUpdate(jobId int64, status string) error {
+	job, err := jm.GetJob(jobId)
+	if err != nil {
+		return err
+	}
 	// Send job status update to remote node
 	nodeId := jm.p2pm.h.ID().String()
 	peerId, err := jm.p2pm.GeneratePeerAddrInfo(job.OrderingNodeId)
-	jm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
-	return err
+	if err != nil {
+		return err
+	}
+	return jm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
 }
 
 func (jm *JobManager) streamDataJob(job node_types.Job) error {
@@ -833,7 +815,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 				return err
 			}
 		case "MOUNTED FILE SYSTEM":
-			mounts, err = jm.validateMounts(configs["received_files_storage"], output, mounts)
+			mounts, err = jm.createMounts(configs["received_files_storage"], output, mounts)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
@@ -848,7 +830,20 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	if len(docker.RepoDockerComposes) > 0 {
 		// Run docker-compose
 		for _, compose := range docker.RepoDockerComposes {
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, compose, "", inputFiles, outputFiles, mounts)
+			containers, _, errs := jm.dm.Run(
+				docker.Repo,
+				job.Id,
+				false,
+				"",
+				true,
+				compose,
+				"",
+				inputFiles,
+				outputFiles,
+				mounts,
+				job.Entrypoint,
+				job.Commands,
+			)
 			for _, err := range errs {
 				jm.lm.Log("error", err.Error(), "jobs")
 				multiErr = errors.Join(multiErr, err)
@@ -860,17 +855,28 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		}
 	} else if len(docker.RepoDockerFiles) > 0 {
 		// Run dockerfiles
-		for range docker.RepoDockerFiles {
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, "", true, "", "", inputFiles, outputFiles, mounts)
-			for _, err := range errs {
-				jm.lm.Log("error", err.Error(), "jobs")
-				multiErr = errors.Join(multiErr, err)
-			}
-			if multiErr != nil {
-				return fmt.Errorf("docker compose errors: %w", multiErr)
-			}
-			jm.lm.Log("debug", fmt.Sprintf("the following containers were running %s", strings.Join(containers, ", ")), "jobs")
+		containers, _, errs := jm.dm.Run(
+			docker.Repo,
+			job.Id,
+			false,
+			"",
+			true,
+			"",
+			"",
+			inputFiles,
+			outputFiles,
+			mounts,
+			job.Entrypoint,
+			job.Commands,
+		)
+		for _, err := range errs {
+			jm.lm.Log("error", err.Error(), "jobs")
+			multiErr = errors.Join(multiErr, err)
 		}
+		if multiErr != nil {
+			return fmt.Errorf("docker compose errors: %w", multiErr)
+		}
+		jm.lm.Log("debug", fmt.Sprintf("the following containers were running %s", strings.Join(containers, ", ")), "jobs")
 	} else if len(docker.Images) > 0 {
 		// Run images
 		for _, image := range docker.Images {
@@ -879,7 +885,21 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
-			containers, _, errs := jm.dm.Run(docker.Repo, job.Id, false, image.ImageTags[0], true, "", "", inputFiles, outputFiles, mounts)
+
+			containers, _, errs := jm.dm.Run(
+				docker.Repo,
+				job.Id,
+				false,
+				image.ImageTags[0],
+				true,
+				"",
+				"",
+				inputFiles,
+				outputFiles,
+				mounts,
+				job.Entrypoint,
+				job.Commands,
+			)
 			for _, err := range errs {
 				jm.lm.Log("error", err.Error(), "jobs")
 				multiErr = errors.Join(multiErr, err)
@@ -923,6 +943,12 @@ func (jm *JobManager) validatePaths(base string, inrfce node_types.JobInterface,
 			return nil, err
 		}
 
+		path, err = filepath.Abs(path)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+
 		files = append(files, path)
 	}
 
@@ -930,6 +956,8 @@ func (jm *JobManager) validatePaths(base string, inrfce node_types.JobInterface,
 }
 
 func (jm *JobManager) createPaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
+	var err error
+
 	paths := strings.SplitSeq(inrfce.Path, ",")
 	for path := range paths {
 		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
@@ -937,6 +965,12 @@ func (jm *JobManager) createPaths(base string, inrfce node_types.JobInterface, f
 		// Make sure file path is created
 		fdir := filepath.Dir(path)
 		if err := os.MkdirAll(fdir, 0755); err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+
+		path, err = filepath.Abs(path)
+		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return nil, err
 		}
@@ -966,7 +1000,45 @@ func (jm *JobManager) validateMounts(base string, inrfce node_types.JobInterface
 		return nil, err
 	}
 
+	path, err = filepath.Abs(path)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
 	mounts[path] = paths[1]
+	return mounts, nil
+}
+
+func (jm *JobManager) createMounts(base string, inrfce node_types.JobInterface, mounts map[string]string) (map[string]string, error) {
+	var err error
+
+	paths := strings.Split(inrfce.Path, ":")
+
+	if len(paths) != 2 {
+		err := fmt.Errorf("invalid mount path %s", inrfce.Path)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	path := base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(paths[0])
+
+	// Make sure file path is created
+	//	fdir := filepath.Dir(path)
+	//	if err := os.MkdirAll(fdir, 0755); err != nil {
+	//		jm.lm.Log("error", err.Error(), "jobs")
+	//		return nil, err
+	//	}
+
+	path, err = filepath.Abs(path)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	mounts[path] = paths[1]
+
+	fmt.Printf("%v\n", mounts)
 	return mounts, nil
 }
 
