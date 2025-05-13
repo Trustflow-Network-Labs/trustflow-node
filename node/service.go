@@ -14,6 +14,7 @@ import (
 	"github.com/adgsm/trustflow-node/price"
 	"github.com/adgsm/trustflow-node/repo"
 	"github.com/adgsm/trustflow-node/utils"
+	"github.com/google/shlex"
 )
 
 type ServiceManager struct {
@@ -155,8 +156,19 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 			sm.lm.Log("error", msg, "services")
 			return dockerService, err
 		}
-		dockerServiceImage.ImageEntryPoints = strings.Split(entryPoints, ",")
-		dockerServiceImage.ImageCommands = strings.Split(commands, ",")
+
+		entrypoint, err := shlex.Split(entryPoints)
+		if err != nil {
+			return dockerService, err
+		}
+		dockerServiceImage.ImageEntryPoints = entrypoint
+
+		cmd, err := shlex.Split(commands)
+		if err != nil {
+			return dockerService, err
+		}
+		dockerServiceImage.ImageCommands = cmd
+
 		dockerServiceImage.ImageTags = strings.Split(tags, ",")
 		dockerServiceImage.ImageDigests = strings.Split(digests, ",")
 		dockerServiceImage.Timestamp, err = time.Parse(time.RFC3339, tmstmp)
@@ -173,7 +185,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		// Get docker service images with interfaces
 		rows, err := sm.db.QueryContext(
 			context.Background(),
-			"select id, service_image_id, interface_type, functional_interface, description, path from docker_service_image_interfaces where service_image_id = ?;",
+			"select id, service_image_id, interface_type, description, path from docker_service_image_interfaces where service_image_id = ?;",
 			dockerServiceImage.Id)
 		if err != nil {
 			msg := err.Error()
@@ -183,8 +195,8 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		for rows.Next() {
 			var dockerServiceImageInterface node_types.DockerServiceImageInterface
 			err = rows.Scan(&dockerServiceImageInterface.Id, &dockerServiceImageInterface.ServiceImageId,
-				&dockerServiceImageInterface.InterfaceType, &dockerServiceImageInterface.FunctionalInterface,
-				&dockerServiceImageInterface.Description, &dockerServiceImageInterface.Path)
+				&dockerServiceImageInterface.InterfaceType, &dockerServiceImageInterface.Description,
+				&dockerServiceImageInterface.Path)
 			if err != nil {
 				msg := err.Error()
 				sm.lm.Log("error", msg, "services")
@@ -440,15 +452,15 @@ func (sm *ServiceManager) addDockerImages(
 	sm.lm.Log("debug", fmt.Sprintf("add docker service images to docker service ID %d", dockerServiceId), "services")
 
 	for _, imageWithInterfaces := range imagesWithInterfaces {
-		entryPoints := strings.Join(imageWithInterfaces.EntryPoints, ",")
-		commands := strings.Join(imageWithInterfaces.Commands, ",")
+		entrypoint := utils.ShlexJoin(imageWithInterfaces.EntryPoints)
+		commands := utils.ShlexJoin(imageWithInterfaces.Commands)
 		tags := strings.Join(imageWithInterfaces.Tags, ",")
 		digests := strings.Join(imageWithInterfaces.Digests, ",")
 		timestamp := imageWithInterfaces.BuiltAt.Format(time.RFC3339)
 		result, err := sm.db.ExecContext(
 			context.Background(),
 			"insert into docker_service_images (service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, timestamp) values (?, ?, ?, ?, ?, ?, ?, ?);",
-			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, entryPoints, commands, tags, digests, timestamp)
+			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, entrypoint, commands, tags, digests, timestamp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -477,8 +489,8 @@ func (sm *ServiceManager) addDockerImageInterfaces(
 	for _, intfce := range interfaces {
 		_, err := sm.db.ExecContext(
 			context.Background(),
-			"insert into docker_service_image_interfaces (service_image_id, interface_type, functional_interface, description, path) values (?, ?, ?, ?, ?);",
-			dockerImageId, intfce.InterfaceType, intfce.FunctionalInterface, intfce.Description, intfce.Path)
+			"insert into docker_service_image_interfaces (service_image_id, interface_type, description, path) values (?, ?, ?, ?);",
+			dockerImageId, intfce.InterfaceType, intfce.Description, intfce.Path)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -856,10 +868,9 @@ func (sm *ServiceManager) SearchServices(searchService node_types.SearchService,
 				return nil, err
 			}
 			inrfce := node_types.Interface{
-				InterfaceType:       "FILE STREAM",
-				FunctionalInterface: "OUTPUT",
-				Description:         services[i].Description,
-				Path:                dataService.Path,
+				InterfaceType: "STDOUT",
+				Description:   services[i].Description,
+				Path:          dataService.Path,
 			}
 			services[i].Interfaces = []node_types.Interface{inrfce}
 		case "DOCKER EXECUTION ENVIRONMENT":

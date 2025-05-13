@@ -2,10 +2,10 @@ package node_types
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/adgsm/trustflow-node/utils"
 	"github.com/google/shlex"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -156,10 +156,9 @@ type ServiceResourcesWithPricing struct {
 
 // Declare interface base struct
 type Interface struct {
-	InterfaceType       string `json:"interface_type"`
-	FunctionalInterface string `json:"functional_interface"`
-	Description         string `json:"description"`
-	Path                string `json:"path"`
+	InterfaceType string `json:"interface_type"`
+	Description   string `json:"description"`
+	Path          string `json:"path"`
 }
 
 // Declare service request type
@@ -292,7 +291,6 @@ func (js *JobSql) ToJob() Job {
 	var started, ended time.Time
 
 	entrypoint, _ := shlex.Split(js.Entrypoint)
-
 	commands, _ := shlex.Split(js.Commands)
 
 	if js.Started != "" {
@@ -314,8 +312,8 @@ func (js *JobSql) ToJob() Job {
 func (j *Job) ToJobSql() JobSql {
 	var started, ended string
 
-	entrypoint := strings.Join(j.Entrypoint, " ")
-	commands := strings.Join(j.Commands, " ")
+	entrypoint := utils.ShlexJoin(j.Entrypoint)
+	commands := utils.ShlexJoin(j.Commands)
 
 	if !j.Started.IsZero() {
 		started = j.Started.Format(timeLayout)

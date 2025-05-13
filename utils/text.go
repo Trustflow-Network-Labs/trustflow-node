@@ -62,3 +62,14 @@ func (tm *TextManager) ToFloat64(s string) (float64, error) {
 	}
 	return f, nil
 }
+
+// shlexJoin quotes args similar to how shell would expect
+func ShlexJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		// strconv.Quote returns a double-quoted Go string literal
+		// It handles spaces, quotes, etc.
+		quoted[i] = strconv.Quote(arg)
+	}
+	return strings.Join(quoted, " ")
+}

@@ -77,14 +77,44 @@ func (vm *ValidatorManager) IsFloat64(s string) error {
 }
 
 func (vm *ValidatorManager) IsValidFileName(path string) error {
-	return vm.IsValidPath(path, true)
+	erra := vm.IsValidAbsoluteFileName(path)
+	errr := vm.IsValidRelativeFileName(path)
+
+	if erra == nil || errr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%s is neither valid absolute nor relative path", path)
+}
+
+func (vm *ValidatorManager) IsValidAbsoluteFileName(path string) error {
+	return vm.IsValidPath(path, true, true)
+}
+
+func (vm *ValidatorManager) IsValidRelativeFileName(path string) error {
+	return vm.IsValidPath(path, true, false)
 }
 
 func (vm *ValidatorManager) IsValidMountPoint(path string) error {
-	return vm.IsValidPath(path, false)
+	erra := vm.IsValidAbsoluteMountPoint(path)
+	errr := vm.IsValidRelativeMountPoint(path)
+
+	if erra == nil || errr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%s is neither valid absolute nor relative mount path", path)
 }
 
-func (vm *ValidatorManager) IsValidPath(path string, fileName bool) error {
+func (vm *ValidatorManager) IsValidAbsoluteMountPoint(path string) error {
+	return vm.IsValidPath(path, false, true)
+}
+
+func (vm *ValidatorManager) IsValidRelativeMountPoint(path string) error {
+	return vm.IsValidPath(path, false, false)
+}
+
+func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute bool) error {
 	if path == "" {
 		return errors.New("path is empty")
 	}
@@ -97,8 +127,10 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool) error {
 		return errors.New("path uses home directory reference '~'")
 	}
 
-	if filepath.IsAbs(path) {
-		return errors.New("path is absolute")
+	if absolute && !filepath.IsAbs(path) {
+		return errors.New("path must be absolute")
+	} else if !absolute && filepath.IsAbs(path) {
+		return errors.New("path must not be absolute")
 	}
 
 	cleaned := filepath.Clean(path)

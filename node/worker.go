@@ -31,7 +31,7 @@ func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 }
 
 // StartWorker creates and starts a new worker
-func (wm *WorkerManager) StartWorker(mctx context.Context, id int64, jm *JobManager) error {
+func (wm *WorkerManager) StartWorker(mctx context.Context, id int64, jm *JobManager, retry, maxRetries int) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -48,7 +48,7 @@ func (wm *WorkerManager) StartWorker(mctx context.Context, id int64, jm *JobMana
 	}
 
 	wm.workers[id] = worker
-	err := worker.Start(wm.p2pm, jm)
+	err := worker.Start(wm.p2pm, jm, retry, maxRetries)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (wm *WorkerManager) ListWorkers() []int64 {
 	return ids
 }
 
-func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
+func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) error {
 	w.mu.Lock()
 	w.isRunning = true
 	w.mu.Unlock()
@@ -140,9 +140,19 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager) error {
 				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
 				p2pm.lm.Log("error", msg, "worker")
 
-				// Set job status to ERRORED
-				// Send job status update to remote node
-				jm.logAndEmitJobError(w.ID, err)
+				if retry < maxRetries-1 {
+					// Set job status to READY
+					jm.UpdateJobStatus(w.ID, "READY")
+
+					// Send job status update to remote node
+					go func() {
+						jm.StatusUpdate(w.ID, "READY")
+					}()
+				} else {
+					// Set job status to ERRORED
+					// Send job status update to remote node
+					jm.logAndEmitJobError(w.ID, err)
+				}
 			}
 		}
 	}()

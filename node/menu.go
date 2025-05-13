@@ -247,8 +247,8 @@ func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 	if len(service.Interfaces) > 0 {
 		fmt.Print("---\nService expects following inputs/outputs:")
 		for i, intfce := range service.Interfaces {
-			fmt.Printf("\n%d.	%s	%s\n	%s\n	%s",
-				i+1, intfce.FunctionalInterface, intfce.InterfaceType,
+			fmt.Printf("\n%d.	%s\n	%s\n	%s",
+				i+1, intfce.InterfaceType,
 				intfce.Description, intfce.Path)
 		}
 	} else {
@@ -320,7 +320,7 @@ func (mm *MenuManager) requestService() error {
 		fmt.Printf("Service Id %s seems to be invalid Id: %s\n", sid, err.Error())
 		return err
 	}
-	if !(serviceOffer.Type == "DATA") {
+	if serviceOffer.Type == "DOCKER EXECUTION ENVIRONMENT" {
 		entrypoint, commands, err = mm.imageEntrypointCommands(serviceOffer.Entrypoint, serviceOffer.Commands)
 		if err != nil {
 			fmt.Printf("Collecting service entrypoint and commands failed for service ID: %s. Error: %s\n", sid, err.Error())
@@ -329,106 +329,81 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Collect job interfaces
-	var inputInterfaces, outputInterfaces []node_types.Interface
-	var serviceRequestInterfaces, serviceRequestInputInterfaces, serviceRequestOutputInterfaces []node_types.ServiceRequestInterface
+	var serviceRequestInterfaces []node_types.ServiceRequestInterface
+	var nsResult string
+	var inputsReady bool
 
 	for _, intfce := range serviceOffer.Interfaces {
-		if intfce.FunctionalInterface == "INPUT" {
-			inputInterfaces = append(inputInterfaces, intfce)
-		} else if intfce.FunctionalInterface == "OUTPUT" {
-			outputInterfaces = append(outputInterfaces, intfce)
-		}
-	}
+		nsResult = ""
+		inputsReady = false
 
-	// Inputs
-	if len(inputInterfaces) == 0 {
-		fmt.Println("The service does not require inputs to run or execute.")
-	} else {
-		for _, intfce := range inputInterfaces {
-			fmt.Println("The following is the Input Description as defined in the Service Definition:")
-			fmt.Println(intfce.Description)
-			nsResult, err := mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+		fmt.Println("The following is the Interface description as defined in the Service definition:")
+		fmt.Println(intfce.Description)
+
+		switch intfce.InterfaceType {
+		case "STDIN":
+			// Input providing node
+			nsResult, err = mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
 			if err != nil {
 				return err
 			}
-			switch intfce.InterfaceType {
-			case "FILE STREAM":
-				if intfce.Path != "" {
-					fmt.Printf("The predefined input file name and path for the service is as follows:\n%s\n",
-						intfce.Path)
-				} else {
-					fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileName, nil)
-					if err != nil {
-						return err
-					}
-					intfce.Path = fnResult
-				}
-			case "MOUNTED FILE SYSTEM":
-				fnResult, err := mm.inputPromptHelper("Please specify the file system mount point within the service's host environment", "", mm.vm.IsValidMountPoint, nil)
+
+			// Input path
+			if intfce.Path != "" {
+				fmt.Printf("The predefined input file name and path for the service is as follows:\n%s\n",
+					intfce.Path)
+			} else {
+				fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileName, nil)
 				if err != nil {
 					return err
 				}
-				intfce.Path = fnResult + ":" + intfce.Path
-			case "STDIN/STDOUT":
-			default:
-				fmt.Printf("Unknown input interfaces type %s. Skipping...\n", intfce.InterfaceType)
+				intfce.Path = fnResult
 			}
 
-			serviceRequestInputInterfaces = append(serviceRequestInputInterfaces, node_types.ServiceRequestInterface{
-				NodeId:    nsResult,
-				Interface: intfce,
-			})
-		}
-	}
-
-	serviceRequestInterfaces = append(serviceRequestInterfaces, serviceRequestInputInterfaces...)
-
-	// Outputs
-	if len(outputInterfaces) == 0 {
-		fmt.Println("The service does not produce any outputs.")
-	} else {
-		for _, intfce := range outputInterfaces {
-			fmt.Println("The following is the Output Description as defined in the Service Definition:")
-			fmt.Println(intfce.Description)
-			nsResult, err := mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			// Set flag for this service
+			// that we have to wait for inputs
+			// to be provided before running the service
+			inputsReady = true
+		case "STDOUT":
+			// Output receiving node
+			nsResult, err = mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
 			if err != nil {
 				return err
 			}
-			switch intfce.InterfaceType {
-			case "FILE STREAM":
-				if intfce.Path != "" {
-					fmt.Printf("The predefined output file name and path for the service is as follows:\n%s\n",
-						intfce.Path)
-				} else {
-					fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileName, nil)
-					if err != nil {
-						return err
-					}
-					intfce.Path = fnResult
-				}
-			case "MOUNTED FILE SYSTEM":
-				fnResult, err := mm.inputPromptHelper("Please specify the file system mount point within the service's host environment", "", mm.vm.IsValidMountPoint, nil)
+
+			// Output path
+			if intfce.Path != "" {
+				fmt.Printf("The predefined output file name and path for the service is as follows:\n%s\n",
+					intfce.Path)
+			} else {
+				fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileName, nil)
 				if err != nil {
 					return err
 				}
-				intfce.Path = fnResult + ":" + intfce.Path
-			case "STDIN/STDOUT":
-			default:
-				fmt.Printf("Unknown output interfaces type %s. Skipping...\n", intfce.InterfaceType)
+				intfce.Path = fnResult
 			}
+		case "MOUNTED FILE SYSTEM":
+			// TODO, specify input/output Node IDs
+			msg := fmt.Sprintf("Please specify the file system mount point within the service's host environment for the service provided at the container path `:%s`", intfce.Path)
+			fnResult, err := mm.inputPromptHelper(msg, "", mm.vm.IsValidMountPoint, nil)
+			if err != nil {
+				return err
+			}
+			intfce.Path = fnResult + ":" + intfce.Path
 
-			nids := strings.SplitSeq(nsResult, ",")
-			for nid := range nids {
-				nid = strings.TrimSpace(nid)
-				serviceRequestOutputInterfaces = append(serviceRequestOutputInterfaces, node_types.ServiceRequestInterface{
-					NodeId:    nid,
-					Interface: intfce,
-				})
-			}
+			// Set flag for this service
+			// that we have to wait for inputs
+			// to be provided before running the service
+			inputsReady = true
+		default:
+			fmt.Printf("Unknown interfaces type %s. Skipping...\n", intfce.InterfaceType)
 		}
-	}
 
-	serviceRequestInterfaces = append(serviceRequestInterfaces, serviceRequestOutputInterfaces...)
+		serviceRequestInterfaces = append(serviceRequestInterfaces, node_types.ServiceRequestInterface{
+			NodeId:    nsResult,
+			Interface: intfce,
+		})
+	}
 
 	/*
 		// Get constraint type
@@ -442,7 +417,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	*/
 	var cResult string = "NONE"
-	if len(inputInterfaces) > 0 {
+	if inputsReady {
 		cResult = "INPUTS READY"
 	}
 
@@ -496,38 +471,36 @@ func (mm *MenuManager) requestService() error {
 	return nil
 }
 
-func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId string) ([]node_types.Interface, error) {
+func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface, error) {
 	var interfaces []node_types.Interface
 	var pthResult string = ""
-	var addition string = ""
 
 	_, tyResult, err := mm.selectPromptHelper(
 		"Interface type",
-		[]string{"FILE STREAM", "MOUNTED FILE SYSTEM", "STDIN/STDOUT"},
+		[]string{"STDIN", "STDOUT", "MOUNTED FILE SYSTEM"},
 		0, 10, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	if functionalInterface == "INPUT" {
-		addition = "expected by the service"
-	} else if functionalInterface == "OUTPUT" {
-		addition = "produced by the service"
-	}
-
 	switch tyResult {
-	case "FILE STREAM":
-		msg := fmt.Sprintf("Specify the file name and path %s (optional). Leave blank for a non-specific file name", addition)
+	case "STDIN":
+		msg := "Specify the file name and path expected by the service (optional). Leave blank for a non-specific file name"
+		pthResult, err = mm.inputPromptHelper(msg, "", nil, nil)
+		if err != nil {
+			return nil, err
+		}
+	case "STDOUT":
+		msg := "Specify the file name and path produced by the service (optional). Leave blank for a non-specific file name"
 		pthResult, err = mm.inputPromptHelper(msg, "", nil, nil)
 		if err != nil {
 			return nil, err
 		}
 	case "MOUNTED FILE SYSTEM":
-		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "./", mm.vm.IsValidMountPoint, nil)
+		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "", mm.vm.IsValidAbsoluteMountPoint, nil)
 		if err != nil {
 			return nil, err
 		}
-	case "STDIN/STDOUT":
 	default:
 	}
 
@@ -537,10 +510,9 @@ func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId stri
 	}
 
 	intrfce := node_types.Interface{
-		FunctionalInterface: functionalInterface,
-		InterfaceType:       tyResult,
-		Description:         dResult,
-		Path:                pthResult,
+		InterfaceType: tyResult,
+		Description:   dResult,
+		Path:          pthResult,
 	}
 
 	interfaces = append(interfaces, intrfce)
@@ -551,7 +523,7 @@ func (mm *MenuManager) serviceInterfaces(functionalInterface string, nodeId stri
 		return nil, err
 	}
 	if aaResult {
-		return mm.serviceInterfaces(functionalInterface, nodeId)
+		return mm.serviceInterfaces(nodeId)
 	}
 
 	return interfaces, nil
@@ -1286,36 +1258,22 @@ func (mm *MenuManager) addDataService(name, description, stype string, active bo
 	return nil
 }
 
-func (mm *MenuManager) addInterfaces(inMessage, outMessage string) ([]node_types.Interface, error) {
+func (mm *MenuManager) addInterfaces(question string) ([]node_types.Interface, error) {
 	// Define inputs/outputs
-	var inputInterfaces, outputInterfaces, interfaces []node_types.Interface
+	var interfaces []node_types.Interface
 
 	// Inputs
-	rinResult, err := mm.confirmPromptHelper(inMessage)
+	qResult, err := mm.confirmPromptHelper(question)
 	if err != nil {
 		return nil, err
 	}
-	if rinResult {
-		inputInterfaces, err = mm.serviceInterfaces("INPUT", mm.p2pm.h.ID().String())
+	if qResult {
+		intfcs, err := mm.serviceInterfaces(mm.p2pm.h.ID().String())
 		if err != nil {
-			fmt.Printf("Collecting input interfaces failed %v\n", err)
+			fmt.Printf("Collecting interfaces failed %v\n", err)
 			return nil, err
 		}
-		interfaces = append(interfaces, inputInterfaces...)
-	}
-
-	// Outputs
-	routResult, err := mm.confirmPromptHelper(outMessage)
-	if err != nil {
-		return nil, err
-	}
-	if routResult {
-		outputInterfaces, err = mm.serviceInterfaces("OUTPUT", mm.p2pm.h.ID().String())
-		if err != nil {
-			fmt.Printf("Collecting output interfaces failed %v\n", err)
-			return nil, err
-		}
-		interfaces = append(interfaces, outputInterfaces...)
+		interfaces = append(interfaces, intfcs...)
 	}
 
 	return interfaces, nil
@@ -1433,8 +1391,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 
 		// Define inputs/outputs
 		interfaces, err := mm.addInterfaces(
-			"Does the service's image require inputs to run",
-			"Does the service's image produce outputs")
+			"Does the service's image require inputs to run, produce outputs, or need mount points to be defined")
 		if err != nil {
 			return err
 		}
@@ -1523,9 +1480,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 		mm.lm.Log("debug", msg, "menu")
 
 		// Define inputs/outputs
-		interfaces, err := mm.addInterfaces(
-			"Does the service's image require inputs to run",
-			"Does the service's image produce outputs")
+		interfaces, err := mm.addInterfaces("Does the service's image require inputs to run, produce outputs, or need mount points to be defined")
 		if err != nil {
 			return err
 		}

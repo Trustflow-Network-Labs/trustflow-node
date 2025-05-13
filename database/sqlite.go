@@ -237,8 +237,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS docker_service_images_id_idx ON docker_service
 CREATE TABLE IF NOT EXISTS docker_service_image_interfaces (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_image_id" INTEGER NOT NULL,
-	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('FILE STREAM', 'MOUNTED FILE SYSTEM', 'STDIN/STDOUT') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
-	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNTED FILE SYSTEM') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
 	"description" TEXT NOT NULL,
 	"path" TEXT DEFAULT '',
 	FOREIGN KEY("service_image_id") REFERENCES docker_service_images("id") ON DELETE CASCADE
@@ -317,8 +316,7 @@ CREATE TABLE IF NOT EXISTS job_interfaces (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"job_id" INTEGER NOT NULL,
 	"node_id" TEXT NOT NULL,
-	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('FILE STREAM', 'MOUNTED FILE SYSTEM', 'STDIN/STDOUT') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
-	"functional_interface" VARCHAR(10) CHECK( "functional_interface" IN ('INPUT', 'OUTPUT') ) NOT NULL DEFAULT 'INPUT',
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNTED FILE SYSTEM') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
 	"path" TEXT DEFAULT '',
 	FOREIGN KEY("job_id") REFERENCES jobs("id") ON DELETE CASCADE
 );
