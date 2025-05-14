@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 
+	"github.com/adgsm/trustflow-node/utils"
 	"github.com/manifoldco/promptui"
 )
 
@@ -270,11 +272,23 @@ func installDarwinDependencies(missing []string) error {
 func initDarwinDependencies() error {
 	if !isColimaRunning() {
 
+		configManager := utils.NewConfigManager("")
+		configs, err := configManager.ReadConfigs()
+		if err != nil {
+			return err
+		}
+
 		// Start docker
 		fmt.Println("Starting Colima")
+		storagePath, err := filepath.Abs(configs["local_storage"])
+		if err != nil {
+			fmt.Printf("Error: %s\n", err.Error())
+			return err
+		}
+
 		commands := []string{
 			//		"colima start --with-kubernetes",
-			"colima start",
+			fmt.Sprintf("colima start --mount %s:w", storagePath),
 		}
 		for _, cmd := range commands {
 			fmt.Printf("Executing: %s\n", cmd)

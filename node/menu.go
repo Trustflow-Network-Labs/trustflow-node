@@ -365,8 +365,8 @@ func (mm *MenuManager) requestService() error {
 			// to be provided before running the service
 			inputsReady = true
 		case "STDOUT":
-			// Output receiving node
-			nsResult, err = mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			// Output receiving node(s)
+			nsResult, err = mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
 			if err != nil {
 				return err
 			}
@@ -390,6 +390,21 @@ func (mm *MenuManager) requestService() error {
 				return err
 			}
 			intfce.Path = fnResult + ":" + intfce.Path
+
+			// Input providing node
+			insResult, err := mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			if err != nil {
+				return err
+			}
+
+			// Output receiving node(s)
+			onsResult, err := mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
+			if err != nil {
+				return err
+			}
+
+			// Combine node IDs
+			nsResult = insResult + ":" + onsResult
 
 			// Set flag for this service
 			// that we have to wait for inputs
@@ -1372,7 +1387,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 
 	// Run docker & build image(s)
 	dockerManager := repo.NewDockerManager()
-	_, images, errors := dockerManager.Run(repoPath, 0, true, "", true, "", "", nil, nil, nil, nil, nil)
+	_, images, errors := dockerManager.Run(repoPath, nil, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
 			msg := fmt.Sprintf("\U00002757 Building image(s) from repo '%s' ended with following error: %s\n", gruResult, err.Error())
@@ -1463,7 +1478,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Pull image
-	_, images, errors := dockerManager.Run("", 0, true, pediResult, true, "", "", nil, nil, nil, nil, nil)
+	_, images, errors := dockerManager.Run("", nil, true, pediResult, true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
 			msg := fmt.Sprintf("\U00002757 Pulling image '%s' ended with following error: %s\n", pediResult, err.Error())

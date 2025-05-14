@@ -52,6 +52,18 @@ func (vm *ValidatorManager) IsPeer(s string) error {
 	return nil
 }
 
+func (vm *ValidatorManager) ArePeers(s string) error {
+	peers := strings.SplitSeq(s, ",")
+	for p := range peers {
+		p = strings.TrimSpace(p)
+		err := vm.IsPeer(p)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (vm *ValidatorManager) IsBool(s string) error {
 	_, err := strconv.ParseBool(s)
 	if err != nil {

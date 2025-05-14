@@ -32,10 +32,11 @@ type Blacklist struct {
 
 // Declare stream data type
 type StreamData struct {
-	Type       uint16
-	PeerId     [255]byte
-	WorkflowId int64
-	JobId      int64
+	Type           uint16
+	PeerId         [255]byte
+	OrderingPeerId [255]byte
+	WorkflowId     int64
+	JobId          int64
 }
 
 // Declare currency type

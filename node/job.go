@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -705,8 +706,8 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 		// Get peer
 		if jobInterface.NodeId == host {
 			// It's own service / data
-			fdir := configs["received_files_storage"] + host + "/" + fmt.Sprintf("%d", job.WorkflowId) + "/"
-			if err = os.MkdirAll(fdir, 0755); err != nil {
+			fdir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(job.Id, 10), "input", host)
+			if err = os.MkdirAll(fdir, 0777); err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
@@ -778,21 +779,22 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 
 	// Check are job inputs, outputs and mounts ready
 	for _, intrface := range job.JobInterfaces {
+		basePath := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
 		switch intrface.InterfaceType {
 		case "STDIN":
-			inputFiles, err = jm.validateHostPaths(configs["received_files_storage"], intrface, inputFiles)
+			inputFiles, err = jm.validateHostPaths(basePath, intrface, inputFiles)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
 		case "STDOUT":
-			outputFiles, err = jm.createHostPaths(configs["received_files_storage"], intrface, outputFiles)
+			outputFiles, err = jm.createHostPaths(basePath, intrface, outputFiles)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
 			}
 		case "MOUNTED FILE SYSTEM":
-			mounts, err = jm.createHostMountPoints(configs["received_files_storage"], intrface, mounts)
+			mounts, err = jm.createHostMountPoints(basePath, intrface, mounts)
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
@@ -809,7 +811,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		for _, compose := range docker.RepoDockerComposes {
 			containers, _, errs := jm.dm.Run(
 				docker.Repo,
-				job.Id,
+				&job,
 				false,
 				"",
 				true,
@@ -834,7 +836,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		// Run dockerfiles
 		containers, _, errs := jm.dm.Run(
 			docker.Repo,
-			job.Id,
+			&job,
 			false,
 			"",
 			true,
@@ -865,7 +867,7 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 
 			containers, _, errs := jm.dm.Run(
 				docker.Repo,
-				job.Id,
+				&job,
 				false,
 				image.ImageTags[0],
 				true,
@@ -896,9 +898,22 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 }
 
 func (jm *JobManager) validateHostPaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
+	var inOut string
+
+	switch inrfce.InterfaceType {
+	case "STDIN":
+		inOut = "input"
+	case "STDOUT":
+		inOut = "output"
+	default:
+		err := fmt.Errorf("unsupported interface type %s", inrfce.InterfaceType)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
 	paths := strings.SplitSeq(inrfce.Path, ",")
 	for path := range paths {
-		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
+		path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, inrfce.NodeId, strings.TrimSpace(path))
 
 		// Check if the path exists
 		err := jm.pathExists(path)
@@ -921,21 +936,26 @@ func (jm *JobManager) validateHostPaths(base string, inrfce node_types.JobInterf
 
 func (jm *JobManager) createHostPaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
 	var err error
+	var inOut string
+
+	switch inrfce.InterfaceType {
+	case "STDIN":
+		inOut = "input"
+	case "STDOUT":
+		inOut = "output"
+	default:
+		err := fmt.Errorf("unsupported interface type %s", inrfce.InterfaceType)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
 
 	paths := strings.SplitSeq(inrfce.Path, ",")
 	for path := range paths {
-		path = base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(path)
+		path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, inrfce.NodeId, strings.TrimSpace(path))
 
 		// Make sure file path is created
-		fdir := filepath.Dir(path)
-		if err := os.MkdirAll(fdir, 0755); err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-			return nil, err
-		}
-
-		path, err = filepath.Abs(path)
+		path, err = jm.createPath(path)
 		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
 			return nil, err
 		}
 
@@ -955,7 +975,9 @@ func (jm *JobManager) validateHostMountPoints(base string, inrfce node_types.Job
 		return nil, err
 	}
 
-	path := base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(paths[0])
+	nodes := strings.Split(inrfce.NodeId, ":")
+	inNode := strings.TrimSpace(nodes[0])
+	path := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "input", inNode, strings.TrimSpace(paths[0]))
 
 	// Check if the path exists
 	err := jm.pathExists(path)
@@ -986,24 +1008,49 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 		return nil, err
 	}
 
-	path := base + inrfce.NodeId + "/" + fmt.Sprintf("%d", inrfce.WorkflowId) + "/" + strings.TrimSpace(paths[0])
+	nodes := strings.Split(inrfce.NodeId, ":")
+	inNode := strings.TrimSpace(nodes[0])
+	path := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "input", inNode, strings.TrimSpace(paths[0]))
 
-	// Make sure file path is created
-	fdir := filepath.Dir(path)
-	if err := os.MkdirAll(fdir, 0755); err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return nil, err
-	}
-
-	path, err = filepath.Abs(path)
+	// Make sure input file path is created
+	path, err = jm.createPath(path)
 	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
 		return nil, err
 	}
 
+	// Send back updated abs path
 	mounts[path] = paths[1]
 
+	for _, outNode := range strings.Split(nodes[1], ",") {
+		outNode = strings.TrimSpace(outNode)
+		path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "output", outNode)
+
+		// Make sure output file paths are created
+		_, err = jm.createPath(path)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return mounts, nil
+}
+
+func (jm *JobManager) createPath(path string) (string, error) {
+	// Make sure file path is created
+
+	fdir := filepath.Dir(path)
+	if err := os.MkdirAll(fdir, 0777); err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return "", err
+	}
+
+	path, err := filepath.Abs(path)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return "", err
+	}
+
+	return path, nil
 }
 
 func (jm *JobManager) pathExists(path string) error {

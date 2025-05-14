@@ -12,7 +12,7 @@ import (
 // Compress compresses a file or directory into a .tar.gz archive.
 func Compress(sourcePath, outputFile string) error {
 	dir := filepath.Dir(outputFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0777); err != nil {
 		return fmt.Errorf("error creating directories: %w", err)
 	}
 
@@ -120,13 +120,13 @@ func Uncompress(archivePath, targetDir string) error {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			// Ensure the directory exists
-			if err := os.MkdirAll(targetPath, 0755); err != nil {
+			if err := os.MkdirAll(targetPath, 0777); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg, tar.TypeSymlink:
 
 			// Ensure parent directories exist
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0777); err != nil {
 				return fmt.Errorf("failed to create parent directories: %w", err)
 			}
 

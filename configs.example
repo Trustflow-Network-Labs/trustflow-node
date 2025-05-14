@@ -15,7 +15,6 @@ keystore_passphrase = KEYSTORE_PASSPHRASE
 
 [store]
 local_storage = ./local_storage/
-received_files_storage = ./local_storage/received/
 local_tmp = ./local_storage/tmp/
 local_git_root = ./local_storage/git/
 local_docker_root = ./local_storage/docker/

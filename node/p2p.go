@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -400,8 +401,8 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	return false, nil
 }
 
-func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, job *node_types.Job, existingStream network.Stream) error {
-	_, err := p2pm.ConnectNode(peer)
+func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, job *node_types.Job, existingStream network.Stream) error {
+	_, err := p2pm.ConnectNode(receivingPeer)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return err
@@ -418,15 +419,15 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, job *node_t
 		if err == nil {
 			// Stream is alive, reuse it
 			s = existingStream
-			p2pm.lm.Log("debug", fmt.Sprintf("Reusing existing stream with %s", peer.ID), "p2p")
+			p2pm.lm.Log("debug", fmt.Sprintf("Reusing existing stream with %s", receivingPeer.ID), "p2p")
 		} else {
 			// Stream is broken, discard and create a new one
-			p2pm.lm.Log("debug", fmt.Sprintf("Existing stream with %s is not usable: %v", peer.ID, err), "p2p")
+			p2pm.lm.Log("debug", fmt.Sprintf("Existing stream with %s is not usable: %v", receivingPeer.ID, err), "p2p")
 		}
 	}
 
 	if s == nil {
-		s, err = p2pm.h.NewStream(p2pm.ctx, peer.ID, p2pm.protocolID)
+		s, err = p2pm.h.NewStream(p2pm.ctx, receivingPeer.ID, p2pm.protocolID)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			return err
@@ -460,28 +461,35 @@ func StreamData[T any](p2pm *P2PManager, peer peer.AddrInfo, data T, job *node_t
 		return errors.New(msg)
 	}
 
-	var str []byte = []byte(p2pm.h.ID().String())
-	var str255 [255]byte
-	copy(str255[:], str)
-	workflowId := int64(0)
-	jobId := int64(0)
+	var workflowId int64 = int64(0)
+	var jobId int64 = int64(0)
+	var orderingPeer255 [255]byte
+
 	if job != nil {
+		var orderingPeer []byte = []byte(job.OrderingNodeId)
+		copy(orderingPeer255[:], orderingPeer)
 		workflowId = job.WorkflowId
 		jobId = job.Id
 	}
-	go p2pm.streamProposal(s, str255, t, workflowId, jobId)
+
+	var sendingPeer []byte = []byte(p2pm.h.ID().String())
+	var sendingPeer255 [255]byte
+	copy(sendingPeer255[:], sendingPeer)
+
+	go p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId)
 	go sendStream(p2pm, s, data)
 
 	return nil
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, wid int64, jid int64) {
+func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, onode [255]byte, wid int64, jid int64) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
-		Type:       t,
-		PeerId:     p,
-		WorkflowId: wid,
-		JobId:      jid,
+		Type:           t,
+		PeerId:         p,
+		OrderingPeerId: onode,
+		WorkflowId:     wid,
+		JobId:          jid,
 	}
 
 	// Send stream data
@@ -1218,8 +1226,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 
 		peerId := s.Conn().RemotePeer().String()
-		//		fdir = configs["received_files_storage"] + fmt.Sprintf("%d", streamData.WorkflowId) + "/" + peerId + "/" + fmt.Sprintf("%d", streamData.JobId) + "/"
-		fdir = configs["received_files_storage"] + peerId + "/" + fmt.Sprintf("%d", streamData.WorkflowId) + "/"
+		fdir = filepath.Join(configs["local_storage"], "workflows", string(bytes.Trim(streamData.OrderingPeerId[:], "\x00")), strconv.FormatInt(streamData.WorkflowId, 10), "job", strconv.FormatInt(streamData.JobId, 10), "input", peerId)
 		fpath = fdir + utils.RandomString(32)
 
 		cs := configs["chunk_size"]
@@ -1228,7 +1235,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
 			p2pm.lm.Log("warn", message, "p2p")
 		}
-		if err = os.MkdirAll(fdir, 0755); err != nil {
+		if err = os.MkdirAll(fdir, 0777); err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
