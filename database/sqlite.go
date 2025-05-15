@@ -412,6 +412,140 @@ INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VAL
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
+
+		createAuditLogTableSql := `
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    operation TEXT NOT NULL, -- INSERT, UPDATE, DELETE
+    record_id INTEGER,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    data TEXT -- JSON payload with changed values
+);
+`
+		_, err = db.ExecContext(context.Background(), createAuditLogTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `audit_logs` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createAuditTriggersSql := `
+-- === JOBS Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_jobs_insert
+AFTER INSERT ON jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('jobs', 'INSERT', NEW.id, json_object('workflow_id', NEW.workflow_id, 'service_id', NEW.service_id, 'status', NEW.status));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_jobs_update
+AFTER UPDATE ON jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('jobs', 'UPDATE', NEW.id, json_object('workflow_id', NEW.workflow_id, 'service_id', NEW.service_id, 'status', NEW.status));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_jobs_delete
+AFTER DELETE ON jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('jobs', 'DELETE', OLD.id, json_object('workflow_id', OLD.workflow_id, 'service_id', OLD.service_id, 'status', OLD.status));
+END;
+
+-- === JOB_INTERFACES Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_insert
+AFTER INSERT ON job_interfaces
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interfaces', 'INSERT', NEW.id, json_object('job_id', NEW.job_id, 'node_id', NEW.node_id, 'interface_type', NEW.interface_type));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_update
+AFTER UPDATE ON job_interfaces
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interfaces', 'UPDATE', NEW.id, json_object('job_id', NEW.job_id, 'node_id', NEW.node_id, 'interface_type', NEW.interface_type));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_delete
+AFTER DELETE ON job_interfaces
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interfaces', 'DELETE', OLD.id, json_object('job_id', OLD.job_id, 'node_id', OLD.node_id, 'interface_type', OLD.interface_type));
+END;
+
+-- === RESOURCES_UTILIZATIONS Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_resources_utilizations_insert
+AFTER INSERT ON resources_utilizations
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('resources_utilizations', 'INSERT', NEW.id, json_object('job_id', NEW.job_id, 'resource_id', NEW.resource_id, 'utilization', NEW.utilization));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_resources_utilizations_update
+AFTER UPDATE ON resources_utilizations
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('resources_utilizations', 'UPDATE', NEW.id, json_object('job_id', NEW.job_id, 'resource_id', NEW.resource_id, 'utilization', NEW.utilization));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_resources_utilizations_delete
+AFTER DELETE ON resources_utilizations
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('resources_utilizations', 'DELETE', OLD.id, json_object('job_id', OLD.job_id, 'resource_id', OLD.resource_id, 'utilization', OLD.utilization));
+END;
+
+-- === WORKFLOWS Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_workflows_insert
+AFTER INSERT ON workflows
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflows', 'INSERT', NEW.id, json_object('name', NEW.name, 'description', NEW.description));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_workflows_update
+AFTER UPDATE ON workflows
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflows', 'UPDATE', NEW.id, json_object('name', NEW.name, 'description', NEW.description));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_workflows_delete
+AFTER DELETE ON workflows
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflows', 'DELETE', OLD.id, json_object('name', OLD.name, 'description', OLD.description));
+END;
+
+-- === WORKFLOW_JOBS Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_workflow_jobs_insert
+AFTER INSERT ON workflow_jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflow_jobs', 'INSERT', NEW.id, json_object('workflow_id', NEW.workflow_id, 'job_id', NEW.job_id, 'status', NEW.status));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_workflow_jobs_update
+AFTER UPDATE ON workflow_jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflow_jobs', 'UPDATE', NEW.id, json_object('workflow_id', NEW.workflow_id, 'job_id', NEW.job_id, 'status', NEW.status));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_workflow_jobs_delete
+AFTER DELETE ON workflow_jobs
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('workflow_jobs', 'DELETE', OLD.id, json_object('workflow_id', OLD.workflow_id, 'job_id', OLD.job_id, 'status', OLD.status));
+END;
+`
+		_, err = db.ExecContext(context.Background(), createAuditTriggersSql)
+		if err != nil {
+			logsManager.Log("error", fmt.Sprintf("Failed to create audit triggers: %s", err.Error()), "database")
+			return nil, err
+		}
 	}
 
 	return db, nil
