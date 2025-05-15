@@ -300,7 +300,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 	"commands" TEXT DEFAULT '',
 	"started" TEXT DEFAULT '',
 	"ended" TEXT DEFAULT '',
-	FOREIGN KEY("service_id") REFERENCES services("id")
+	FOREIGN KEY("service_id") REFERENCES services("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 `
@@ -336,8 +336,8 @@ CREATE TABLE IF NOT EXISTS resources_utilizations (
 	"resource_id" INTEGER NOT NULL,
 	"utilization" DOUBLE PRECISION DEFAULT 0.0,
 	"timestamp" TEXT NOT NULL,
-	FOREIGN KEY("resource_id") REFERENCES resources("id"),
-	FOREIGN KEY("job_id") REFERENCES jobs("id")
+	FOREIGN KEY("resource_id") REFERENCES resources("id") ON DELETE CASCADE,
+	FOREIGN KEY("job_id") REFERENCES jobs("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_utilizations_id_idx ON resources_utilizations ("id");
 `
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
 	"job_id" INTEGER NOT NULL,
 	"expected_job_outputs" TEXT NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
-	FOREIGN KEY("workflow_id") REFERENCES workflows("id")
+	FOREIGN KEY("workflow_id") REFERENCES workflows("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS workflow_jobs_id_idx ON workflow_jobs ("id");
 `
