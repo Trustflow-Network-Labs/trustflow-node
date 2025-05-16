@@ -237,7 +237,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS docker_service_images_id_idx ON docker_service
 CREATE TABLE IF NOT EXISTS docker_service_image_interfaces (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"service_image_id" INTEGER NOT NULL,
-	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNTED FILE SYSTEM') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNT') ) NOT NULL DEFAULT 'MOUNT',
 	"description" TEXT NOT NULL,
 	"path" TEXT DEFAULT '',
 	FOREIGN KEY("service_image_id") REFERENCES docker_service_images("id") ON DELETE CASCADE
@@ -315,8 +315,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_id_idx ON jobs ("id");
 CREATE TABLE IF NOT EXISTS job_interfaces (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"job_id" INTEGER NOT NULL,
-	"node_id" TEXT NOT NULL,
-	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNTED FILE SYSTEM') ) NOT NULL DEFAULT 'MOUNTED FILE SYSTEM',
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNT') ) NOT NULL DEFAULT 'MOUNT',
 	"path" TEXT DEFAULT '',
 	FOREIGN KEY("job_id") REFERENCES jobs("id") ON DELETE CASCADE
 );
@@ -325,6 +324,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS job_interfaces_id_idx ON job_interfaces ("id")
 		_, err = db.ExecContext(context.Background(), createJobInterfacesTable)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `job_interfaces` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createJobInterfacePeersTable := `
+CREATE TABLE IF NOT EXISTS job_interface_peers (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"job_interface_id" INTEGER NOT NULL,
+	"peer_node_id" TEXT NOT NULL,
+	"peer_job_id" INTEGER NOT NULL,
+	"path" TEXT DEFAULT '',
+	FOREIGN KEY("job_interface_id") REFERENCES job_interfaces("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS job_interface_peers_id_idx ON job_interface_peers ("id");
+`
+		_, err = db.ExecContext(context.Background(), createJobInterfacePeersTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `job_interface_peers` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
@@ -458,21 +475,43 @@ CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_insert
 AFTER INSERT ON job_interfaces
 BEGIN
   INSERT INTO audit_logs (table_name, operation, record_id, data)
-  VALUES ('job_interfaces', 'INSERT', NEW.id, json_object('job_id', NEW.job_id, 'node_id', NEW.node_id, 'interface_type', NEW.interface_type));
+  VALUES ('job_interfaces', 'INSERT', NEW.id, json_object('job_id', NEW.job_id, 'interface_type', NEW.interface_type, 'path', NEW.path));
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_update
 AFTER UPDATE ON job_interfaces
 BEGIN
   INSERT INTO audit_logs (table_name, operation, record_id, data)
-  VALUES ('job_interfaces', 'UPDATE', NEW.id, json_object('job_id', NEW.job_id, 'node_id', NEW.node_id, 'interface_type', NEW.interface_type));
+  VALUES ('job_interfaces', 'UPDATE', NEW.id, json_object('job_id', NEW.job_id, 'interface_type', NEW.interface_type, 'path', NEW.path));
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_job_interfaces_delete
 AFTER DELETE ON job_interfaces
 BEGIN
   INSERT INTO audit_logs (table_name, operation, record_id, data)
-  VALUES ('job_interfaces', 'DELETE', OLD.id, json_object('job_id', OLD.job_id, 'node_id', OLD.node_id, 'interface_type', OLD.interface_type));
+  VALUES ('job_interfaces', 'DELETE', OLD.id, json_object('job_id', OLD.job_id, 'interface_type', OLD.interface_type, 'path', OLD.path));
+END;
+
+-- === JOB_INTERFACE_PEERS Triggers ===
+CREATE TRIGGER IF NOT EXISTS trg_job_interface_peers_insert
+AFTER INSERT ON job_interface_peers
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interface_peers', 'INSERT', NEW.id, json_object('job_interface_id', NEW.job_interface_id, 'peer_node_id', NEW.peer_node_id, 'peer_job_id', NEW.peer_job_id, 'path', NEW.path));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_job_interface_peers_update
+AFTER UPDATE ON job_interface_peers
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interface_peers', 'UPDATE', NEW.id, json_object('job_interface_id', NEW.job_interface_id, 'peer_node_id', NEW.peer_node_id, 'peer_job_id', NEW.peer_job_id, 'path', NEW.path));
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_job_interface_peers_delete
+AFTER DELETE ON job_interface_peers
+BEGIN
+  INSERT INTO audit_logs (table_name, operation, record_id, data)
+  VALUES ('job_interface_peers', 'DELETE', OLD.id, json_object('job_interface_id', OLD.job_interface_id, 'peer_node_id', OLD.peer_node_id, 'peer_job_id', OLD.peer_job_id, 'path', OLD.path));
 END;
 
 -- === RESOURCES_UTILIZATIONS Triggers ===

@@ -162,22 +162,22 @@ type Interface struct {
 	Path          string `json:"path"`
 }
 
-// Declare service request type
-type ServiceRequest struct {
-	NodeId                    string                    `json:"node_id"`
-	WorkflowId                int64                     `json:"workflow_id"`
-	ServiceId                 int64                     `json:"service_id"`
-	Entrypoint                []string                  `json:"entrypoint"`
-	Commands                  []string                  `json:"commands"`
-	Interfaces                []ServiceRequestInterface `json:"interfaces"`
-	ExecutionConstraint       string                    `json:"execution_constraint"`
-	ExecutionConstraintDetail string                    `json:"execution_constraint_detail"`
+// Declare request interface base struct
+type RequestInterface struct {
+	JobInterfacePeers []JobInterfacePeer `json:"job_interface_peers"`
+	Interface
 }
 
-// Declare service request interface
-type ServiceRequestInterface struct {
-	NodeId string `json:"node_id"`
-	Interface
+// Declare service request type
+type ServiceRequest struct {
+	NodeId                    string             `json:"node_id"`
+	WorkflowId                int64              `json:"workflow_id"`
+	ServiceId                 int64              `json:"service_id"`
+	Entrypoint                []string           `json:"entrypoint"`
+	Commands                  []string           `json:"commands"`
+	Interfaces                []RequestInterface `json:"interfaces"`
+	ExecutionConstraint       string             `json:"execution_constraint"`
+	ExecutionConstraintDetail string             `json:"execution_constraint_detail"`
 }
 
 // Declare response type for a service request
@@ -259,6 +259,22 @@ type JobBase struct {
 	Status                    string `json:"status"`
 }
 
+// Declare service request interface
+type JobInterfacePeer struct {
+	PeerJobId  int64  `json:"peer_job_id"`
+	PeerNodeId string `json:"peer_node_id"`
+	PeerPath   string `json:"peer_path"`
+}
+
+// Declare job interfaces base struct
+type JobInterface struct {
+	InterfaceId       int64              `json:"interface_id"`
+	WorkflowId        int64              `json:"workflow_id"`
+	JobId             int64              `json:"job_id"`
+	JobInterfacePeers []JobInterfacePeer `json:"job_interface_peers"`
+	Interface
+}
+
 // Declare job type
 type Job struct {
 	JobBase
@@ -276,14 +292,6 @@ type JobSql struct {
 	Commands   string `json:"commands"`
 	Started    string `json:"started"`
 	Ended      string `json:"ended"`
-}
-
-// Declare job interfaces base struct
-type JobInterface struct {
-	InterfaceId int64 `json:"interface_id"`
-	WorkflowId  int64 `json:"workflow_id"`
-	JobId       int64 `json:"job_id"`
-	ServiceRequestInterface
 }
 
 const timeLayout = time.RFC3339

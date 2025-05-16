@@ -1466,14 +1466,14 @@ func (p2pm *P2PManager) GeneratePeerAddrInfo(peerId string) (peer.AddrInfo, erro
 	// Convert the string to a peer.ID
 	pID, err := p2pm.GeneratePeerId(peerId)
 	if err != nil {
-		p2pm.lm.Log("warn", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return p, err
 	}
 
 	addrInfo, err := p2pm.idht.FindPeer(p2pm.ctx, pID)
 	if err != nil {
 		msg := err.Error()
-		p2pm.lm.Log("warn", msg, "p2p")
+		p2pm.lm.Log("error", msg, "p2p")
 		return p, err
 	}
 

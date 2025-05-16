@@ -329,7 +329,7 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Collect job interfaces
-	var serviceRequestInterfaces []node_types.ServiceRequestInterface
+	var serviceRequestInterfaces []node_types.RequestInterface
 	var nsResult string
 	var inputsReady bool
 
@@ -382,8 +382,9 @@ func (mm *MenuManager) requestService() error {
 				}
 				intfce.Path = fnResult
 			}
-		case "MOUNTED FILE SYSTEM":
-			// TODO, specify input/output Node IDs
+		case "MOUNT":
+			// Specify input/output Node IDs
+			fmt.Printf("The specified file system mount point within the service's environment is `%s`\n", intfce.Path)
 			msg := fmt.Sprintf("Please specify the file system mount point within the service's host environment for the service provided at the container path `:%s`", intfce.Path)
 			fnResult, err := mm.inputPromptHelper(msg, "", mm.vm.IsValidMountPoint, nil)
 			if err != nil {
@@ -392,7 +393,7 @@ func (mm *MenuManager) requestService() error {
 			intfce.Path = fnResult + ":" + intfce.Path
 
 			// Input providing node
-			insResult, err := mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+			insResult, err := mm.inputPromptHelper("Please specify the NodeId(s) that will provide this input (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
 			if err != nil {
 				return err
 			}
@@ -414,9 +415,18 @@ func (mm *MenuManager) requestService() error {
 			fmt.Printf("Unknown interfaces type %s. Skipping...\n", intfce.InterfaceType)
 		}
 
-		serviceRequestInterfaces = append(serviceRequestInterfaces, node_types.ServiceRequestInterface{
-			NodeId:    nsResult,
-			Interface: intfce,
+		var interfacePeers []node_types.JobInterfacePeer
+		for peerId := range strings.SplitSeq(nsResult, ", ") {
+			peerId = strings.TrimSpace(peerId)
+			interfacePeer := node_types.JobInterfacePeer{
+				PeerNodeId: peerId,
+				PeerJobId:  0,
+			}
+			interfacePeers = append(interfacePeers, interfacePeer)
+		}
+		serviceRequestInterfaces = append(serviceRequestInterfaces, node_types.RequestInterface{
+			JobInterfacePeers: interfacePeers,
+			Interface:         intfce,
 		})
 	}
 
@@ -492,7 +502,7 @@ func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface,
 
 	_, tyResult, err := mm.selectPromptHelper(
 		"Interface type",
-		[]string{"STDIN", "STDOUT", "MOUNTED FILE SYSTEM"},
+		[]string{"STDIN", "STDOUT", "MOUNT"},
 		0, 10, nil)
 	if err != nil {
 		return nil, err
@@ -511,7 +521,7 @@ func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface,
 		if err != nil {
 			return nil, err
 		}
-	case "MOUNTED FILE SYSTEM":
+	case "MOUNT":
 		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "", mm.vm.IsValidAbsoluteMountPoint, nil)
 		if err != nil {
 			return nil, err
