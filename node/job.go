@@ -115,7 +115,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 
 	// Get job interface peers
 	for i, intfce := range job.JobInterfaces {
-		rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
+		rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -123,7 +123,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 		}
 		for rows.Next() {
 			var jobInterfacePeer node_types.JobInterfacePeer
-			err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerPath)
+			err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath)
 			if err != nil {
 				msg := err.Error()
 				jm.lm.Log("error", msg, "jobs")
@@ -212,7 +212,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 
 		// Get job interface peers
 		for i, intfce := range jobs[i].JobInterfaces {
-			rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
+			rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
 			if err != nil {
 				msg := err.Error()
 				jm.lm.Log("error", msg, "jobs")
@@ -220,7 +220,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 			}
 			for rows.Next() {
 				var jobInterfacePeer node_types.JobInterfacePeer
-				err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerPath)
+				err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath)
 				if err != nil {
 					msg := err.Error()
 					jm.lm.Log("error", msg, "jobs")
@@ -253,6 +253,33 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	// Update job status
 	_, err = jm.db.ExecContext(context.Background(), "update jobs set status = ? where id = ?;",
 		status, id)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+
+	return nil
+}
+
+// Change job execution constraint
+func (jm *JobManager) UpdateJobExecutionConstraint(id int64, constraint string) error {
+	// Check if job exists in a queue
+	err, exists := jm.JobExists(id)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+	if !exists {
+		msg := fmt.Sprintf("Job %d does not exists in a queue", id)
+		jm.lm.Log("error", msg, "jobs")
+		return err
+	}
+
+	// Update job execution constraint
+	_, err = jm.db.ExecContext(context.Background(), "update jobs set execution_constraint = ? where id = ?;",
+		constraint, id)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "jobs")
@@ -378,7 +405,6 @@ func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, 
 // Create new job
 func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderingNode string) (node_types.Job, error) {
 	var job node_types.Job
-	var jobInterfaces []node_types.JobInterface
 
 	// Create new job
 	jm.lm.Log("debug", fmt.Sprintf("create job from ordering node id %s using service id %d", orderingNode, serviceRequest.ServiceId), "jobs")
@@ -400,6 +426,12 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 		return job, err
 	}
 
+	jobInterfaces, err := jm.CreateJobInterfaces(id, serviceRequest.Interfaces)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return job, err
+	}
+
 	jobBase := node_types.JobBase{
 		Id:                        id,
 		WorkflowId:                serviceRequest.WorkflowId,
@@ -408,72 +440,6 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 		ExecutionConstraint:       serviceRequest.ExecutionConstraint,
 		ExecutionConstraintDetail: serviceRequest.ExecutionConstraintDetail,
 		Status:                    "IDLE",
-	}
-
-	service, err := jm.sm.Get(serviceRequest.ServiceId)
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return job, err
-	}
-
-	switch service.Type {
-	case "DATA":
-		// Check if requested interace(s) connections are matching service interface type(s)
-		for _, intface := range serviceRequest.Interfaces {
-			if intface.InterfaceType != "STDOUT" {
-				err := fmt.Errorf("service `%s` does not have defined interface type %s", service.Name, intface.InterfaceType)
-				return job, err
-			}
-		}
-
-		result, err = jm.db.ExecContext(context.Background(), "insert into job_interfaces (job_id, interface_type, path) values (?, ?, ?);",
-			id, "STDOUT", "")
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-			return job, err
-		}
-
-		interfaceId, err := result.LastInsertId()
-		if err != nil {
-			msg := err.Error()
-			jm.lm.Log("error", msg, "jobs")
-			return job, err
-		}
-
-		var jobInterfacePeers []node_types.JobInterfacePeer
-		for _, intface := range serviceRequest.Interfaces {
-			for _, interfacePeer := range intface.JobInterfacePeers {
-				_, err = jm.db.ExecContext(context.Background(), "insert into job_interface_peers (job_interface_id, peer_node_id, peer_job_id, path) values (?, ?, ?, ?);",
-					interfaceId, interfacePeer.PeerNodeId, interfacePeer.PeerJobId, interfacePeer.PeerPath)
-				if err != nil {
-					msg := err.Error()
-					jm.lm.Log("error", msg, "jobs")
-					return job, err
-				}
-
-				jobInterfacePeer := node_types.JobInterfacePeer{
-					PeerJobId:  interfacePeer.PeerJobId,
-					PeerNodeId: interfacePeer.PeerNodeId,
-					PeerPath:   interfacePeer.PeerPath,
-				}
-				jobInterfacePeers = append(jobInterfacePeers, jobInterfacePeer)
-			}
-			jobInterface := node_types.JobInterface{
-				InterfaceId:       interfaceId,
-				JobId:             id,
-				WorkflowId:        serviceRequest.WorkflowId,
-				JobInterfacePeers: jobInterfacePeers,
-				Interface:         intface.Interface,
-			}
-			jobInterfaces = append(jobInterfaces, jobInterface)
-		}
-
-	case "DOCKER EXECUTION ENVIRONMENT":
-	case "STANDALONE EXECUTABLE":
-	default:
-		err := fmt.Errorf("unknown service type %s", service.Type)
-		jm.lm.Log("error", err.Error(), "jobs")
-		return job, err
 	}
 
 	job = node_types.Job{
@@ -486,30 +452,178 @@ func (jm *JobManager) CreateJob(serviceRequest node_types.ServiceRequest, orderi
 	return job, nil
 }
 
+func (jm *JobManager) CreateJobInterfaces(
+	jobId int64,
+	interfaces []node_types.RequestInterface,
+) ([]node_types.JobInterface, error) {
+
+	// Get job
+	job, err := jm.GetJob(jobId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	// Get underlaying service
+	service, err := jm.sm.Get(job.ServiceId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	// Check if requested interace(s) connections are matching service interface type(s)
+	var allowedInterfaces []string
+	switch service.Type {
+	case "DATA":
+		allowedInterfaces = []string{"STDOUT"}
+
+	case "DOCKER EXECUTION ENVIRONMENT":
+		allowedInterfaces = []string{"STDIN", "STDOUT", "MOUNT"}
+
+	case "STANDALONE EXECUTABLE":
+		allowedInterfaces = []string{"STDIN", "STDOUT"}
+
+	default:
+		err := fmt.Errorf("unknown service type %s", service.Type)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	if allowed, intfce := jm.allowedRequestInterfaces(interfaces, allowedInterfaces); !allowed {
+		err := fmt.Errorf("service id `%d` does not have defined interface type %s", job.ServiceId, intfce)
+		return nil, err
+	}
+
+	// Remove existing interfaces (if any)
+	_, err = jm.db.ExecContext(context.Background(), "delete from job_interfaces where job_id = ?;", job.Id)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, err
+	}
+
+	// Add interfaces
+	for _, intface := range interfaces {
+		result, err := jm.db.ExecContext(context.Background(), "insert into job_interfaces (job_id, interface_type, path) values (?, ?, ?);",
+			job.Id, intface.InterfaceType, intface.Path)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, err
+		}
+
+		// Last inserted interface Id
+		interfaceId, err := result.LastInsertId()
+		if err != nil {
+			msg := err.Error()
+			jm.lm.Log("error", msg, "jobs")
+			return nil, err
+		}
+
+		var jobInterfacePeers []node_types.JobInterfacePeer
+		for _, interfacePeer := range intface.JobInterfacePeers {
+			// If this is STDIN interface type peer job id must be the job id
+			if intface.InterfaceType == "STDIN" || interfacePeer.PeerMountFunction == "PROVIDER" {
+				interfacePeer.PeerJobId = job.Id
+			}
+			_, err = jm.db.ExecContext(context.Background(), "insert into job_interface_peers (job_interface_id, peer_node_id, peer_job_id, peer_mount_function, path) values (?, ?, ?, ?, ?);",
+				interfaceId, interfacePeer.PeerNodeId, interfacePeer.PeerJobId, interfacePeer.PeerMountFunction, interfacePeer.PeerPath)
+			if err != nil {
+				msg := err.Error()
+				jm.lm.Log("error", msg, "jobs")
+				return nil, err
+			}
+
+			jobInterfacePeer := node_types.JobInterfacePeer{
+				PeerJobId:         interfacePeer.PeerJobId,
+				PeerNodeId:        interfacePeer.PeerNodeId,
+				PeerPath:          interfacePeer.PeerPath,
+				PeerMountFunction: interfacePeer.PeerMountFunction,
+			}
+			jobInterfacePeers = append(jobInterfacePeers, jobInterfacePeer)
+		}
+
+		jobInterface := node_types.JobInterface{
+			InterfaceId:       interfaceId,
+			JobId:             job.Id,
+			WorkflowId:        job.WorkflowId,
+			JobInterfacePeers: jobInterfacePeers,
+			Interface:         intface.Interface,
+		}
+
+		job.JobInterfaces = append(job.JobInterfaces, jobInterface)
+	}
+
+	return job.JobInterfaces, nil
+}
+
+func (jm *JobManager) allowedRequestInterfaces(
+	interfaces []node_types.RequestInterface,
+	allowed []string,
+) (bool, string) {
+	for _, intface := range interfaces {
+		if !utils.InSlice(intface.InterfaceType, allowed) {
+			return false, intface.InterfaceType
+		}
+	}
+	return true, ""
+}
+
 // CRON, Run jobs from queue
 func (jm *JobManager) ProcessQueue() {
 	var id int64
-	var ids []int64
+	var idsNone []int64
+	var idsConstraint []int64
 
-	// TODO, implement other cases ('NONE'/'READY' is just one case)
+	// Pick jobs ready for execution
 	rows, err := jm.db.QueryContext(context.Background(),
-		//		"select id from jobs where execution_constraint = 'NONE' and status = 'READY';")
-		"select id from jobs where status = 'READY';")
+		"select id, execution_constraint from jobs where (execution_constraint = 'NONE' or execution_constraint = 'INPUTS READY') and status = 'READY';")
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&id)
+		var executionConstraint string
+		err = rows.Scan(&id, &executionConstraint)
 		if err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return
 		}
 
-		ids = append(ids, id)
+		if executionConstraint == "INPUTS READY" {
+			idsConstraint = append(idsConstraint, id)
+			/*
+				job, err := jm.GetJob(id)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return
+				}
+
+				if _, _, _, err := jm.checkInterfaces(job); err != nil {
+					fmt.Printf("Err: %v\n", err)
+					jm.lm.Log("debug", err.Error(), "jobs")
+					continue
+				}
+			*/
+		}
+
+		idsNone = append(idsNone, id)
 	}
 	rows.Close()
+
+	for _, id := range idsConstraint {
+		job, err := jm.GetJob(id)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return
+		}
+
+		if _, _, _, err := jm.checkInterfaces(job); err != nil {
+			jm.lm.Log("debug", err.Error(), "jobs")
+			continue
+		}
+
+		idsNone = append(idsNone, id)
+	}
 
 	configManager := utils.NewConfigManager("")
 	configs, err := configManager.ReadConfigs()
@@ -529,7 +643,7 @@ func (jm *JobManager) ProcessQueue() {
 		return
 	}
 	backOff := time.Duration(initialBackoff) * time.Second
-	for _, id := range ids {
+	for _, id := range idsNone {
 		go jm.RunJobWithRetry(context.Background(), id, maxRetries, backOff)
 	}
 }
@@ -789,16 +903,24 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 		}
 		for _, interfacePeer := range jobInterface.JobInterfacePeers {
 
+			// Is the DATA job input?
+			var jobId int64 = job.Id
+			if interfacePeer.PeerJobId != 0 {
+				jobId = interfacePeer.PeerJobId
+				// Override job Id
+				job.Id = jobId
+			}
+
 			// Get peer
 			if interfacePeer.PeerNodeId == host {
 				// It's own service / data
-				fdir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(job.Id, 10), "input", host)
+				fdir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(jobId, 10), "input", host)
 				if err = os.MkdirAll(fdir, 0777); err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
 				dest := fdir + filepath.Base(path)
-				if err = utils.FileCopy(path, dest, 48*1024); err != nil {
+				if err = utils.BufferFileCopy(path, dest, 48*1024); err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
@@ -840,17 +962,7 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 }
 
 func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
-	var inputFiles []string
-	var outputFiles []string
-	var mounts = make(map[string]string)
 	var multiErr error
-
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
 
 	// Get docker job
 	service, err := jm.sm.Get(job.ServiceId)
@@ -865,32 +977,10 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	}
 
 	// Check are job inputs, outputs and mounts ready
-	for _, intrface := range job.JobInterfaces {
-		basePath := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
-		switch intrface.InterfaceType {
-		case "STDIN":
-			inputFiles, err = jm.validateHostPaths(basePath, intrface, inputFiles)
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
-			}
-		case "STDOUT":
-			outputFiles, err = jm.createHostPaths(basePath, intrface, outputFiles)
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
-			}
-		case "MOUNT":
-			mounts, err = jm.createHostMountPoints(basePath, intrface, mounts)
-			if err != nil {
-				jm.lm.Log("error", err.Error(), "jobs")
-				return err
-			}
-		default:
-			err := fmt.Errorf("unknown interface type `%s`", intrface.InterfaceType)
-			jm.lm.Log("error", err.Error(), "jobs")
-			return err
-		}
+	inputFiles, outputFiles, mounts, err := jm.checkInterfaces(job)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
 	}
 
 	if len(docker.RepoDockerComposes) > 0 {
@@ -984,6 +1074,50 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	return nil
 }
 
+// Check are job inputs and mounts ready (also prepare output paths)
+func (jm *JobManager) checkInterfaces(job node_types.Job) ([]string, []string, map[string]string, error) {
+	var inputFiles []string
+	var outputFiles []string
+	var mounts = make(map[string]string)
+
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return nil, nil, nil, err
+	}
+
+	for _, intrface := range job.JobInterfaces {
+		basePath := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+		switch intrface.InterfaceType {
+		case "STDIN":
+			inputFiles, err = jm.validateHostPaths(basePath, intrface, inputFiles)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return nil, nil, nil, err
+			}
+		case "STDOUT":
+			outputFiles, err = jm.createHostPaths(basePath, intrface, outputFiles)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return nil, nil, nil, err
+			}
+		case "MOUNT":
+			mounts, err = jm.createHostMountPoints(basePath, intrface, mounts)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return nil, nil, nil, err
+			}
+		default:
+			err := fmt.Errorf("unknown interface type `%s`", intrface.InterfaceType)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return nil, nil, nil, err
+		}
+	}
+
+	return inputFiles, outputFiles, mounts, nil
+}
+
 func (jm *JobManager) validateHostPaths(base string, inrfce node_types.JobInterface, files []string) ([]string, error) {
 	var inOut string
 
@@ -1058,48 +1192,45 @@ func (jm *JobManager) createHostPaths(base string, inrfce node_types.JobInterfac
 func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobInterface, mounts map[string]string) (map[string]string, error) {
 	var err error
 
-	paths := strings.Split(inrfce.Path, ":")
-
-	if len(paths) != 2 {
-		err := fmt.Errorf("invalid mount path %s", inrfce.Path)
-		jm.lm.Log("error", err.Error(), "jobs")
-		return nil, err
-	}
-
 	// Make sure mount file path is created
-	path := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", strings.TrimSpace(paths[1]))
-	path, err = jm.createPath(path)
+	mountPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", strings.TrimSpace(inrfce.Path))
+	mountPath, err = jm.createPath(mountPath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Send back updated abs path
-	mounts[path] = paths[1]
-	/*
-		nodes := strings.Split(inrfce.NodeId, ":")
+	mounts[mountPath] = inrfce.Path
 
-		for inNode := range strings.SplitSeq(nodes[0], ",") {
-			inNode = strings.TrimSpace(inNode)
-			inPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "intput", inNode)
+	// Copy all inputs
+	for _, interfacePeer := range inrfce.JobInterfacePeers {
+		// Check peer's mount function
+		if interfacePeer.PeerMountFunction != "PROVIDER" {
+			continue
+		}
+		paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
+		for path := range paths {
+			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "input", interfacePeer.PeerNodeId, strings.TrimSpace(path))
 
-			// Make sure input file paths are created
-			_, err = jm.createPath(inPath)
+			// Check if the path exists
+			err := jm.pathExists(path)
 			if err != nil {
+				err = fmt.Errorf("job defined input path `%s` is missing (system error: %s)", path, err.Error())
+				jm.lm.Log("error", err.Error(), "jobs")
+				return nil, err
+			}
+
+			// Copy peer path to mount point
+			err = utils.CopyPath(path, mountPath)
+			if err != nil {
+				err = fmt.Errorf("copy path `%s` to `%s` failed (system error: %s)",
+					path, mountPath, err.Error())
+				jm.lm.Log("error", err.Error(), "jobs")
 				return nil, err
 			}
 		}
+	}
 
-		for outNode := range strings.SplitSeq(nodes[1], ",") {
-			outNode = strings.TrimSpace(outNode)
-			outPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "output", outNode)
-
-			// Make sure output file paths are created
-			_, err = jm.createPath(outPath)
-			if err != nil {
-				return nil, err
-			}
-		}
-	*/
 	return mounts, nil
 }
 

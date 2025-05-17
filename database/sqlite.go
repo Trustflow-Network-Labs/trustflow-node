@@ -334,6 +334,7 @@ CREATE TABLE IF NOT EXISTS job_interface_peers (
 	"job_interface_id" INTEGER NOT NULL,
 	"peer_node_id" TEXT NOT NULL,
 	"peer_job_id" INTEGER NOT NULL,
+	"peer_mount_function" TEXT DEFAULT '',
 	"path" TEXT DEFAULT '',
 	FOREIGN KEY("job_interface_id") REFERENCES job_interfaces("id") ON DELETE CASCADE
 );

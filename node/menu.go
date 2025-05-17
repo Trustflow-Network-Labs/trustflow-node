@@ -247,7 +247,7 @@ func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 	if len(service.Interfaces) > 0 {
 		fmt.Print("---\nService expects following inputs/outputs:")
 		for i, intfce := range service.Interfaces {
-			fmt.Printf("\n%d.	%s\n	%s\n	%s",
+			fmt.Printf("\n%d.	%s\n	%s\n	%s\n",
 				i+1, intfce.InterfaceType,
 				intfce.Description, intfce.Path)
 		}
@@ -329,105 +329,10 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Collect job interfaces
-	var serviceRequestInterfaces []node_types.RequestInterface
-	var nsResult string
-	var inputsReady bool
-
-	for _, intfce := range serviceOffer.Interfaces {
-		nsResult = ""
-		inputsReady = false
-
-		fmt.Println("The following is the Interface description as defined in the Service definition:")
-		fmt.Println(intfce.Description)
-
-		switch intfce.InterfaceType {
-		case "STDIN":
-			// Input providing node
-			nsResult, err = mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
-			if err != nil {
-				return err
-			}
-
-			// Input path
-			if intfce.Path != "" {
-				fmt.Printf("The predefined input file name and path for the service is as follows:\n%s\n",
-					intfce.Path)
-			} else {
-				fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileName, nil)
-				if err != nil {
-					return err
-				}
-				intfce.Path = fnResult
-			}
-
-			// Set flag for this service
-			// that we have to wait for inputs
-			// to be provided before running the service
-			inputsReady = true
-		case "STDOUT":
-			// Output receiving node(s)
-			nsResult, err = mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
-			if err != nil {
-				return err
-			}
-
-			// Output path
-			if intfce.Path != "" {
-				fmt.Printf("The predefined output file name and path for the service is as follows:\n%s\n",
-					intfce.Path)
-			} else {
-				fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileName, nil)
-				if err != nil {
-					return err
-				}
-				intfce.Path = fnResult
-			}
-		case "MOUNT":
-			// Specify input/output Node IDs
-			fmt.Printf("The specified file system mount point within the service's environment is `%s`\n", intfce.Path)
-			msg := fmt.Sprintf("Please specify the file system mount point within the service's host environment for the service provided at the container path `:%s`", intfce.Path)
-			fnResult, err := mm.inputPromptHelper(msg, "", mm.vm.IsValidMountPoint, nil)
-			if err != nil {
-				return err
-			}
-			intfce.Path = fnResult + ":" + intfce.Path
-
-			// Input providing node
-			insResult, err := mm.inputPromptHelper("Please specify the NodeId(s) that will provide this input (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
-			if err != nil {
-				return err
-			}
-
-			// Output receiving node(s)
-			onsResult, err := mm.inputPromptHelper("Please specify the NodeID(s) that will receive the output (comma-separated if multiple)", mm.p2pm.h.ID().String(), mm.vm.ArePeers, nil)
-			if err != nil {
-				return err
-			}
-
-			// Combine node IDs
-			nsResult = insResult + ":" + onsResult
-
-			// Set flag for this service
-			// that we have to wait for inputs
-			// to be provided before running the service
-			inputsReady = true
-		default:
-			fmt.Printf("Unknown interfaces type %s. Skipping...\n", intfce.InterfaceType)
-		}
-
-		var interfacePeers []node_types.JobInterfacePeer
-		for peerId := range strings.SplitSeq(nsResult, ", ") {
-			peerId = strings.TrimSpace(peerId)
-			interfacePeer := node_types.JobInterfacePeer{
-				PeerNodeId: peerId,
-				PeerJobId:  0,
-			}
-			interfacePeers = append(interfacePeers, interfacePeer)
-		}
-		serviceRequestInterfaces = append(serviceRequestInterfaces, node_types.RequestInterface{
-			JobInterfacePeers: interfacePeers,
-			Interface:         intfce,
-		})
+	serviceRequestInterfaces, inputsRequired, err := mm.jobInterfaces(serviceOffer.Interfaces)
+	if err != nil {
+		fmt.Printf("Could not collect job interfaces: %s\n", err.Error())
+		return err
 	}
 
 	/*
@@ -442,7 +347,7 @@ func (mm *MenuManager) requestService() error {
 		}
 	*/
 	var cResult string = "NONE"
-	if inputsReady {
+	if *inputsRequired {
 		cResult = "INPUTS READY"
 	}
 
@@ -494,6 +399,222 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	return nil
+}
+
+func (mm *MenuManager) jobInterfaces(serviceInterfaces []node_types.Interface) ([]node_types.RequestInterface, *bool, error) {
+	// Collect job interfaces
+	var serviceRequestInterfaces []node_types.RequestInterface
+	var err error
+
+	inputsRequired := new(bool)
+	for _, serviceInterface := range serviceInterfaces {
+		*inputsRequired = false
+
+		fmt.Println("The following is the Interface description as defined in the Service definition:")
+		fmt.Println(serviceInterface.Description)
+
+		var interfacePeers []node_types.JobInterfacePeer
+		switch serviceInterface.InterfaceType {
+		case "STDIN":
+			// Input providing nodes
+			interfacePeers, err = mm.stdJobInterfacePeers(serviceInterface, interfacePeers)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// Set flag for this service
+			// that we have to wait for inputs
+			// to be provided before running the service
+			*inputsRequired = true
+
+		case "STDOUT":
+			// Output receiving nodes
+			interfacePeers, err = mm.stdJobInterfacePeers(serviceInterface, interfacePeers)
+			if err != nil {
+				return nil, nil, err
+			}
+
+		case "MOUNT":
+			interfacePeers, err = mm.mountJobInterfacePeers(serviceInterface, interfacePeers)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// Set flag for this service
+			// that we have to wait for inputs
+			// to be provided before running the service
+			*inputsRequired = true
+		default:
+			fmt.Printf("Unknown interfaces type %s. Skipping...\n", serviceInterface.InterfaceType)
+		}
+
+		serviceRequestInterfaces = append(serviceRequestInterfaces, node_types.RequestInterface{
+			JobInterfacePeers: interfacePeers,
+			Interface:         serviceInterface,
+		})
+	}
+
+	return serviceRequestInterfaces, inputsRequired, nil
+}
+
+func (mm *MenuManager) stdJobInterfacePeers(
+	serviceInterface node_types.Interface,
+	interfacePeers []node_types.JobInterfacePeer,
+) ([]node_types.JobInterfacePeer, error) {
+	var jobInterfacePeer node_types.JobInterfacePeer
+	var msgNode, msgPredefinedPath, msgSpecifyFilePath, msgJobId string
+
+	switch serviceInterface.InterfaceType {
+	case "STDIN":
+		msgNode = "Please specify the NodeId that will provide this input"
+		msgPredefinedPath = fmt.Sprintf("The predefined input file name and path for the service is as follows:\n%s\n",
+			serviceInterface.Path)
+		msgSpecifyFilePath = "Please specify the file name and path that this node will provide"
+	case "STDOUT":
+		msgNode = "Please specify the NodeID that will receive the output"
+		msgPredefinedPath = fmt.Sprintf("The predefined output file name and path for the service is as follows:\n%s\n",
+			serviceInterface.Path)
+		msgSpecifyFilePath = "Please specify the file name and path for the node to receive"
+		msgJobId = "If a job on the receiving node is the receiver of this output, please specify the job ID; otherwise, leave the remaining entry as `0`"
+	default:
+		err := fmt.Errorf("unknown STD interface type `%s`", serviceInterface.InterfaceType)
+		return nil, err
+	}
+
+	// Input providing / Output receiving node
+	nsResult, err := mm.inputPromptHelper(msgNode, mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set node Id
+	jobInterfacePeer.PeerNodeId = nsResult
+
+	// Input / Output path
+	if serviceInterface.Path != "" {
+		fmt.Print(msgPredefinedPath)
+
+		// Copy path to peer path
+		jobInterfacePeer.PeerPath = serviceInterface.Path
+	} else {
+		// Collect peer path
+		fnResult, err := mm.inputPromptHelper(msgSpecifyFilePath, "", mm.vm.IsValidFileName, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// Copy path to peer path
+		jobInterfacePeer.PeerPath = fnResult
+	}
+
+	// Output receiving job Id
+	if serviceInterface.InterfaceType == "OUTPUT" {
+		jidResult, err := mm.inputPromptHelper(msgJobId, "0", mm.vm.IsInt64, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		jobInterfacePeer.PeerJobId, err = mm.tm.ToInt64(jidResult)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	interfacePeers = append(interfacePeers, jobInterfacePeer)
+
+	// Print "add another peer for the job interface" prompt
+	aaResult, err := mm.confirmPromptHelper("Add another peer to the interface")
+	if err != nil {
+		return nil, err
+	}
+	if aaResult {
+		return mm.stdJobInterfacePeers(serviceInterface, interfacePeers)
+	}
+
+	return interfacePeers, nil
+}
+
+func (mm *MenuManager) mountJobInterfacePeers(
+	serviceInterface node_types.Interface,
+	interfacePeers []node_types.JobInterfacePeer,
+) ([]node_types.JobInterfacePeer, error) {
+	var jobInterfacePeer node_types.JobInterfacePeer
+
+	if serviceInterface.InterfaceType != "MOUNT" {
+		err := fmt.Errorf("provided interface type `%s` is wrong. Interface type must be `MOUNT`", serviceInterface.InterfaceType)
+		return nil, err
+	}
+
+	// Specify input/output Node IDs
+	fmt.Printf("The specified file system mount point within the service's environment is `%s`\n", serviceInterface.Path)
+
+	// Ask will this be a providing or receiving node
+	prResult, err := mm.confirmPromptHelper("Will you add a node that provides inputs to the job at the mount point (press Y), or will you add a node that receives outputs from a job at this mount point (press N)")
+	if err != nil {
+		return nil, err
+	}
+	if prResult {
+		// Input providing node
+		inResult, err := mm.inputPromptHelper("Please specify the NodeId that will provide this input", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// Collect peer path
+		fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileNameOrMountPoint, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		jobInterfacePeer = node_types.JobInterfacePeer{
+			PeerNodeId:        inResult,
+			PeerMountFunction: "PROVIDER",
+			PeerPath:          fnResult,
+		}
+
+	} else {
+		// Output receiving node
+		onResult, err := mm.inputPromptHelper("Please specify the NodeID that will receive the output", mm.p2pm.h.ID().String(), mm.vm.IsPeer, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// Collect peer path
+		fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileNameOrMountPoint, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		jobInterfacePeer = node_types.JobInterfacePeer{
+			PeerNodeId:        onResult,
+			PeerMountFunction: "RECEIVER",
+			PeerPath:          fnResult,
+			PeerJobId:         0,
+		}
+
+		jidResult, err := mm.inputPromptHelper("If a job on the receiving node is the receiver of this output, please specify the job ID; otherwise, leave the remaining entry as `0`", "0", mm.vm.IsInt64, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		jobInterfacePeer.PeerJobId, err = mm.tm.ToInt64(jidResult)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	interfacePeers = append(interfacePeers, jobInterfacePeer)
+
+	// Print "add another peer for the job interface" prompt
+	aaResult, err := mm.confirmPromptHelper("Add another peer to the interface")
+	if err != nil {
+		return nil, err
+	}
+	if aaResult {
+		return mm.mountJobInterfacePeers(serviceInterface, interfacePeers)
+	}
+
+	return interfacePeers, nil
 }
 
 func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface, error) {

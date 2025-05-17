@@ -261,9 +261,10 @@ type JobBase struct {
 
 // Declare service request interface
 type JobInterfacePeer struct {
-	PeerJobId  int64  `json:"peer_job_id"`
-	PeerNodeId string `json:"peer_node_id"`
-	PeerPath   string `json:"peer_path"`
+	PeerJobId         int64  `json:"peer_job_id"`
+	PeerNodeId        string `json:"peer_node_id"`
+	PeerPath          string `json:"peer_path"`
+	PeerMountFunction string `json:"peer_mount_function"`
 }
 
 // Declare job interfaces base struct

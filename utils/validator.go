@@ -126,6 +126,17 @@ func (vm *ValidatorManager) IsValidRelativeMountPoint(path string) error {
 	return vm.IsValidPath(path, false, false)
 }
 
+func (vm *ValidatorManager) IsValidFileNameOrMountPoint(path string) error {
+	erra := vm.IsValidFileName(path)
+	errr := vm.IsValidMountPoint(path)
+
+	if erra == nil || errr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%s is neither valid file name nor mount point", path)
+}
+
 func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute bool) error {
 	if path == "" {
 		return errors.New("path is empty")
