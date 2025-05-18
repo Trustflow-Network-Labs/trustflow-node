@@ -508,7 +508,7 @@ func (mm *MenuManager) stdJobInterfacePeers(
 	}
 
 	// Output receiving job Id
-	if serviceInterface.InterfaceType == "OUTPUT" {
+	if serviceInterface.InterfaceType == "STDOUT" {
 		jidResult, err := mm.inputPromptHelper(msgJobId, "0", mm.vm.IsInt64, nil)
 		if err != nil {
 			return nil, err
@@ -617,8 +617,7 @@ func (mm *MenuManager) mountJobInterfacePeers(
 	return interfacePeers, nil
 }
 
-func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface, error) {
-	var interfaces []node_types.Interface
+func (mm *MenuManager) serviceInterfaces(nodeId string, interfaces []node_types.Interface) ([]node_types.Interface, error) {
 	var pthResult string = ""
 
 	_, tyResult, err := mm.selectPromptHelper(
@@ -669,7 +668,7 @@ func (mm *MenuManager) serviceInterfaces(nodeId string) ([]node_types.Interface,
 		return nil, err
 	}
 	if aaResult {
-		return mm.serviceInterfaces(nodeId)
+		return mm.serviceInterfaces(nodeId, interfaces)
 	}
 
 	return interfaces, nil
@@ -1414,7 +1413,7 @@ func (mm *MenuManager) addInterfaces(question string) ([]node_types.Interface, e
 		return nil, err
 	}
 	if qResult {
-		intfcs, err := mm.serviceInterfaces(mm.p2pm.h.ID().String())
+		intfcs, err := mm.serviceInterfaces(mm.p2pm.h.ID().String(), interfaces)
 		if err != nil {
 			fmt.Printf("Collecting interfaces failed %v\n", err)
 			return nil, err

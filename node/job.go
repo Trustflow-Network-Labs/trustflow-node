@@ -26,6 +26,7 @@ type JobManager struct {
 	dm   *repo.DockerManager
 	p2pm *P2PManager
 	tm   *utils.TextManager
+	vm   *utils.ValidatorManager
 }
 
 func NewJobManager(p2pm *P2PManager) *JobManager {
@@ -37,6 +38,7 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		dm:   repo.NewDockerManager(),
 		p2pm: p2pm,
 		tm:   utils.NewTextManager(),
+		vm:   utils.NewValidatorManager(),
 	}
 }
 
@@ -591,19 +593,6 @@ func (jm *JobManager) ProcessQueue() {
 
 		if executionConstraint == "INPUTS READY" {
 			idsConstraint = append(idsConstraint, id)
-			/*
-				job, err := jm.GetJob(id)
-				if err != nil {
-					jm.lm.Log("error", err.Error(), "jobs")
-					return
-				}
-
-				if _, _, _, err := jm.checkInterfaces(job); err != nil {
-					fmt.Printf("Err: %v\n", err)
-					jm.lm.Log("debug", err.Error(), "jobs")
-					continue
-				}
-			*/
 		}
 
 		idsNone = append(idsNone, id)
@@ -1197,6 +1186,18 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 	mountPath, err = jm.createPath(mountPath)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if mount path is file or folder
+	// If it's a file and it doesn't exist at runtime
+	// Docker will create it as a folder, so we must
+	// create a file instead prior to execution
+	if err := jm.vm.IsValidFileName(mountPath); err == nil {
+		f, err := os.Create(mountPath)
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
 	}
 
 	// Send back updated abs path
