@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Copy files in chunks
@@ -37,6 +38,20 @@ func CopyPath(src, dst string) error {
 	if info.IsDir() {
 		return copyDir(src, dst)
 	}
+
+	// Handle case: src is a file and dst is a directory
+	dstInfo, err := os.Stat(dst)
+	if err == nil && dstInfo.IsDir() {
+		// If dst is a directory, append the source file name
+		dst = filepath.Join(dst, filepath.Base(src))
+	} else if err != nil && os.IsNotExist(err) && strings.HasSuffix(dst, string(os.PathSeparator)) {
+		// If dst doesn't exist but ends with a separator, treat it as a directory
+		if err := os.MkdirAll(dst, 0755); err != nil {
+			return fmt.Errorf("mkdir dst: %w", err)
+		}
+		dst = filepath.Join(dst, filepath.Base(src))
+	}
+
 	return copyFile(src, dst)
 }
 

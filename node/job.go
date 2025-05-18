@@ -1123,7 +1123,13 @@ func (jm *JobManager) validateHostPaths(base string, inrfce node_types.JobInterf
 	for _, interfacePeer := range inrfce.JobInterfacePeers {
 		paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
 		for path := range paths {
-			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, interfacePeer.PeerNodeId, strings.TrimSpace(path))
+			path := strings.TrimSpace(path)
+			isDir := strings.HasSuffix(path, string(os.PathSeparator))
+
+			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, interfacePeer.PeerNodeId, path)
+			if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+				path += string(os.PathSeparator)
+			}
 
 			// Check if the path exists
 			err := jm.pathExists(path)
@@ -1163,10 +1169,16 @@ func (jm *JobManager) createHostPaths(base string, inrfce node_types.JobInterfac
 	for _, interfacePeer := range inrfce.JobInterfacePeers {
 		paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
 		for path := range paths {
-			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, interfacePeer.PeerNodeId, strings.TrimSpace(path))
+			path := strings.TrimSpace(path)
+			isDir := strings.HasSuffix(path, string(os.PathSeparator))
+
+			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), inOut, interfacePeer.PeerNodeId, path)
+			if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+				path += string(os.PathSeparator)
+			}
 
 			// Make sure file path is created
-			path, err = jm.createPath(path)
+			path, err = jm.createPath(path, isDir)
 			if err != nil {
 				return nil, err
 			}
@@ -1181,12 +1193,29 @@ func (jm *JobManager) createHostPaths(base string, inrfce node_types.JobInterfac
 func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobInterface, mounts map[string]string) (map[string]string, error) {
 	var err error
 
+	// Check if provided path is dir
+	serviceMountPoint := strings.TrimSpace(inrfce.Path)
+	isDir := strings.HasSuffix(serviceMountPoint, string(os.PathSeparator))
+
+	fmt.Printf("serviceMountPoint: %s, iDir? %t\n", serviceMountPoint, isDir)
+
 	// Make sure mount file path is created
-	mountPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", strings.TrimSpace(inrfce.Path))
-	mountPath, err = jm.createPath(mountPath)
+	mountPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", serviceMountPoint)
+
+	fmt.Printf("1. mountPath: %s\n", mountPath)
+
+	if isDir && !strings.HasSuffix(mountPath, string(os.PathSeparator)) {
+		mountPath += string(os.PathSeparator)
+	}
+
+	fmt.Printf("2. mountPath: %s\n", mountPath)
+
+	mountPath, err = jm.createPath(mountPath, isDir)
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("3. mountPath: %s\n", mountPath)
 
 	// Check if mount path is file or folder
 	// If it's a file and it doesn't exist at runtime
@@ -1200,8 +1229,12 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 		f.Close()
 	}
 
+	fmt.Printf("4. mountPath: %s\n", mountPath)
+
 	// Send back updated abs path
 	mounts[mountPath] = inrfce.Path
+
+	fmt.Printf("mounts:\n%v\n", mounts)
 
 	// Copy all inputs
 	for _, interfacePeer := range inrfce.JobInterfacePeers {
@@ -1211,7 +1244,14 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 		}
 		paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
 		for path := range paths {
-			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "input", interfacePeer.PeerNodeId, strings.TrimSpace(path))
+			// Check if provided path is dir
+			path := strings.TrimSpace(path)
+			isDir := strings.HasSuffix(path, string(os.PathSeparator))
+
+			path = filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "input", interfacePeer.PeerNodeId, path)
+			if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+				path += string(os.PathSeparator)
+			}
 
 			// Check if the path exists
 			err := jm.pathExists(path)
@@ -1235,22 +1275,35 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 	return mounts, nil
 }
 
-func (jm *JobManager) createPath(path string) (string, error) {
-	// Make sure file path is created
-
-	fdir := filepath.Dir(path)
-	if err := os.MkdirAll(fdir, 0777); err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return "", err
+func (jm *JobManager) createPath(path string, isDir bool) (string, error) {
+	// If it's a directory, ensure it ends with a slash for clarity (optional)
+	if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+		path += string(os.PathSeparator)
 	}
 
-	path, err := filepath.Abs(path)
+	absPath, err := filepath.Abs(path)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return "", err
 	}
 
-	return path, nil
+	// If it's a directory, create it directly
+	if isDir {
+		if err := os.MkdirAll(absPath, 0777); err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return "", err
+		}
+		return absPath + string(os.PathSeparator), nil
+	}
+
+	// If it's a file, create the parent directory
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return "", err
+	}
+
+	return absPath, nil
 }
 
 func (jm *JobManager) pathExists(path string) error {

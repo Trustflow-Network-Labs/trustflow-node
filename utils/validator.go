@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -173,6 +174,10 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 
 	// 🔍 If fileName is true, ensure the path ends in a filename (not directory)
 	if fileName {
+		if strings.HasSuffix(path, string(os.PathSeparator)) {
+			return errors.New("path is a directory")
+		}
+
 		base := filepath.Base(cleaned)
 		if base == "." || base == "" {
 			return errors.New("path does not contain a file name")
