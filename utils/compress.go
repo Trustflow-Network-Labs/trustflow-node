@@ -51,40 +51,75 @@ func Compress(sourcePath, outputFile string) error {
 
 // addFileToTar adds a file or directory to the tar archive
 func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir string) error {
-	var link string
-	if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
-		var err error
-		if link, err = os.Readlink(filePath); err != nil {
-			return err
-		}
-	}
-
-	header, err := tar.FileInfoHeader(fi, link)
-	if err != nil {
-		return err
-	}
-
 	relPath, err := filepath.Rel(filepath.Dir(baseDir), filePath)
 	if err != nil {
+		return fmt.Errorf("failed to compute relative path: %w", err)
+	}
+
+	// Handle symlinks by resolving to the real file
+	if fi.Mode()&os.ModeSymlink != 0 {
+		// Resolve symlink
+		resolvedPath, err := filepath.EvalSymlinks(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve symlink: %w", err)
+		}
+
+		// Stat the resolved target
+		resolvedFi, err := os.Stat(resolvedPath)
+		if err != nil {
+			return fmt.Errorf("failed to stat resolved path: %w", err)
+		}
+
+		// Create header for the resolved file (or directory), but use symlink name
+		header, err := tar.FileInfoHeader(resolvedFi, "")
+		if err != nil {
+			return fmt.Errorf("failed to create header: %w", err)
+		}
+		header.Name = relPath
+
+		if err := tw.WriteHeader(header); err != nil {
+			return fmt.Errorf("failed to write header: %w", err)
+		}
+
+		// If the symlink points to a directory, don't try to open it
+		if resolvedFi.IsDir() {
+			return nil
+		}
+
+		// Otherwise, open and copy file contents
+		srcFile, err := os.Open(resolvedPath)
+		if err != nil {
+			return fmt.Errorf("failed to open resolved file: %w", err)
+		}
+		defer srcFile.Close()
+
+		buf := make([]byte, 32*1024)
+		_, err = io.CopyBuffer(tw, srcFile, buf)
 		return err
+	}
+
+	// Handle regular files and directories
+	header, err := tar.FileInfoHeader(fi, "")
+	if err != nil {
+		return fmt.Errorf("failed to create tar header: %w", err)
 	}
 	header.Name = relPath
 
 	if err := tw.WriteHeader(header); err != nil {
-		return err
+		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	if !fi.Mode().IsRegular() { // Skip non-regular files (directories, symlinks, etc.)
+	// Skip directories and non-regular files
+	if !fi.Mode().IsRegular() {
 		return nil
 	}
 
 	srcFile, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer srcFile.Close()
 
-	// Create a buffer for io.CopyBuffer()
 	buf := make([]byte, 32*1024)
 	_, err = io.CopyBuffer(tw, srcFile, buf)
 	return err

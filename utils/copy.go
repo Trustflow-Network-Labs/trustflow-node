@@ -103,3 +103,24 @@ func copyDir(srcDir, dstDir string) error {
 		return copyFile(path, dstPath)
 	})
 }
+
+// CreateSymlink creates a symlink at linkPath pointing to targetPath
+func CreateSymlink(targetPath, linkPath string) error {
+	// Convert targetPath to absolute path
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for target: %w", err)
+	}
+
+	// Check if symlink already exists
+	info, err := os.Lstat(linkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil // Already a symlink, skip
+		}
+		return fmt.Errorf("cannot create symlink: %s already exists and is not a symlink", linkPath)
+	}
+
+	// Create symlink using absolute path
+	return os.Symlink(absTargetPath, linkPath)
+}

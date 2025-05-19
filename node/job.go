@@ -1094,7 +1094,43 @@ func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
 					if interfacePeer.PeerMountFunction != "RECEIVER" {
 						continue
 					} else {
+						var lnkDir string
+
+						// Is mount point file or dir
+						isDir = strings.HasSuffix(intrface.Path, string(os.PathSeparator))
 						path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "mounts", intrface.Path)
+
+						// Is link file or dir
+						isLnkDir := strings.HasSuffix(interfacePeer.PeerPath, string(os.PathSeparator))
+						lnk := filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, interfacePeer.PeerPath)
+
+						// Are we linkinf file to dir or vice-versa
+						if !isDir && isLnkDir {
+							lnk = filepath.Join(lnk, filepath.Base(path))
+							isLnkDir = !isLnkDir
+						} else if isDir && !isLnkDir {
+							path = filepath.Join(path, filepath.Base(lnk))
+						}
+
+						// Create directory sub-structure for link
+						//						if isLnkDir {
+						//							lnkDir = lnk
+						//						} else {
+						lnkDir = filepath.Dir(lnk)
+						//						}
+						if err = os.MkdirAll(lnkDir, 0755); err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+
+						// Create symb link
+						err := utils.CreateSymlink(path, lnk)
+						if err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+						path = lnk
+						isDir = isLnkDir
 					}
 				default:
 					continue
