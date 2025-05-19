@@ -71,7 +71,7 @@ func (gm *GitManager) ValidateRepo(repoUrl, username, password string) error {
 	tmpRoot := configs["local_tmp"]
 
 	// Make sure tmpRoot exists
-	if err := os.MkdirAll(tmpRoot, 0777); err != nil {
+	if err := os.MkdirAll(tmpRoot, 0755); err != nil {
 		return err
 	}
 
@@ -188,7 +188,7 @@ func (gm *GitManager) CloneOrPull(basePath, repoUrl, branch, username, password 
 	path := gm.getRepoCachePath(basePath, repoUrl, branch)
 
 	// Make sure path exists
-	if err := os.MkdirAll(path, 0777); err != nil {
+	if err := os.MkdirAll(path, 0755); err != nil {
 		return "", err
 	}
 

@@ -15,7 +15,7 @@ type PIDManager struct {
 func NewPIDManager(pidFilePath string) (*PIDManager, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(pidFilePath)
-	if err := os.MkdirAll(dir, 0777); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create PID directory: %v", err)
 	}
 

@@ -1235,7 +1235,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
 			p2pm.lm.Log("warn", message, "p2p")
 		}
-		if err = os.MkdirAll(fdir, 0777); err != nil {
+		if err = os.MkdirAll(fdir, 0755); err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
 			s.Reset()
 			return
@@ -1265,6 +1265,9 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 
 		/* TODO, allow remote nodes to receive files per requests from a workflow
+		// Data should be accepted in following cases:
+		// a) this is ordering node (OrderingPeerId == h.ID())
+		// b) the data is sent to our job (IDLE WorkflowId/JobId exists in jobs table)
 		// Create CID
 		cid, err := utils.HashFileToCID(fpath)
 		if err != nil {

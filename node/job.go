@@ -877,14 +877,6 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 		return err
 	}
 
-	// Open the file for reading
-	file, err := os.Open(path)
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-	//	defer file.Close() // This should be done after streaming is finished
-
 	host := jm.p2pm.h.ID().String()
 	for _, jobInterface := range job.JobInterfaces {
 		if jobInterface.InterfaceType != "STDOUT" {
@@ -904,7 +896,7 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 			if interfacePeer.PeerNodeId == host {
 				// It's own service / data
 				fdir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(jobId, 10), "input", host)
-				if err = os.MkdirAll(fdir, 0777); err != nil {
+				if err = os.MkdirAll(fdir, 0755); err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
@@ -932,6 +924,14 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
 				}
+
+				// Open the file for reading
+				file, err := os.Open(path)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+				//	defer file.Close() // This must be done after streaming is finished
 
 				// Connect to peer and start streaming
 				err = StreamData(jm.p2pm, p, file, &job, nil)
@@ -1058,6 +1058,152 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		err := errors.New("no docker-compose.yml, Dockerfiles, or images existing")
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
+	}
+
+	err = jm.sendDockerOutput(job)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
+}
+
+// Send docker job outputs
+func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	for _, intrface := range job.JobInterfaces {
+		base := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+		switch intrface.InterfaceType {
+		case "STDOUT":
+			for _, interfacePeer := range intrface.JobInterfacePeers {
+				paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
+				for path := range paths {
+					path := strings.TrimSpace(path)
+					isDir := strings.HasSuffix(path, string(os.PathSeparator))
+
+					path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, path)
+					if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+						path += string(os.PathSeparator)
+					}
+
+					// Check if the path exists
+					err := jm.pathExists(path)
+					if err != nil {
+						jm.lm.Log("error", err.Error(), "jobs")
+						return err
+					}
+
+					// Compress output
+					pathDir := filepath.Dir(path)
+					rnd := filepath.Join(pathDir, utils.RandomString(32))
+					err = utils.Compress(path, rnd)
+					if err != nil {
+						os.RemoveAll(rnd)
+						jm.lm.Log("error", err.Error(), "jobs")
+						return err
+					}
+
+					// Create output CID
+					cid, err := utils.HashFileToCID(rnd)
+					if err != nil {
+						os.RemoveAll(rnd)
+						jm.lm.Log("error", err.Error(), "jobs")
+						return err
+					}
+
+					// Rename compressed file to CID
+					cidSrcPath := pathDir + cid
+					err = os.Rename(rnd, cidSrcPath)
+					if err != nil {
+						jm.lm.Log("error", err.Error(), "jobs")
+						return err
+					}
+
+					// Send output
+					host := jm.p2pm.h.ID().String()
+					if interfacePeer.PeerNodeId == host {
+						// Copy it to host job / local repo
+						var fdir string
+						if interfacePeer.PeerJobId == 0 {
+							// Copy it to local repo
+							fdir = filepath.Join(configs["local_storage"])
+						} else {
+							// Copy it to job
+							fdir = filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(interfacePeer.PeerJobId, 10), "input", host)
+						}
+						fdir += string(os.PathSeparator)
+
+						if err = os.MkdirAll(fdir, 0755); err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+
+						// Copy to destination folder
+						cidDestPath := filepath.Join(fdir, cid)
+						if err = utils.BufferFileCopy(cidSrcPath, cidDestPath, 48*1024); err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+
+						if interfacePeer.PeerJobId != 0 {
+							// Uncompress received file
+							err = utils.Uncompress(cidDestPath, fdir)
+							if err != nil {
+								jm.lm.Log("error", err.Error(), "jobs")
+								return err
+							}
+							err = os.RemoveAll(cidDestPath)
+							if err != nil {
+								jm.lm.Log("error", err.Error(), "jobs")
+								return err
+							}
+						}
+					} else {
+						// Send data to the requesting node
+						p, err := jm.p2pm.GeneratePeerAddrInfo(interfacePeer.PeerNodeId)
+						if err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+
+						// Open the file for reading
+						file, err := os.Open(pathDir + cid)
+						if err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+						//	defer file.Close() // This must be done after streaming is finished
+
+						// Check if there is job id to deliver it to
+						jobReplica := node_types.JobBase{
+							OrderingNodeId: job.OrderingNodeId,
+							WorkflowId:     job.WorkflowId,
+							Id:             job.Id,
+						}
+						if interfacePeer.PeerJobId != 0 {
+							jobReplica.Id = interfacePeer.PeerJobId
+						}
+
+						// Connect to peer and start streaming
+						err = StreamData(jm.p2pm, p, file, &node_types.Job{JobBase: jobReplica}, nil)
+						if err != nil {
+							jm.lm.Log("error", err.Error(), "jobs")
+							return err
+						}
+					}
+				}
+			}
+		case "MOUNT":
+		default:
+			continue
+		}
 	}
 
 	return nil
@@ -1197,25 +1343,17 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 	serviceMountPoint := strings.TrimSpace(inrfce.Path)
 	isDir := strings.HasSuffix(serviceMountPoint, string(os.PathSeparator))
 
-	fmt.Printf("serviceMountPoint: %s, iDir? %t\n", serviceMountPoint, isDir)
-
 	// Make sure mount file path is created
 	mountPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", serviceMountPoint)
-
-	fmt.Printf("1. mountPath: %s\n", mountPath)
 
 	if isDir && !strings.HasSuffix(mountPath, string(os.PathSeparator)) {
 		mountPath += string(os.PathSeparator)
 	}
 
-	fmt.Printf("2. mountPath: %s\n", mountPath)
-
 	mountPath, err = jm.createPath(mountPath, isDir)
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("3. mountPath: %s\n", mountPath)
 
 	// Check if mount path is file or folder
 	// If it's a file and it doesn't exist at runtime
@@ -1229,12 +1367,8 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 		f.Close()
 	}
 
-	fmt.Printf("4. mountPath: %s\n", mountPath)
-
 	// Send back updated abs path
 	mounts[mountPath] = inrfce.Path
-
-	fmt.Printf("mounts:\n%v\n", mounts)
 
 	// Copy all inputs
 	for _, interfacePeer := range inrfce.JobInterfacePeers {
@@ -1289,7 +1423,7 @@ func (jm *JobManager) createPath(path string, isDir bool) (string, error) {
 
 	// If it's a directory, create it directly
 	if isDir {
-		if err := os.MkdirAll(absPath, 0777); err != nil {
+		if err := os.MkdirAll(absPath, 0755); err != nil {
 			jm.lm.Log("error", err.Error(), "jobs")
 			return "", err
 		}
@@ -1298,7 +1432,7 @@ func (jm *JobManager) createPath(path string, isDir bool) (string, error) {
 
 	// If it's a file, create the parent directory
 	dir := filepath.Dir(absPath)
-	if err := os.MkdirAll(dir, 0777); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return "", err
 	}

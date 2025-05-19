@@ -272,7 +272,7 @@ func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
 
 func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName string, configs map[string]string) error {
 	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "pull.log")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
 	logFile, err := os.Create(logPath)
@@ -352,7 +352,7 @@ func (dm *DockerManager) extractProgressBar(progress string) string {
 // Parses and formats Docker build output
 func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName string, configs map[string]string) error {
 	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "build.log")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
 	logFile, err := os.Create(logPath)
@@ -648,7 +648,7 @@ func (dm *DockerManager) runService(
 
 	// Create job dir
 	jobDir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(job.Id, 10))
-	err = os.MkdirAll(jobDir, 0777)
+	err = os.MkdirAll(jobDir, 0755)
 	if err != nil {
 		dm.lm.Log("error", err.Error(), "docker")
 		return resp.ID, image, err
@@ -656,7 +656,7 @@ func (dm *DockerManager) runService(
 
 	// Create stdin/stdout/stderr dir
 	logsDir := filepath.Join(jobDir, "logs")
-	err = os.MkdirAll(logsDir, 0777)
+	err = os.MkdirAll(logsDir, 0755)
 	if err != nil {
 		dm.lm.Log("error", err.Error(), "docker")
 		return resp.ID, image, err
@@ -671,7 +671,7 @@ func (dm *DockerManager) runService(
 
 	// Create job inputs dir
 	inputDir := filepath.Join(jobDir, "input")
-	err = os.MkdirAll(inputDir, 0777)
+	err = os.MkdirAll(inputDir, 0755)
 	if err != nil {
 		dm.lm.Log("error", err.Error(), "docker")
 		return resp.ID, image, err
@@ -679,7 +679,7 @@ func (dm *DockerManager) runService(
 
 	// Create job outputs dir
 	outputDir := filepath.Join(jobDir, "output")
-	err = os.MkdirAll(outputDir, 0777)
+	err = os.MkdirAll(outputDir, 0755)
 	if err != nil {
 		dm.lm.Log("error", err.Error(), "docker")
 		return resp.ID, image, err
