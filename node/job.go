@@ -1129,7 +1129,7 @@ func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
 				}
 
 				// Rename compressed file to CID
-				cidSrcPath := pathDir + cid
+				cidSrcPath := filepath.Join(pathDir, cid)
 				err = os.Rename(rnd, cidSrcPath)
 				if err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
@@ -1184,7 +1184,7 @@ func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
 					}
 
 					// Open the file for reading
-					file, err := os.Open(pathDir + cid)
+					file, err := os.Open(filepath.Join(pathDir, cid))
 					if err != nil {
 						jm.lm.Log("error", err.Error(), "jobs")
 						return err
