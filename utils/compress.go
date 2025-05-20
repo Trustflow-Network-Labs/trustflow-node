@@ -27,15 +27,34 @@ func Compress(sourcePath, outputFile string) error {
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
 
-	info, err := os.Stat(sourcePath)
+	/*
+		info, err := os.Stat(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to get file info: %w", err)
+		}
+
+		baseDir := filepath.Dir(sourcePath)
+		if info.IsDir() {
+			baseDir = filepath.Clean(sourcePath)
+			sourcePath = filepath.Clean(sourcePath) // Ensure sourcePath is properly set
+		}
+	*/
+
+	// Resolve symlink if sourcePath is a symlink
+	realPath, err := filepath.EvalSymlinks(sourcePath)
 	if err != nil {
-		return fmt.Errorf("failed to get file info: %w", err)
+		return fmt.Errorf("failed to resolve symlink: %w", err)
 	}
 
-	baseDir := filepath.Dir(sourcePath)
+	info, err := os.Stat(realPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat resolved path: %w", err)
+	}
+
+	baseDir := filepath.Dir(sourcePath) // use logical path for naming
 	if info.IsDir() {
+		sourcePath = realPath // walk the resolved real dir
 		baseDir = filepath.Clean(sourcePath)
-		sourcePath = filepath.Clean(sourcePath) // Ensure sourcePath is properly set
 	}
 
 	// Walk through all files in the directory

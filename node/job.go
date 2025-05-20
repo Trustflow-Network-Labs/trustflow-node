@@ -1149,6 +1149,7 @@ func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
 				// Compress output
 				pathDir := filepath.Dir(path)
 				rnd := filepath.Join(pathDir, utils.RandomString(32))
+
 				err = utils.Compress(path, rnd)
 				if err != nil {
 					os.RemoveAll(rnd)
