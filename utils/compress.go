@@ -104,7 +104,25 @@ func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir strin
 		return err
 	}
 
-	// Handle regular files and directories
+	// Handle directories (to preserve empty folders)
+	if fi.IsDir() {
+		header, err := tar.FileInfoHeader(fi, "")
+		if err != nil {
+			return fmt.Errorf("failed to create header for dir: %w", err)
+		}
+		header.Name = relPath + "/"
+		if err := tw.WriteHeader(header); err != nil {
+			return fmt.Errorf("failed to write dir header: %w", err)
+		}
+		return nil
+	}
+
+	// Skip non-regular files
+	if !fi.Mode().IsRegular() {
+		return nil
+	}
+
+	// Handle regular files
 	header, err := tar.FileInfoHeader(fi, "")
 	if err != nil {
 		return fmt.Errorf("failed to create tar header: %w", err)
@@ -113,11 +131,6 @@ func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir strin
 
 	if err := tw.WriteHeader(header); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
-	}
-
-	// Skip directories and non-regular files
-	if !fi.Mode().IsRegular() {
-		return nil
 	}
 
 	srcFile, err := os.Open(filePath)
