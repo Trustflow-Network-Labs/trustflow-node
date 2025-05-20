@@ -1113,11 +1113,7 @@ func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
 						}
 
 						// Create directory sub-structure for link
-						//						if isLnkDir {
-						//							lnkDir = lnk
-						//						} else {
 						lnkDir = filepath.Dir(lnk)
-						//						}
 						if err = os.MkdirAll(lnkDir, 0755); err != nil {
 							jm.lm.Log("error", err.Error(), "jobs")
 							return err
