@@ -371,6 +371,18 @@ func installWindowsDependencies(missing []string) error {
 }
 
 func initWindowsDependencies() error {
-	// Try to start Docker Desktop
-	return exec.Command("powershell", "-Command", "Start-Process 'Docker Desktop' -Verb runAs").Run()
+	candidates := []string{
+		`Start-Process "Docker" -Verb runAs`,
+		`Start-Process "Docker Desktop" -Verb runAs`,
+		`Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -Verb runAs`,
+	}
+
+	for _, cmd := range candidates {
+		err := exec.Command("powershell", "-Command", cmd).Run()
+		if err == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("could not start Docker Desktop")
 }
