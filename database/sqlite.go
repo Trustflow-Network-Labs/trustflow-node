@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS docker_service_images (
 	"image_commands" TEXT DEFAULT '',
 	"image_tags" TEXT DEFAULT '',
 	"image_digests" TEXT DEFAULT '',
+	"image_os" VARCHAR(50) DEFAULT '',
 	"timestamp" TEXT NOT NULL,
 	FOREIGN KEY("service_details_id") REFERENCES docker_service_details("id") ON DELETE CASCADE
 );

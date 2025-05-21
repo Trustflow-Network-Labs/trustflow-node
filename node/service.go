@@ -138,7 +138,7 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 	// Get docker service images with interfaces
 	rows, err := sm.db.QueryContext(
 		context.Background(),
-		"select id, service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, timestamp from docker_service_images where service_details_id = ?;",
+		"select id, service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, image_os, timestamp from docker_service_images where service_details_id = ?;",
 		dockerService.Id)
 	if err != nil {
 		msg := err.Error()
@@ -149,8 +149,8 @@ func (sm *ServiceManager) GetDocker(serviceId int64) (node_types.DockerService, 
 		var dockerServiceImage node_types.DockerServiceImage
 		var tmstmp string
 		err = rows.Scan(&dockerServiceImage.Id, &dockerServiceImage.ServiceDetailsId,
-			&dockerServiceImage.ImageId, &dockerServiceImage.ImageName,
-			&entryPoints, &commands, &tags, &digests, &tmstmp)
+			&dockerServiceImage.ImageId, &dockerServiceImage.ImageName, &entryPoints,
+			&commands, &tags, &digests, &dockerServiceImage.ImageOs, &tmstmp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")
@@ -459,8 +459,8 @@ func (sm *ServiceManager) addDockerImages(
 		timestamp := imageWithInterfaces.BuiltAt.Format(time.RFC3339)
 		result, err := sm.db.ExecContext(
 			context.Background(),
-			"insert into docker_service_images (service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, timestamp) values (?, ?, ?, ?, ?, ?, ?, ?);",
-			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, entrypoint, commands, tags, digests, timestamp)
+			"insert into docker_service_images (service_details_id, image_id, image_name, image_entry_points, image_commands, image_tags, image_digests, image_os, timestamp) values (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+			dockerServiceId, imageWithInterfaces.Id, imageWithInterfaces.Name, entrypoint, commands, tags, digests, imageWithInterfaces.Os, timestamp)
 		if err != nil {
 			msg := err.Error()
 			sm.lm.Log("error", msg, "services")

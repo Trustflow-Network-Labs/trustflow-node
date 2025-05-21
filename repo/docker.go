@@ -450,6 +450,7 @@ func (dm *DockerManager) buildImage(
 		Commands:    cmd,
 		Tags:        img.RepoTags,
 		Digests:     img.RepoDigests,
+		Os:          img.Os,
 		BuiltAt:     time.Now(),
 	}
 
@@ -591,6 +592,7 @@ func (dm *DockerManager) runService(
 		Commands:    meta.Config.Cmd,
 		Tags:        meta.RepoTags,
 		Digests:     meta.RepoDigests,
+		Os:          meta.Os,
 		BuiltAt:     time.Now(), // Not really built, but we use it for consistency
 	}
 
@@ -1031,6 +1033,7 @@ func (dm *DockerManager) Run(
 							Commands:    img.Config.Cmd,
 							Tags:        img.RepoTags,
 							Digests:     img.RepoDigests,
+							Os:          img.Os,
 							BuiltAt:     time.Now(),
 						}
 						images = append(images, image)

@@ -113,6 +113,7 @@ type DockerServiceImage struct {
 	ImageCommands    []string                      `json:"image_commands"`
 	ImageTags        []string                      `json:"image_tags"`
 	ImageDigests     []string                      `json:"image_digests"`
+	ImageOs          string                        `json:"image_os"`
 	Timestamp        time.Time                     `json:"timestamp"`
 	Intefaces        []DockerServiceImageInterface `json:"interfaces"`
 }
@@ -375,6 +376,7 @@ type DockerImage struct {
 	Commands    []string  `json:"commands"`
 	Tags        []string  `json:"tags"`
 	Digests     []string  `json:"digests"`
+	Os          string    `json:"os"`
 	BuiltAt     time.Time `json:"built_at"`
 }
 
