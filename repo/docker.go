@@ -271,7 +271,8 @@ func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
 }
 
 func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName string, configs map[string]string) error {
-	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "pull.log")
+	sanitizedImageName := dm.sanitizeImageName(imageName)
+	logPath := filepath.Join(configs["local_docker_root"], sanitizedImageName, "logs", "pull.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
@@ -351,7 +352,8 @@ func (dm *DockerManager) extractProgressBar(progress string) string {
 
 // Parses and formats Docker build output
 func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName string, configs map[string]string) error {
-	logPath := filepath.Join(configs["local_docker_root"], imageName, "logs", "build.log")
+	sanitizedImageName := dm.sanitizeImageName(imageName)
+	logPath := filepath.Join(configs["local_docker_root"], sanitizedImageName, "logs", "build.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
@@ -1105,4 +1107,25 @@ func (dm *DockerManager) secureRandomString(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes)[:length], nil
+}
+
+func (dm *DockerManager) sanitizeImageName(name string) string {
+	// Replace invalid characters with underscore
+	invalidChars := []string{`<`, `>`, `:`, `"`, `/`, `\`, `|`, `?`, `*`}
+	for _, ch := range invalidChars {
+		name = strings.ReplaceAll(name, ch, "_")
+	}
+
+	// Windows reserved filenames
+	reserved := map[string]bool{
+		"CON": true, "PRN": true, "AUX": true, "NUL": true,
+		"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+		"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+	}
+	upper := strings.ToUpper(name)
+	if reserved[upper] {
+		name = "_" + name
+	}
+
+	return name
 }

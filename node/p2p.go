@@ -1216,6 +1216,30 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		var fpath string
 		var chunkSize uint64 = 4096
 
+		// Allow node to receive remote files
+		// Data should be accepted in following cases:
+		// a) this is ordering node (OrderingPeerId == h.ID())
+		// b) the data is sent to our job (IDLE WorkflowId/JobId exists in jobs table)
+		jobManager := NewJobManager(p2pm)
+		orderingNodeId := string(bytes.Trim(streamData.OrderingPeerId[:], "\x00"))
+		allowed := p2pm.h.ID().String() == string(orderingNodeId)
+		if !allowed {
+			peerId := s.Conn().RemotePeer().String()
+			allowed, err = jobManager.JobExpectingInputsFrom(streamData.JobId, peerId)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+		}
+		if !allowed {
+			err := fmt.Errorf("we haven't ordered this data from `%s`. We are also not expecting it as an input for a job",
+				orderingNodeId)
+			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Close()
+			return
+		}
+
 		// Read chunk size form configs
 		configManager := utils.NewConfigManager("")
 		configs, err := configManager.ReadConfigs()
@@ -1262,30 +1286,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				return
 			}
 			file.Write(buf[:n])
-		}
-
-		// Allow node to receive remote files
-		// Data should be accepted in following cases:
-		// a) this is ordering node (OrderingPeerId == h.ID())
-		// b) the data is sent to our job (IDLE WorkflowId/JobId exists in jobs table)
-		jobManager := NewJobManager(p2pm)
-		orderingNodeId := string(bytes.Trim(streamData.OrderingPeerId[:], "\x00"))
-		allowed := p2pm.h.ID().String() == string(orderingNodeId)
-		if !allowed {
-			peerId := s.Conn().RemotePeer().String()
-			allowed, err = jobManager.JobExpectingInputsFrom(streamData.JobId, peerId)
-			if err != nil {
-				p2pm.lm.Log("error", err.Error(), "p2p")
-				s.Close()
-				return
-			}
-		}
-		if !allowed {
-			err := fmt.Errorf("we haven't ordered this data from `%s`. We are also not expecting it as an input for a job",
-				orderingNodeId)
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			s.Close()
-			return
 		}
 
 		// Uncompress received file
