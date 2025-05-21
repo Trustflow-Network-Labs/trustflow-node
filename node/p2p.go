@@ -1264,26 +1264,31 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			file.Write(buf[:n])
 		}
 
-		/* TODO, allow remote nodes to receive files per requests from a workflow
+		// Allow node to receive remote files
 		// Data should be accepted in following cases:
 		// a) this is ordering node (OrderingPeerId == h.ID())
 		// b) the data is sent to our job (IDLE WorkflowId/JobId exists in jobs table)
-		// Create CID
-		cid, err := utils.HashFileToCID(fpath)
-		if err != nil {
+		jobManager := NewJobManager(p2pm)
+		orderingNodeId := string(bytes.Trim(streamData.OrderingPeerId[:], "\x00"))
+		allowed := p2pm.h.ID().String() == string(orderingNodeId)
+		if !allowed {
+			peerId := s.Conn().RemotePeer().String()
+			allowed, err = jobManager.JobExpectingInputsFrom(streamData.JobId, peerId)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+		}
+		if !allowed {
+			err := fmt.Errorf("we haven't ordered this data from `%s`. We are also not expecting it as an input for a job",
+				orderingNodeId)
 			p2pm.lm.Log("error", err.Error(), "p2p")
+			s.Close()
 			return
 		}
-		// Check are we expecting this file
-		expected, err := p2pm.wm.ExpectedOutputFound(peerId, cid)
-		if err != nil || !expected {
-			p2pm.lm.Log("error", err.Error(), "p2p")
-			os.RemoveAll(fpath)
-			return
-		}
-		*/
+
 		// Uncompress received file
-		//		err = utils.Uncompress(fpath, fdir+cid+"/")
 		err = utils.Uncompress(fpath, fdir)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")

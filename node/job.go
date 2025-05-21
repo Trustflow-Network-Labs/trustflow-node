@@ -637,6 +637,23 @@ func (jm *JobManager) ProcessQueue() {
 	}
 }
 
+// Check if job is waiting for input(s)
+func (jm *JobManager) JobExpectingInputsFrom(jobId int64, sendingNode string) (bool, error) {
+	var count int
+
+	// Find job
+	row := jm.db.QueryRowContext(context.Background(),
+		"select count(j.id) from jobs j inner join job_interfaces ji on ji.job_id = j.id inner join job_interface_peers jip on jip.job_interface_id = ji.id where jip.peer_job_id = ? and (ji.interface_type = 'STDIN' or jip.peer_mount_function = 'PROVIDER') and (j.status = 'IDLE' or j.status = 'READY') and jip.peer_node_id = ?;",
+		jobId, sendingNode)
+	err := row.Scan(&count)
+	if err != nil {
+		jm.lm.Log("debug", err.Error(), "jobs")
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
 // CRON, Request remote jobs status update
 func (jm *JobManager) RequestWorkflowJobsStatusUpdates() {
 	// Load workflow jobs with status 'RUNNING'
