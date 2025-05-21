@@ -93,23 +93,29 @@ func (dm *DockerManager) tarDirectory(dir string) (*bytes.Buffer, error) {
 		if err != nil {
 			return err
 		}
+
 		if info.IsDir() {
 			return nil
 		}
 		relPath, _ := filepath.Rel(dir, path)
+		relPath = filepath.ToSlash(relPath) // ensures POSIX-style path
+
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
 		}
 		header.Name = relPath
+
 		if err := tw.WriteHeader(header); err != nil {
 			return err
 		}
+
 		file, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 		defer file.Close()
+
 		_, err = io.Copy(tw, file)
 		return err
 	})
