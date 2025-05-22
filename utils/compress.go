@@ -57,7 +57,7 @@ func Compress(sourcePath, outputFile string) error {
 
 // addFileToTar adds a file or directory to the tar archive
 func addFileToTar(tw *tar.Writer, filePath string, fi os.FileInfo, baseDir string) error {
-	relPath, err := filepath.Rel(filepath.Dir(baseDir), filePath)
+	relPath, err := filepath.Rel(baseDir, filePath)
 	if err != nil {
 		return fmt.Errorf("failed to compute relative path: %w", err)
 	}

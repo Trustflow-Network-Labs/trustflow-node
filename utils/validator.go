@@ -218,18 +218,18 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 	case "windows":
 		isAbs := regexp.MustCompile(`^[a-zA-Z]:\\`).MatchString(path)
 		if absolute && !isAbs {
-			return errors.New("Windows path must be absolute (e.g. C:\\path)")
+			return errors.New("windows path must be absolute (e.g. C:\\path)")
 		}
 		if !absolute && isAbs {
-			return errors.New("Windows path must not be absolute")
+			return errors.New("windows path must not be absolute")
 		}
 	case "unix":
 		isAbs := strings.HasPrefix(path, "/")
 		if absolute && !isAbs {
-			return errors.New("Linux path must be absolute (start with '/')")
+			return errors.New("linux path must be absolute (start with '/')")
 		}
 		if !absolute && isAbs {
-			return errors.New("Linux path must not be absolute")
+			return errors.New("linux path must not be absolute")
 		}
 	default:
 		return fmt.Errorf("unsupported OS: %s", osType)
@@ -245,7 +245,7 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 		invalidChars := `<>:"/\|?*`
 		for _, ch := range invalidChars {
 			if strings.ContainsRune(path, ch) {
-				return fmt.Errorf("Windows path contains invalid character: %q", ch)
+				return fmt.Errorf("windows path contains invalid character: %q", ch)
 			}
 		}
 	}
@@ -282,67 +282,3 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 
 	return nil
 }
-
-/*
-func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute bool) error {
-	if path == "" {
-		return errors.New("path is empty")
-	}
-
-	if strings.ContainsRune(path, 0) {
-		return errors.New("path contains null byte")
-	}
-
-	if strings.HasPrefix(path, "~") {
-		return errors.New("path uses home directory reference '~'")
-	}
-
-	if absolute && !filepath.IsAbs(path) {
-		return errors.New("path must be absolute")
-	} else if !absolute && filepath.IsAbs(path) {
-		return errors.New("path must not be absolute")
-	}
-
-	cleaned := filepath.Clean(path)
-
-	if strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, "/..") {
-		return errors.New("path escapes working directory")
-	}
-
-	if runtime.GOOS == "windows" {
-		invalidChars := `<>:"/\|?*`
-		for _, ch := range invalidChars {
-			if strings.ContainsRune(path, ch) {
-				return errors.New("path contains invalid character: " + string(ch))
-			}
-		}
-	}
-
-	// 🔍 If fileName is true, ensure the path ends in a filename (not directory)
-	if fileName {
-		if strings.HasSuffix(path, string(os.PathSeparator)) {
-			return errors.New("path is a directory")
-		}
-
-		base := filepath.Base(cleaned)
-		if base == "." || base == "" {
-			return errors.New("path does not contain a file name")
-		}
-
-		if runtime.GOOS == "windows" {
-			reserved := map[string]bool{
-				"CON": true, "PRN": true, "AUX": true, "NUL": true,
-				"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
-				"COM6": true, "COM7": true, "COM8": true, "COM9": true,
-				"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
-				"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
-			}
-			if reserved[strings.ToUpper(base)] {
-				return errors.New("file name is a reserved word on Windows")
-			}
-		}
-	}
-
-	return nil
-}
-*/
