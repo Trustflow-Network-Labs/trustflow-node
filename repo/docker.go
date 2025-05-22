@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -629,7 +630,7 @@ func (dm *DockerManager) runService(
 
 	platform := dm.getPlatform(cli)
 
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
+	containerConfig := container.Config{
 		Image:        svc.Image,
 		Entrypoint:   entrypoint,
 		Cmd:          containerCmd,
@@ -639,7 +640,13 @@ func (dm *DockerManager) runService(
 		AttachStdin:  inputs != nil,
 		AttachStdout: outputs != nil,
 		AttachStderr: outputs != nil,
-	}, hostConfig, netConfig, platform, svc.Name)
+	}
+
+	if runtime.GOOS != "windows" {
+		containerConfig.User = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	}
+
+	resp, err := cli.ContainerCreate(ctx, &containerConfig, hostConfig, netConfig, platform, svc.Name)
 	if err != nil {
 		var rid string = ""
 		if resp.ID != "" {
