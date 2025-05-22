@@ -498,7 +498,19 @@ func (mm *MenuManager) stdJobInterfacePeers(
 		jobInterfacePeer.PeerPath = serviceInterface.Path
 	} else {
 		// Collect peer path
-		fnResult, err := mm.inputPromptHelper(msgSpecifyFilePath, "", mm.vm.IsValidFileName, nil)
+		var validator func(path string) error
+		osType := runtime.GOOS
+		switch osType {
+		case "linux", "darwin":
+			validator = mm.vm.IsValidFileNameUnix
+		case "windows":
+			validator = mm.vm.IsValidFileNameWindows
+		default:
+			err := fmt.Errorf("unsupported OS type `%s`", osType)
+			return nil, err
+		}
+
+		fnResult, err := mm.inputPromptHelper(msgSpecifyFilePath, "", validator, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -548,6 +560,19 @@ func (mm *MenuManager) mountJobInterfacePeers(
 	// Specify input/output Node IDs
 	fmt.Printf("The specified file system mount point within the service's environment is `%s`\n", serviceInterface.Path)
 
+	// Determine path validator os type
+	var validator func(path string) error
+	osType := runtime.GOOS
+	switch osType {
+	case "linux", "darwin":
+		validator = mm.vm.IsValidFileNameOrMountPointUnix
+	case "windows":
+		validator = mm.vm.IsValidFileNameOrMountPointWindows
+	default:
+		err := fmt.Errorf("unsupported OS type `%s`", osType)
+		return nil, err
+	}
+
 	// Ask will this be a providing or receiving node
 	prResult, err := mm.confirmPromptHelper("Will you add a node that provides inputs to the job at the mount point (press Y), or will you add a node that receives outputs from a job at this mount point (press N)")
 	if err != nil {
@@ -561,7 +586,7 @@ func (mm *MenuManager) mountJobInterfacePeers(
 		}
 
 		// Collect peer path
-		fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", mm.vm.IsValidFileNameOrMountPoint, nil)
+		fnResult, err := mm.inputPromptHelper("Please specify the file name and path that this node will provide", "", validator, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -580,7 +605,7 @@ func (mm *MenuManager) mountJobInterfacePeers(
 		}
 
 		// Collect peer path
-		fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", mm.vm.IsValidFileNameOrMountPoint, nil)
+		fnResult, err := mm.inputPromptHelper("Please specify the file name and path for the node to receive", "", validator, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -617,7 +642,7 @@ func (mm *MenuManager) mountJobInterfacePeers(
 	return interfacePeers, nil
 }
 
-func (mm *MenuManager) serviceInterfaces(nodeId string, interfaces []node_types.Interface) ([]node_types.Interface, error) {
+func (mm *MenuManager) serviceInterfaces(nodeId string, osType string, interfaces []node_types.Interface) ([]node_types.Interface, error) {
 	var pthResult string = ""
 
 	_, tyResult, err := mm.selectPromptHelper(
@@ -628,25 +653,75 @@ func (mm *MenuManager) serviceInterfaces(nodeId string, interfaces []node_types.
 		return nil, err
 	}
 
+	// Determine path validator os type
+	var validator func(path string) error
+
 	switch tyResult {
 	case "STDIN":
+		switch osType {
+		case "linux", "darwin":
+			validator = mm.vm.IsValidFileNameUnix
+		case "windows":
+			validator = mm.vm.IsValidFileNameWindows
+		default:
+			err := fmt.Errorf("unsupported OS type `%s`", osType)
+			return nil, err
+		}
+
 		msg := "Specify the file name and path expected by the service (optional). Leave blank for a non-specific file name"
 		pthResult, err = mm.inputPromptHelper(msg, "", nil, nil)
 		if err != nil {
 			return nil, err
 		}
+
+		if pthResult != "" {
+			if err := validator(pthResult); err != nil {
+				return nil, err
+			}
+		}
+
 	case "STDOUT":
+		switch osType {
+		case "linux", "darwin":
+			validator = mm.vm.IsValidFileNameUnix
+		case "windows":
+			validator = mm.vm.IsValidFileNameWindows
+		default:
+			err := fmt.Errorf("unsupported OS type `%s`", osType)
+			return nil, err
+		}
+
 		msg := "Specify the file name and path produced by the service (optional). Leave blank for a non-specific file name"
 		pthResult, err = mm.inputPromptHelper(msg, "", nil, nil)
 		if err != nil {
 			return nil, err
 		}
+
+		if pthResult != "" {
+			if err := validator(pthResult); err != nil {
+				return nil, err
+			}
+		}
+
 	case "MOUNT":
-		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "", mm.vm.IsValidAbsoluteMountPoint, nil)
+		switch osType {
+		case "linux", "darwin":
+			validator = mm.vm.IsValidAbsoluteMountPointUnix
+		case "windows":
+			validator = mm.vm.IsValidAbsoluteMountPointWindows
+		default:
+			err := fmt.Errorf("unsupported OS type `%s`", osType)
+			return nil, err
+		}
+
+		pthResult, err = mm.inputPromptHelper("Please specify the file system mount point within the service's environment", "", validator, nil)
 		if err != nil {
 			return nil, err
 		}
+
 	default:
+		err := fmt.Errorf("unsupported interface type `%s`", tyResult)
+		return nil, err
 	}
 
 	dResult, err := mm.inputPromptHelper("Short description", "", mm.vm.NotEmpty, nil)
@@ -668,7 +743,7 @@ func (mm *MenuManager) serviceInterfaces(nodeId string, interfaces []node_types.
 		return nil, err
 	}
 	if aaResult {
-		return mm.serviceInterfaces(nodeId, interfaces)
+		return mm.serviceInterfaces(nodeId, osType, interfaces)
 	}
 
 	return interfaces, nil
@@ -1403,7 +1478,7 @@ func (mm *MenuManager) addDataService(name, description, stype string, active bo
 	return nil
 }
 
-func (mm *MenuManager) addInterfaces(question string) ([]node_types.Interface, error) {
+func (mm *MenuManager) addInterfaces(question string, osType string) ([]node_types.Interface, error) {
 	// Define inputs/outputs
 	var interfaces []node_types.Interface
 
@@ -1413,7 +1488,7 @@ func (mm *MenuManager) addInterfaces(question string) ([]node_types.Interface, e
 		return nil, err
 	}
 	if qResult {
-		intfcs, err := mm.serviceInterfaces(mm.p2pm.h.ID().String(), interfaces)
+		intfcs, err := mm.serviceInterfaces(mm.p2pm.h.ID().String(), osType, interfaces)
 		if err != nil {
 			fmt.Printf("Collecting interfaces failed %v\n", err)
 			return nil, err
@@ -1536,7 +1611,9 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 
 		// Define inputs/outputs
 		interfaces, err := mm.addInterfaces(
-			"Does the service's image require inputs to run, produce outputs, or need mount points to be defined")
+			"Does the service's image require inputs to run, produce outputs, or need mount points to be defined",
+			img.Os,
+		)
 		if err != nil {
 			return err
 		}
@@ -1625,7 +1702,10 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 		mm.lm.Log("debug", msg, "menu")
 
 		// Define inputs/outputs
-		interfaces, err := mm.addInterfaces("Does the service's image require inputs to run, produce outputs, or need mount points to be defined")
+		interfaces, err := mm.addInterfaces(
+			"Does the service's image require inputs to run, produce outputs, or need mount points to be defined",
+			img.Os,
+		)
 		if err != nil {
 			return err
 		}

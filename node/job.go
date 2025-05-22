@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -1415,7 +1416,18 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 	// If it's a file and it doesn't exist at runtime
 	// Docker will create it as a folder, so we must
 	// create a file instead prior to execution
-	if err := jm.vm.IsValidFileName(mountPath); err == nil {
+	var validator func(path string) error
+	osType := runtime.GOOS
+	switch osType {
+	case "linux", "darwin":
+		validator = jm.vm.IsValidFileNameUnix
+	case "windows":
+		validator = jm.vm.IsValidFileNameWindows
+	default:
+		err := fmt.Errorf("unsupported OS type `%s`", osType)
+		return nil, err
+	}
+	if err := validator(mountPath); err == nil {
 		f, err := os.Create(mountPath)
 		if err != nil {
 			return nil, err
