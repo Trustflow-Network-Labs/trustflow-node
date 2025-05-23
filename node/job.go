@@ -634,7 +634,7 @@ func (jm *JobManager) ProcessQueue() {
 	}
 	backOff := time.Duration(initialBackoff) * time.Second
 	for _, id := range idsNone {
-		go jm.RunJobWithRetry(context.Background(), id, maxRetries, backOff)
+		go jm.doWithRetry("run job", context.Background(), id, maxRetries, backOff)
 	}
 }
 
@@ -726,13 +726,15 @@ func (jm *JobManager) RunJob(ctx context.Context, jobId int64, retry, maxRetries
 	return nil
 }
 
-func (jm *JobManager) RunJobWithRetry(
+func (jm *JobManager) doWithRetry(
+	doWhat string,
 	ctx context.Context,
 	jobId int64,
 	maxRetries int,
 	initialBackoff time.Duration,
 ) error {
 	backoff := initialBackoff
+	var execErr error
 	var lastErr error
 
 	for i := range maxRetries {
@@ -741,12 +743,23 @@ func (jm *JobManager) RunJobWithRetry(
 			return ctx.Err()
 		}
 
-		err := jm.RunJob(ctx, jobId, i, maxRetries)
-		if err == nil {
-			return nil // success
+		switch doWhat {
+		case "run job":
+			execErr = jm.RunJob(ctx, jobId, i, maxRetries)
+			if execErr == nil {
+				return nil // success
+			}
+		case "send docker output":
+			execErr = jm.sendDockerOutput(jobId)
+			if execErr == nil {
+				return nil // success
+			}
+		default:
+			execErr = fmt.Errorf("unsupported action `%s`", doWhat)
+			return execErr
 		}
 
-		lastErr = err
+		lastErr = execErr
 		if i < maxRetries-1 {
 			// Add jitter to prevent thundering herd
 			jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
@@ -1078,19 +1091,39 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		return err
 	}
 
-	err = jm.sendDockerOutput(job)
+	// Send job outputs
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
+	maxRetries, err := jm.tm.ToInt(configs["max_job_send_output_retries"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	initialBackoff, err := jm.tm.ToInt(configs["job_send_output_initial_backoff"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	backOff := time.Duration(initialBackoff) * time.Second
+	go jm.doWithRetry("send docker output", context.Background(), job.Id, maxRetries, backOff)
 
 	return nil
 }
 
 // Send docker job outputs
-func (jm *JobManager) sendDockerOutput(job node_types.Job) error {
+func (jm *JobManager) sendDockerOutput(jobId int64) error {
 	configManager := utils.NewConfigManager("")
 	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	job, err := jm.GetJob(jobId)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
