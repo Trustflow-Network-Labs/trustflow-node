@@ -371,6 +371,23 @@ func installWindowsDependencies(missing []string) error {
 }
 
 func initWindowsDependencies() error {
+	if err := checkSymlinkSupport(); err != nil {
+		fmt.Println("❌ Symlink creation is not supported for your current user.")
+		fmt.Println("To fix this, you can do one of the following:")
+
+		fmt.Println("\n➡ OPTION 1: Enable Developer Mode (recommended)")
+		fmt.Println("  Run this in PowerShell (as Administrator):")
+		fmt.Println(`  reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"`)
+		fmt.Println("  OR open Settings → Privacy & Security → For Developers → Enable Developer Mode")
+
+		fmt.Println("\n➡ OPTION 2: Grant SeCreateSymbolicLinkPrivilege to your user (advanced)")
+		fmt.Println("  Open Local Security Policy (secpol.msc) → Local Policies → User Rights Assignment")
+		fmt.Println("  → Find 'Create symbolic links' → Add your user → Restart")
+
+		fmt.Println("\nAfter applying one of the options above, please restart your computer and try again.")
+		return fmt.Errorf("symlink creation is not permitted for the current user")
+	}
+
 	candidates := []string{
 		`Start-Process "Docker" -Verb runAs`,
 		`Start-Process "Docker Desktop" -Verb runAs`,
@@ -385,4 +402,22 @@ func initWindowsDependencies() error {
 	}
 
 	return fmt.Errorf("could not start Docker Desktop")
+}
+
+func checkSymlinkSupport() error {
+	// Try to create a dummy symlink and remove it
+	tmpDir := os.TempDir()
+	target := filepath.Join(tmpDir, "symlink_target.txt")
+	link := filepath.Join(tmpDir, "symlink_link.txt")
+
+	_ = os.WriteFile(target, []byte("test"), 0644)
+	defer os.Remove(target)
+
+	err := os.Symlink(target, link)
+	defer os.Remove(link)
+
+	if err != nil {
+		return fmt.Errorf("symlinks not supported: %w", err)
+	}
+	return nil
 }

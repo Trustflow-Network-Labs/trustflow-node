@@ -1396,9 +1396,23 @@ func (jm *JobManager) createHostPaths(base string, inrfce node_types.JobInterfac
 func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobInterface, mounts map[string]string) (map[string]string, error) {
 	var err error
 
+	// Which OS we are running host on
+	osType := runtime.GOOS
+
 	// Check if provided path is dir
 	serviceMountPoint := strings.TrimSpace(inrfce.Path)
 	isDir := strings.HasSuffix(serviceMountPoint, string(os.PathSeparator))
+
+	// Make sure we have os specific path separator since we are adding this path to host's path
+	switch osType {
+	case "linux", "darwin":
+		serviceMountPoint = filepath.ToSlash(serviceMountPoint)
+	case "windows":
+		serviceMountPoint = filepath.FromSlash(serviceMountPoint)
+	default:
+		err := fmt.Errorf("unsupported OS type `%s`", osType)
+		return nil, err
+	}
 
 	// Make sure mount file path is created
 	mountPath := filepath.Join(base, "job", strconv.FormatInt(inrfce.JobId, 10), "mounts", serviceMountPoint)
@@ -1417,7 +1431,6 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 	// Docker will create it as a folder, so we must
 	// create a file instead prior to execution
 	var validator func(path string) error
-	osType := runtime.GOOS
 	switch osType {
 	case "linux", "darwin":
 		validator = jm.vm.IsValidFileNameUnix
@@ -1427,7 +1440,17 @@ func (jm *JobManager) createHostMountPoints(base string, inrfce node_types.JobIn
 		err := fmt.Errorf("unsupported OS type `%s`", osType)
 		return nil, err
 	}
-	if err := validator(mountPath); err == nil {
+
+	err = validator(mountPath)
+	if err != nil {
+		return nil, err
+	} else {
+		// Make sure path is not already a directory
+		if fi, err := os.Stat(mountPath); err == nil && fi.IsDir() {
+			err := fmt.Errorf("a directory exists at the file path: %s", mountPath)
+			return nil, err
+		}
+
 		f, err := os.Create(mountPath)
 		if err != nil {
 			return nil, err

@@ -97,7 +97,7 @@ func (vm *ValidatorManager) IsValidFileNameUnix(path string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid absolute nor relative path", path)
+	return fmt.Errorf("%s is neither valid absolute nor relative path `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidFileNameWindows(path string) error {
@@ -108,7 +108,7 @@ func (vm *ValidatorManager) IsValidFileNameWindows(path string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid absolute nor relative path", path)
+	return fmt.Errorf("%s is neither valid absolute nor relative path `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidAbsoluteFileNameUnix(path string) error {
@@ -135,7 +135,7 @@ func (vm *ValidatorManager) IsValidMountPointUnix(path string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid absolute nor relative mount path", path)
+	return fmt.Errorf("%s is neither valid absolute nor relative mount path `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidMountPointWindows(path string) error {
@@ -146,7 +146,7 @@ func (vm *ValidatorManager) IsValidMountPointWindows(path string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid absolute nor relative mount path", path)
+	return fmt.Errorf("%s is neither valid absolute nor relative mount path `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidAbsoluteMountPointUnix(path string) error {
@@ -173,7 +173,7 @@ func (vm *ValidatorManager) IsValidFileNameOrMountPointUnix(path string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid file name nor mount point", path)
+	return fmt.Errorf("%s is neither valid file name nor mount point `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidFileNameOrMountPointWindows(path string) error {
@@ -184,14 +184,14 @@ func (vm *ValidatorManager) IsValidFileNameOrMountPointWindows(path string) erro
 		return nil
 	}
 
-	return fmt.Errorf("%s is neither valid file name nor mount point", path)
+	return fmt.Errorf("%s is neither valid file name nor mount point `%s` `%s`", path, erra, errr)
 }
 
 func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute bool, targetOS string) error {
 	if path == "" {
 		return errors.New("path is empty")
 	}
-	if strings.ContainsRune(path, 0) {
+	if strings.ContainsRune(path, '\x00') {
 		return errors.New("path contains null byte")
 	}
 	if strings.HasPrefix(path, "~") {
@@ -204,21 +204,18 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 		osType = runtime.GOOS
 	}
 
-	// Normalize
+	// Normalize path
 	cleaned := path
 	if osType == "windows" {
 		cleaned = filepath.Clean(path)
-	} else {
-		// Avoid using filepath.Clean() for Linux-style paths on Windows
-		cleaned = path
 	}
 
-	// Absolute path check
+	// Absolute/relative path check
 	switch osType {
 	case "windows":
-		isAbs := regexp.MustCompile(`^[a-zA-Z]:\\`).MatchString(path)
+		isAbs := strings.HasPrefix(path, `\\`) || regexp.MustCompile(`^[a-zA-Z]:\\`).MatchString(path)
 		if absolute && !isAbs {
-			return errors.New("windows path must be absolute (e.g. C:\\path)")
+			return errors.New("windows path must be absolute (e.g. C:\\path or \\\\server\\share)")
 		}
 		if !absolute && isAbs {
 			return errors.New("windows path must not be absolute")
@@ -226,31 +223,24 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 	case "unix":
 		isAbs := strings.HasPrefix(path, "/")
 		if absolute && !isAbs {
-			return errors.New("linux path must be absolute (start with '/')")
+			return errors.New("unix path must be absolute (start with '/')")
 		}
 		if !absolute && isAbs {
-			return errors.New("linux path must not be absolute")
+			return errors.New("unix path must not be absolute")
 		}
 	default:
 		return fmt.Errorf("unsupported OS: %s", osType)
 	}
 
-	// Directory escape protection
-	if strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, "/..") {
-		return errors.New("path escapes working directory")
-	}
-
-	// OS-specific character checks
-	if osType == "windows" {
-		invalidChars := `<>:"/\|?*`
-		for _, ch := range invalidChars {
-			if strings.ContainsRune(path, ch) {
-				return fmt.Errorf("windows path contains invalid character: %q", ch)
-			}
+	// Path traversal prevention
+	parts := strings.Split(cleaned, string(filepath.Separator))
+	for _, part := range parts {
+		if part == ".." {
+			return errors.New("path escapes working directory via '..'")
 		}
 	}
 
-	// File name validation
+	// File name specific validation
 	if fileName {
 		sep := "/"
 		if osType == "windows" {
@@ -265,8 +255,8 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 			return errors.New("path does not contain a file name")
 		}
 
-		// Windows reserved file names
 		if osType == "windows" {
+			// Reserved file names
 			reserved := map[string]bool{
 				"CON": true, "PRN": true, "AUX": true, "NUL": true,
 				"COM1": true, "COM2": true, "COM3": true, "COM4": true,
@@ -276,6 +266,14 @@ func (vm *ValidatorManager) IsValidPath(path string, fileName bool, absolute boo
 			}
 			if reserved[strings.ToUpper(base)] {
 				return errors.New("file name is reserved on Windows")
+			}
+
+			// Invalid characters in file name
+			invalidChars := []rune{'<', '>', ':', '"', '/', '\\', '|', '?', '*'}
+			for _, ch := range invalidChars {
+				if strings.ContainsRune(base, ch) {
+					return fmt.Errorf("windows file name contains invalid character: %q", ch)
+				}
 			}
 		}
 	}
