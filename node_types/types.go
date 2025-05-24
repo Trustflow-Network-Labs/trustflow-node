@@ -37,6 +37,7 @@ type StreamData struct {
 	OrderingPeerId [255]byte
 	WorkflowId     int64
 	JobId          int64
+	InterfaceId    int64
 }
 
 // Declare currency type
@@ -372,8 +373,15 @@ type JobRunStatus struct {
 // Declare job data receipt acknowledgement type
 type JobDataReceiptAcknowledgement struct {
 	JobRunStatusRequest
+	InterfaceId     int64  `json:"interface_id"`
 	OrderingNodeId  string `json:"ordering_node_id"`
 	ReceivingNodeId string `json:"receiving_node_id"`
+}
+
+// Declare job data request type
+type JobDataRequest struct {
+	JobRunStatusRequest
+	WhatData string `json:"what_data"`
 }
 
 // Declare docker image type

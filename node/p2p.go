@@ -466,25 +466,29 @@ func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, jo
 	var workflowId int64 = int64(0)
 	var jobId int64 = int64(0)
 	var orderingPeer255 [255]byte
+	var interfaceId int64 = int64(0)
 
 	if job != nil {
 		var orderingPeer []byte = []byte(job.OrderingNodeId)
 		copy(orderingPeer255[:], orderingPeer)
 		workflowId = job.WorkflowId
 		jobId = job.Id
+		if len(job.JobInterfaces) > 0 {
+			interfaceId = job.JobInterfaces[0].InterfaceId
+		}
 	}
 
 	var sendingPeer []byte = []byte(p2pm.h.ID().String())
 	var sendingPeer255 [255]byte
 	copy(sendingPeer255[:], sendingPeer)
 
-	go p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId)
+	go p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId, interfaceId)
 	go sendStream(p2pm, s, data)
 
 	return nil
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, onode [255]byte, wid int64, jid int64) {
+func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, onode [255]byte, wid int64, jid int64, iid int64) {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
 		Type:           t,
@@ -492,6 +496,7 @@ func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, 
 		OrderingPeerId: onode,
 		WorkflowId:     wid,
 		JobId:          jid,
+		InterfaceId:    iid,
 	}
 
 	// Send stream data
@@ -1223,7 +1228,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			// Acknowledge receipt
 			remotePeer := s.Conn().RemotePeer()
 			jobManager := NewJobManager(p2pm)
-			err = jobManager.AcknowledgeReceipt(jobDataReceiptAcknowledgement.JobId, remotePeer, "OUTPUT")
+			err = jobManager.AcknowledgeReceipt(
+				jobDataReceiptAcknowledgement.JobId,
+				jobDataReceiptAcknowledgement.InterfaceId,
+				remotePeer,
+				"OUTPUT",
+			)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Close()
@@ -1323,7 +1333,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 
 		// Send receipt acknowledgement
-		go p2pm.sendReceiptAcknowledgement(streamData.WorkflowId, streamData.JobId, orderingNodeId, receivingNodeId, peerId)
+		go p2pm.sendReceiptAcknowledgement(streamData.WorkflowId, streamData.JobId, streamData.InterfaceId, orderingNodeId, receivingNodeId, peerId)
 
 		err = os.RemoveAll(fpath)
 		if err != nil {
@@ -1342,13 +1352,21 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 	s.Reset()
 }
 
-func (p2pm *P2PManager) sendReceiptAcknowledgement(workflowId int64, jobId int64, orderingNodeId string, receivingNodeId string, jobRunningNodeId string) {
+func (p2pm *P2PManager) sendReceiptAcknowledgement(
+	workflowId int64,
+	jobId int64,
+	interfaceId int64,
+	orderingNodeId string,
+	receivingNodeId string,
+	jobRunningNodeId string,
+) {
 	receiptAcknowledgement := node_types.JobDataReceiptAcknowledgement{
 		JobRunStatusRequest: node_types.JobRunStatusRequest{
 			WorkflowId: workflowId,
 			NodeId:     jobRunningNodeId,
 			JobId:      jobId,
 		},
+		InterfaceId:     interfaceId,
 		OrderingNodeId:  orderingNodeId,
 		ReceivingNodeId: receivingNodeId,
 	}

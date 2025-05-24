@@ -238,7 +238,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 }
 
 // Acknowledge receipt
-func (jm *JobManager) AcknowledgeReceipt(jobId int64, peer peer.ID, dir string) error {
+func (jm *JobManager) AcknowledgeReceipt(jobId int64, interfaceId int64, peer peer.ID, dir string) error {
 	var foundInterface bool = false
 
 	job, err := jm.GetJob(jobId)
@@ -249,6 +249,9 @@ func (jm *JobManager) AcknowledgeReceipt(jobId int64, peer peer.ID, dir string) 
 
 	// Check if remote peer exists in job interface peers list
 	for _, intface := range job.JobInterfaces {
+		if intface.InterfaceId != interfaceId {
+			continue
+		}
 		for _, interfacePeer := range intface.JobInterfacePeers {
 			bDataDir := false
 
@@ -275,7 +278,8 @@ func (jm *JobManager) AcknowledgeReceipt(jobId int64, peer peer.ID, dir string) 
 	}
 
 	if !foundInterface {
-		err := fmt.Errorf("provided peer ID %s `%s` interface not found in job %d", peer.String(), dir, jobId)
+		err := fmt.Errorf("provided peer interface ID %s `%s` is not found for job Id `%d`, in interface Id `%d`",
+			peer.String(), dir, jobId, interfaceId)
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
@@ -1026,8 +1030,10 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 				}
 				//	defer file.Close() // This must be done after streaming is finished
 
+				jobReplica := jm.createPeerJobReplica(job, jobInterface, interfacePeer, false)
+
 				// Connect to peer and start streaming
-				err = StreamData(jm.p2pm, p, file, &job, nil)
+				err = StreamData(jm.p2pm, p, file, &jobReplica, nil)
 				if err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
@@ -1337,18 +1343,11 @@ func (jm *JobManager) sendDockerOutput(jobId int64) error {
 					}
 					//	defer file.Close() // This must be done after streaming is finished
 
-					// Check if there is job id to deliver it to
-					jobReplica := node_types.JobBase{
-						OrderingNodeId: job.OrderingNodeId,
-						WorkflowId:     job.WorkflowId,
-						Id:             job.Id,
-					}
-					if interfacePeer.PeerJobId != 0 {
-						jobReplica.Id = interfacePeer.PeerJobId
-					}
+					// Set correct job id to deliver it to
+					jobReplica := jm.createPeerJobReplica(job, intrface, interfacePeer, true)
 
 					// Connect to peer and start streaming
-					err = StreamData(jm.p2pm, p, file, &node_types.Job{JobBase: jobReplica}, nil)
+					err = StreamData(jm.p2pm, p, file, &jobReplica, nil)
 					if err != nil {
 						jm.lm.Log("error", err.Error(), "jobs")
 						return err
@@ -1359,6 +1358,47 @@ func (jm *JobManager) sendDockerOutput(jobId int64) error {
 	}
 
 	return nil
+}
+
+func (jm *JobManager) createPeerJobReplica(
+	job node_types.Job,
+	intrface node_types.JobInterface,
+	interfacePeer node_types.JobInterfacePeer,
+	usePeerJobId bool,
+) node_types.Job {
+	jobReplicaBase := node_types.JobBase{
+		OrderingNodeId: job.OrderingNodeId,
+		WorkflowId:     job.WorkflowId,
+		Id:             job.Id,
+	}
+	if usePeerJobId && interfacePeer.PeerJobId != 0 {
+		jobReplicaBase.Id = interfacePeer.PeerJobId
+	}
+
+	jobReplicaInterfaces := []node_types.JobInterface{
+		{
+			InterfaceId: intrface.InterfaceId,
+			WorkflowId:  intrface.WorkflowId,
+			JobId:       intrface.JobId,
+			Interface:   intrface.Interface,
+			JobInterfacePeers: []node_types.JobInterfacePeer{
+				{
+					PeerJobId:         interfacePeer.PeerJobId,
+					PeerNodeId:        interfacePeer.PeerNodeId,
+					PeerPath:          interfacePeer.PeerPath,
+					PeerMountFunction: interfacePeer.PeerMountFunction,
+					PeerDuty:          interfacePeer.PeerDuty,
+				},
+			},
+		},
+	}
+
+	jobReplica := node_types.Job{
+		JobBase:       jobReplicaBase,
+		JobInterfaces: jobReplicaInterfaces,
+	}
+
+	return jobReplica
 }
 
 // Check are job inputs and mounts ready (also prepare output paths)
