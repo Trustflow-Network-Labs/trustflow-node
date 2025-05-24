@@ -118,7 +118,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 
 	// Get job interface peers
 	for i, intfce := range job.JobInterfaces {
-		rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
+		rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path, done from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
 		if err != nil {
 			msg := err.Error()
 			jm.lm.Log("error", msg, "jobs")
@@ -126,7 +126,7 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 		}
 		for rows.Next() {
 			var jobInterfacePeer node_types.JobInterfacePeer
-			err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath)
+			err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath, &jobInterfacePeer.PeerDuty)
 			if err != nil {
 				msg := err.Error()
 				jm.lm.Log("error", msg, "jobs")
@@ -215,7 +215,7 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 
 		// Get job interface peers
 		for i, intfce := range jobs[i].JobInterfaces {
-			rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
+			rows, err = jm.db.QueryContext(context.Background(), "select peer_node_id, peer_job_id, peer_mount_function, path, done from job_interface_peers where job_interface_id = ?;", intfce.InterfaceId)
 			if err != nil {
 				msg := err.Error()
 				jm.lm.Log("error", msg, "jobs")
@@ -223,10 +223,9 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 			}
 			for rows.Next() {
 				var jobInterfacePeer node_types.JobInterfacePeer
-				err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath)
+				err = rows.Scan(&jobInterfacePeer.PeerNodeId, &jobInterfacePeer.PeerJobId, &jobInterfacePeer.PeerMountFunction, &jobInterfacePeer.PeerPath, &jobInterfacePeer.PeerDuty)
 				if err != nil {
-					msg := err.Error()
-					jm.lm.Log("error", msg, "jobs")
+					jm.lm.Log("error", err.Error(), "jobs")
 					return jobs, err
 				}
 				job.JobInterfaces[i].JobInterfacePeers = append(job.JobInterfaces[i].JobInterfacePeers, jobInterfacePeer)
@@ -236,6 +235,69 @@ func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]n
 	}
 
 	return jobs, nil
+}
+
+// Acknowledge receipt
+func (jm *JobManager) AcknowledgeReceipt(jobId int64, peer peer.ID, dir string) error {
+	var foundInterface bool = false
+
+	job, err := jm.GetJob(jobId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	// Check if remote peer exists in job interface peers list
+	for _, intface := range job.JobInterfaces {
+		for _, interfacePeer := range intface.JobInterfacePeers {
+			bDataDir := false
+
+			switch dir {
+			case "INPUT":
+				bDataDir = interfacePeer.PeerMountFunction == "PROVIDER" || intface.InterfaceType == "INPUT"
+			case "OUTPUT":
+				bDataDir = interfacePeer.PeerMountFunction == "RECEIVER" || intface.InterfaceType == "OUTPUT"
+			default:
+				err := fmt.Errorf("unknown data direction `%s`", dir)
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+
+			if interfacePeer.PeerNodeId == peer.String() && bDataDir {
+				foundInterface = true
+				err := jm.updateJobInterfacePeerDuty(intface.InterfaceId, interfacePeer.PeerNodeId, interfacePeer.PeerJobId, true)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+			}
+		}
+	}
+
+	if !foundInterface {
+		err := fmt.Errorf("provided peer ID %s `%s` interface not found in job %d", peer.String(), dir, jobId)
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
+}
+
+// Update job intterface peer duty flag
+func (jm *JobManager) updateJobInterfacePeerDuty(interfaceId int64, peerNodeId string, peerJobId int64, duty bool) error {
+	// Update job interface peer duty
+	done := int64(0)
+	if duty {
+		done = int64(1)
+	}
+	_, err := jm.db.ExecContext(context.Background(), "update job_interface_peers set done = ? where job_interface_id = ? and peer_node_id = ? and peer_job_id = ?;",
+		done, interfaceId, peerNodeId, peerJobId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
 }
 
 // Change job status

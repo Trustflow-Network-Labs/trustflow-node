@@ -337,6 +337,7 @@ CREATE TABLE IF NOT EXISTS job_interface_peers (
 	"peer_job_id" INTEGER NOT NULL,
 	"peer_mount_function" TEXT DEFAULT '',
 	"path" TEXT DEFAULT '',
+	"done" INTEGER CHECK( "done" IN (0, 1) ) NOT NULL DEFAULT 0,
 	FOREIGN KEY("job_interface_id") REFERENCES job_interfaces("id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS job_interface_peers_id_idx ON job_interface_peers ("id");

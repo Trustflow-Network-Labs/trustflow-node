@@ -266,6 +266,7 @@ type JobInterfacePeer struct {
 	PeerNodeId        string `json:"peer_node_id"`
 	PeerPath          string `json:"peer_path"`
 	PeerMountFunction string `json:"peer_mount_function"`
+	PeerDuty          int64  `json:"peer_duty"`
 }
 
 // Declare job interfaces base struct
@@ -366,6 +367,13 @@ type JobRunStatusRequest struct {
 type JobRunStatus struct {
 	JobRunStatusRequest
 	Status string `json:"status"`
+}
+
+// Declare job data receipt acknowledgement type
+type JobDataReceiptAcknowledgement struct {
+	JobRunStatusRequest
+	OrderingNodeId  string `json:"ordering_node_id"`
+	ReceivingNodeId string `json:"receiving_node_id"`
 }
 
 // Declare docker image type
