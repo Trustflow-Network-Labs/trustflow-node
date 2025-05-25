@@ -1200,159 +1200,10 @@ func (jm *JobManager) sendDockerOutput(jobId int64) error {
 	for _, intrface := range job.JobInterfaces {
 		base := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
 		for _, interfacePeer := range intrface.JobInterfacePeers {
-			paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
-			for path := range paths {
-				path := strings.TrimSpace(path)
-				isDir := strings.HasSuffix(path, string(os.PathSeparator))
-
-				switch intrface.InterfaceType {
-				case "STDOUT":
-					path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, path)
-				case "MOUNT":
-					// Check if this peer is RECEIVER
-					if interfacePeer.PeerMountFunction != "RECEIVER" {
-						continue
-					} else {
-						var lnkDir string
-
-						// Is mount point file or dir
-						isDir = strings.HasSuffix(intrface.Path, string(os.PathSeparator))
-						path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "mounts", intrface.Path)
-
-						// Is link file or dir
-						isLnkDir := strings.HasSuffix(interfacePeer.PeerPath, string(os.PathSeparator))
-						lnk := filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, interfacePeer.PeerPath)
-
-						// Are we linkinf file to dir or vice-versa
-						if !isDir && isLnkDir {
-							lnk = filepath.Join(lnk, filepath.Base(path))
-							isLnkDir = !isLnkDir
-						} else if isDir && !isLnkDir {
-							path = filepath.Join(path, filepath.Base(lnk))
-						}
-
-						// Create directory sub-structure for link
-						lnkDir = filepath.Dir(lnk)
-						if err = os.MkdirAll(lnkDir, 0755); err != nil {
-							jm.lm.Log("error", err.Error(), "jobs")
-							return err
-						}
-
-						// Create symb link
-						err := utils.CreateSymlink(path, lnk)
-						if err != nil {
-							jm.lm.Log("error", err.Error(), "jobs")
-							return err
-						}
-						path = lnk
-						isDir = isLnkDir
-					}
-				default:
-					continue
-				}
-				if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
-					path += string(os.PathSeparator)
-				}
-
-				// Check if the path exists
-				err := jm.pathExists(path)
-				if err != nil {
-					jm.lm.Log("error", err.Error(), "jobs")
-					return err
-				}
-
-				// Compress output
-				pathDir := filepath.Dir(path)
-				rnd := filepath.Join(pathDir, utils.RandomString(32))
-
-				err = utils.Compress(path, rnd)
-				if err != nil {
-					os.RemoveAll(rnd)
-					jm.lm.Log("error", err.Error(), "jobs")
-					return err
-				}
-
-				// Create output CID
-				cid, err := utils.HashFileToCID(rnd)
-				if err != nil {
-					os.RemoveAll(rnd)
-					jm.lm.Log("error", err.Error(), "jobs")
-					return err
-				}
-
-				// Rename compressed file to CID
-				cidSrcPath := filepath.Join(pathDir, cid)
-				err = os.Rename(rnd, cidSrcPath)
-				if err != nil {
-					jm.lm.Log("error", err.Error(), "jobs")
-					return err
-				}
-
-				// Send output
-				host := jm.p2pm.h.ID().String()
-				if interfacePeer.PeerNodeId == host {
-					// Copy it to host job / local repo
-					var fdir string
-					if interfacePeer.PeerJobId == 0 {
-						// Copy it to local repo
-						fdir = filepath.Join(configs["local_storage"])
-					} else {
-						// Copy it to job
-						fdir = filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(interfacePeer.PeerJobId, 10), "input", host)
-					}
-					fdir += string(os.PathSeparator)
-
-					if err = os.MkdirAll(fdir, 0755); err != nil {
-						jm.lm.Log("error", err.Error(), "jobs")
-						return err
-					}
-
-					// Copy to destination folder
-					cidDestPath := filepath.Join(fdir, cid)
-					if err = utils.BufferFileCopy(cidSrcPath, cidDestPath, 48*1024); err != nil {
-						jm.lm.Log("error", err.Error(), "jobs")
-						return err
-					}
-
-					if interfacePeer.PeerJobId != 0 {
-						// Uncompress received file
-						err = utils.Uncompress(cidDestPath, fdir)
-						if err != nil {
-							jm.lm.Log("error", err.Error(), "jobs")
-							return err
-						}
-						err = os.RemoveAll(cidDestPath)
-						if err != nil {
-							jm.lm.Log("error", err.Error(), "jobs")
-							return err
-						}
-					}
-				} else {
-					// Send data to the requesting node
-					p, err := jm.p2pm.GeneratePeerAddrInfo(interfacePeer.PeerNodeId)
-					if err != nil {
-						jm.lm.Log("error", err.Error(), "jobs")
-						return err
-					}
-
-					// Open the file for reading
-					file, err := os.Open(filepath.Join(pathDir, cid))
-					if err != nil {
-						jm.lm.Log("error", err.Error(), "jobs")
-						return err
-					}
-					//	defer file.Close() // This must be done after streaming is finished
-
-					// Set correct job id to deliver it to
-					jobReplica := jm.createPeerJobReplica(job, intrface, interfacePeer, true)
-
-					// Connect to peer and start streaming
-					err = StreamData(jm.p2pm, p, file, &jobReplica, nil)
-					if err != nil {
-						jm.lm.Log("error", err.Error(), "jobs")
-						return err
-					}
-				}
+			err := jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, configs, "OUTPUT")
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
 			}
 		}
 	}
@@ -1360,6 +1211,250 @@ func (jm *JobManager) sendDockerOutput(jobId int64) error {
 	return nil
 }
 
+// Send data for a specific interface and peer
+func (jm *JobManager) sendDataForPeerInterface(
+	job node_types.Job,
+	intrface node_types.JobInterface,
+	interfacePeer node_types.JobInterfacePeer,
+	base string,
+	configs utils.Config,
+	whatData string,
+) error {
+	paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
+	for path := range paths {
+		path := strings.TrimSpace(path)
+		isDir := strings.HasSuffix(path, string(os.PathSeparator))
+
+		switch intrface.InterfaceType {
+		case "STDIN":
+			if whatData != "INPUT" {
+				continue
+			}
+			path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "input", interfacePeer.PeerNodeId, path)
+		case "STDOUT":
+			if whatData != "OUTPUT" {
+				continue
+			}
+			path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, path)
+		case "MOUNT":
+			// Check if this peer is RECEIVER
+			if interfacePeer.PeerMountFunction == "RECEIVER" && whatData == "OUTPUT" {
+				var lnkDir string
+
+				// Is mount point file or dir
+				isDir = strings.HasSuffix(intrface.Path, string(os.PathSeparator))
+				path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "mounts", intrface.Path)
+
+				// Is link file or dir
+				isLnkDir := strings.HasSuffix(interfacePeer.PeerPath, string(os.PathSeparator))
+				lnk := filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "output", interfacePeer.PeerNodeId, interfacePeer.PeerPath)
+
+				// Are we linking file to dir or vice-versa
+				if !isDir && isLnkDir {
+					lnk = filepath.Join(lnk, filepath.Base(path))
+					isLnkDir = !isLnkDir
+				} else if isDir && !isLnkDir {
+					path = filepath.Join(path, filepath.Base(lnk))
+				}
+
+				// Create directory sub-structure for link
+				lnkDir = filepath.Dir(lnk)
+				if err := os.MkdirAll(lnkDir, 0755); err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+
+				// Create symb link
+				err := utils.CreateSymlink(path, lnk)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+				path = lnk
+				isDir = isLnkDir
+			} else if interfacePeer.PeerMountFunction == "PROVIDER" && whatData == "INPUT" {
+				// Provide job INPUT data
+				isDir = strings.HasSuffix(interfacePeer.PeerPath, string(os.PathSeparator))
+				path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "input", interfacePeer.PeerNodeId, interfacePeer.PeerPath)
+			} else if whatData == "STD" {
+				// Provide job STD logs
+				isDir = true
+				path = filepath.Join(base, "job", strconv.FormatInt(intrface.JobId, 10), "logs")
+			} else {
+				// Skip
+				continue
+			}
+		default:
+			continue
+		}
+		if isDir && !strings.HasSuffix(path, string(os.PathSeparator)) {
+			path += string(os.PathSeparator)
+		}
+
+		// Check if the path exists
+		err := jm.pathExists(path)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+
+		// Compress output
+		pathDir := filepath.Dir(path)
+		rnd := filepath.Join(pathDir, utils.RandomString(32))
+
+		err = utils.Compress(path, rnd)
+		if err != nil {
+			os.RemoveAll(rnd)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+
+		// Create output CID
+		cid, err := utils.HashFileToCID(rnd)
+		if err != nil {
+			os.RemoveAll(rnd)
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+
+		// Rename compressed file to CID
+		cidSrcPath := filepath.Join(pathDir, cid)
+		err = os.Rename(rnd, cidSrcPath)
+		if err != nil {
+			jm.lm.Log("error", err.Error(), "jobs")
+			return err
+		}
+
+		// Send output
+		host := jm.p2pm.h.ID().String()
+		if interfacePeer.PeerNodeId == host {
+			// Copy it to host job / local repo
+			var fdir string
+			if interfacePeer.PeerJobId == 0 {
+				// Copy it to local repo
+				fdir = filepath.Join(configs["local_storage"])
+			} else {
+				// Copy it to job
+				fdir = filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(interfacePeer.PeerJobId, 10), "input", host)
+			}
+			fdir += string(os.PathSeparator)
+
+			if err = os.MkdirAll(fdir, 0755); err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+
+			// Copy to destination folder
+			cidDestPath := filepath.Join(fdir, cid)
+			if err = utils.BufferFileCopy(cidSrcPath, cidDestPath, 48*1024); err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+
+			if interfacePeer.PeerJobId != 0 {
+				// Uncompress received file
+				err = utils.Uncompress(cidDestPath, fdir)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+				err = os.RemoveAll(cidDestPath)
+				if err != nil {
+					jm.lm.Log("error", err.Error(), "jobs")
+					return err
+				}
+			}
+		} else {
+			// Send data to the requesting node
+			p, err := jm.p2pm.GeneratePeerAddrInfo(interfacePeer.PeerNodeId)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+
+			// Open the file for reading
+			file, err := os.Open(filepath.Join(pathDir, cid))
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+			//	defer file.Close() // This must be done after streaming is finished
+
+			// Set correct job id to deliver it to
+			jobReplica := jm.createPeerJobReplica(job, intrface, interfacePeer, true)
+
+			// Connect to peer and start streaming
+			err = StreamData(jm.p2pm, p, file, &jobReplica, nil)
+			if err != nil {
+				jm.lm.Log("error", err.Error(), "jobs")
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// TODO, Check if specific peer is eligible to get job data
+func (jm *JobManager) SendIfPeerEligible(
+	jobId int64,
+	intrfaceId int64,
+	peer peer.ID,
+	dir string,
+) error {
+	var job node_types.Job
+	var err error
+	var eligible bool = false
+
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	job, err = jm.GetJob(jobId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	for _, intrface := range job.JobInterfaces {
+		for _, interfacePeer := range intrface.JobInterfacePeers {
+			if intrface.InterfaceId != intrfaceId {
+				continue
+			}
+			if interfacePeer.PeerNodeId == peer.String() {
+				var condition bool = false
+				switch dir {
+				case "INPUT":
+					condition = interfacePeer.PeerMountFunction == "PROVIDER" || intrface.InterfaceType == "INPUT"
+				case "OUTPUT":
+					condition = interfacePeer.PeerMountFunction == "RECEIVER" || intrface.InterfaceType == "OUTPUT"
+				default:
+					return fmt.Errorf("unsupported job data direction `%s`", dir)
+				}
+
+				if condition {
+					// Eligible
+					eligible = true
+
+					base := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+					return jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, configs, dir)
+				}
+			}
+		}
+	}
+
+	if !eligible {
+		return fmt.Errorf("interface peer `%s` is ineligible to collect job data (job Id: `%d`) from interface `%d` in direction `%s`",
+			peer.String(), jobId, intrfaceId, dir)
+	}
+
+	return nil
+}
+
+// Create stripped job object replica for StreamData purposes
 func (jm *JobManager) createPeerJobReplica(
 	job node_types.Job,
 	intrface node_types.JobInterface,

@@ -456,6 +456,8 @@ func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, jo
 		t = 8
 	case *node_types.JobDataReceiptAcknowledgement:
 		t = 9
+	case *node_types.JobDataRequest:
+		t = 10
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -563,6 +565,12 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	case 8:
 		// Request to receive a Job Run Status update from the remote peer
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_status_request")
+	case 9:
+		// Request to receive a Job Data Receipt Acknowledgment from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_job_data_receipt_acknowledgement")
+	case 10:
+		// Request to receive a Job Data Request from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_job_data_request")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		p2pm.lm.Log("debug", message, "p2p")
@@ -637,7 +645,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse,
 		*node_types.JobRunRequest, *node_types.JobRunResponse,
 		*node_types.JobRunStatus, *node_types.JobRunStatusRequest,
-		*node_types.JobDataReceiptAcknowledgement:
+		*node_types.JobDataReceiptAcknowledgement, *node_types.JobDataRequest:
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
@@ -732,7 +740,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Determine data type
 	switch streamData.Type {
-	case 0, 1, 4, 5, 6, 7, 8, 9:
+	case 0, 1, 4, 5, 6, 7, 8, 9, 10:
 		// Prepare to read back the data
 		var data []byte
 		for {
@@ -1233,6 +1241,32 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				jobDataReceiptAcknowledgement.InterfaceId,
 				remotePeer,
 				"OUTPUT",
+			)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+		} else if streamData.Type == 10 {
+			// Received a Job Data Request from the remote peer
+			var jobDataRequest node_types.JobDataRequest
+
+			err := json.Unmarshal(data, &jobDataRequest)
+			if err != nil {
+				msg := fmt.Sprintf("Could not load received binary stream into a Job Data Request struct.\n\n%s", err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Close()
+				return
+			}
+
+			// Send the data if peer is eligible for it
+			remotePeer := s.Conn().RemotePeer()
+			jobManager := NewJobManager(p2pm)
+			err = jobManager.SendIfPeerEligible(
+				jobDataRequest.JobId,
+				jobDataRequest.InterfaceId,
+				remotePeer,
+				jobDataRequest.WhatData,
 			)
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")

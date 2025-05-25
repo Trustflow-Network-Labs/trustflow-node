@@ -381,7 +381,8 @@ type JobDataReceiptAcknowledgement struct {
 // Declare job data request type
 type JobDataRequest struct {
 	JobRunStatusRequest
-	WhatData string `json:"what_data"`
+	InterfaceId int64  `json:"interface_id"`
+	WhatData    string `json:"what_data"`
 }
 
 // Declare docker image type
