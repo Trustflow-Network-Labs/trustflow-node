@@ -815,6 +815,11 @@ func (jm *JobManager) doWithRetry(
 			if execErr == nil {
 				return nil // success
 			}
+		case "send data":
+			execErr = jm.streamDataJob(jobId)
+			if execErr == nil {
+				return nil // success
+			}
 		case "send docker output":
 			execErr = jm.sendDockerOutput(jobId)
 			if execErr == nil {
@@ -850,6 +855,24 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	maxRetries, err := jm.tm.ToInt(configs["max_job_send_output_retries"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	initialBackoff, err := jm.tm.ToInt(configs["job_send_output_initial_backoff"])
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+	backOff := time.Duration(initialBackoff) * time.Second
+
 	// Check underlaying service
 	jm.lm.Log("debug", fmt.Sprintf("checking job's underlaying service id %d", job.ServiceId), "jobs")
 
@@ -873,7 +896,7 @@ func (jm *JobManager) StartJob(id int64) error {
 
 	switch serviceType {
 	case "DATA":
-		err := jm.streamDataJob(job)
+		err := jm.doWithRetry("send data", context.Background(), job.Id, maxRetries, backOff)
 		if err != nil {
 			return err
 		}
@@ -932,7 +955,14 @@ func (jm *JobManager) StatusUpdate(jobId int64, status string) error {
 	return jm.SendJobRunStatus(peerId, job.WorkflowId, nodeId, job.Id, status)
 }
 
-func (jm *JobManager) streamDataJob(job node_types.Job) error {
+func (jm *JobManager) streamDataJob(jobId int64) error {
+	// Get job
+	job, err := jm.GetJob(jobId)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
 	// Get data source path
 	service, err := jm.sm.Get(job.ServiceId)
 	if err != nil {
@@ -1395,7 +1425,7 @@ func (jm *JobManager) sendDataForPeerInterface(
 	return nil
 }
 
-// TODO, Check if specific peer is eligible to get job data
+// Send job data if peer is eligible to get job data
 func (jm *JobManager) SendIfPeerEligible(
 	jobId int64,
 	intrfaceId int64,
