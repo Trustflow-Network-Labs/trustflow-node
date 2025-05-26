@@ -150,11 +150,11 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		// Multiple listen addresses
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
-			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", port),
-			fmt.Sprintf("/ip6/::1/tcp/%d", port),
-			fmt.Sprintf("/ip6/::1/udp/%d/quic", port),
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port),
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/wss", port),
+			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
+			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
+			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
+			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
 		),
 		// support TLS connections
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
