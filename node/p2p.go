@@ -153,6 +153,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", port),
 			fmt.Sprintf("/ip6/::1/tcp/%d", port),
 			fmt.Sprintf("/ip6/::1/udp/%d/quic", port),
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port),
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/wss", port),
 		),
 		// support TLS connections
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
@@ -178,7 +180,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		libp2p.ConnectionGater(blacklistManager.Gater),
 	)
 	if err != nil {
-		p2pm.lm.Log("panic", err.Error(), "p2p")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
 
