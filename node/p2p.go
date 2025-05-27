@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,8 +38,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/routing"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
+	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	identify "github.com/libp2p/go-libp2p/p2p/protocol/identify"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 type P2PManager struct {
@@ -155,6 +159,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
 			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
+			"/p2p-circuit",
 		),
 		// support TLS connections
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
@@ -178,10 +183,21 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		// performance issues.
 		libp2p.EnableNATService(),
 		libp2p.ConnectionGater(blacklistManager.Gater),
+		libp2p.DefaultMuxers,
+		libp2p.EnableRelay(),
 	)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
+	}
+
+	// Set up identify service
+	_, err = identify.NewIDService(hst)
+
+	// Start relay v2 as a relay server (no reservation limit control here)
+	_, err = relayv2.New(hst)
+	if err != nil {
+		log.Fatalf("failed to start relay v2: %v", err)
 	}
 
 	message := fmt.Sprintf("Node ID is %s", hst.ID())
@@ -189,6 +205,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	for _, ma := range hst.Addrs() {
 		message := fmt.Sprintf("Multiaddr is %s", ma.String())
 		p2pm.lm.Log("info", message, "p2p")
+	}
+
+	fmt.Println("Your Peer ID:", hst.ID())
+	for _, addr := range hst.Addrs() {
+		fullAddr := addr.Encapsulate(ma.StringCast("/p2p/" + hst.ID().String()))
+		fmt.Println("Listening on:", fullAddr)
 	}
 
 	// Setup a stream handler.
