@@ -23,7 +23,7 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	p2pm := node.NewP2PManager()
+	p2pm := node.NewP2PManager(ctx)
 	a.p2pm = *p2pm
 }
 

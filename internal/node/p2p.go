@@ -60,7 +60,7 @@ type P2PManager struct {
 	sc                 *node_types.ServiceOffersCache
 }
 
-func NewP2PManager() *P2PManager {
+func NewP2PManager(ctx context.Context) *P2PManager {
 	// Create a database connection
 	sqlm := database.NewSQLiteManager()
 	db, err := sqlm.CreateConnection()
@@ -68,7 +68,7 @@ func NewP2PManager() *P2PManager {
 		panic(err)
 	}
 
-	return &P2PManager{
+	p2pm := &P2PManager{
 		daemon:             false,
 		topicNames:         []string{"lookup.service"},
 		completeTopicNames: []string{},
@@ -82,6 +82,12 @@ func NewP2PManager() *P2PManager {
 		wm:                 workflow.NewWorkflowManager(db),
 		sc:                 node_types.NewServiceOffersCache(),
 	}
+
+	if ctx != nil {
+		p2pm.ctx = ctx
+	}
+
+	return p2pm
 }
 
 // IsHostRunning checks if the provided host is actively running
@@ -93,14 +99,13 @@ func (p2pm *P2PManager) IsHostRunning() bool {
 	return len(p2pm.h.Network().ListenAddresses()) > 0
 }
 
-// Set host context
-func (p2pm *P2PManager) SetHostContext(c context.Context, hst host.Host) {
-	p2pm.ctx = c
-	p2pm.h = hst
-}
-
+// Start p2p node
 func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	p2pm.daemon = daemon
+
+	if p2pm.ctx == nil {
+		p2pm.ctx = context.Background()
+	}
 
 	// Read configs
 	configManager := utils.NewConfigManager("")
@@ -138,7 +143,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	// Read streaming protocol
 	p2pm.protocolID = protocol.ID(config["protocol_id"])
 
-	cntx := context.Background()
+	//	cntx := context.Background()
 
 	// Create or get previously created node key
 	keystoreManager := keystore.NewKeyStoreManager(p2pm.db)
@@ -171,7 +176,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		libp2p.NATPortMap(),
 		// Let this host use the DHT to find other hosts
 		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
-			p2pm.SetHostContext(cntx, hst)
+			p2pm.h = hst
 			p2pm.idht, err = p2pm.initDHT()
 			return p2pm.idht, err
 		}),
@@ -221,7 +226,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	peerChannel := make(chan []peer.AddrInfo)
 
-	ps, err := pubsub.NewGossipSub(cntx, hst)
+	ps, err := pubsub.NewGossipSub(p2pm.ctx, hst)
 	if err != nil {
 		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -230,7 +235,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	go p2pm.discoverPeers(peerChannel)
 
 	for _, completeTopicName := range p2pm.completeTopicNames {
-		_, topic, err := p2pm.joinSubscribeTopic(cntx, ps, completeTopicName)
+		_, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, ps, completeTopicName)
 		if err != nil {
 			p2pm.lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
@@ -256,7 +261,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		menuManager.Run()
 	} else {
 		// Running as a daemon never ends
-		<-cntx.Done()
+		<-p2pm.ctx.Done()
 	}
 
 	// When host is stopped close DB connection
