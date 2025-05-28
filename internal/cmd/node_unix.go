@@ -26,7 +26,7 @@ var nodeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		dependencies.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
-		p2pManager := node.NewP2PManager()
+		p2pManager := node.NewP2PManager(cmd.Context())
 		p2pManager.Start(port, daemon)
 	},
 }
@@ -140,7 +140,7 @@ var stopNodeCmd = &cobra.Command{
 			}
 		}
 
-		p2pManager := node.NewP2PManager()
+		p2pManager := node.NewP2PManager(cmd.Context())
 		err := p2pManager.Stop(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())
