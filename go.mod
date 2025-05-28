@@ -1,4 +1,4 @@
-module github.com/adgsm/trustflow-node
+module github.com/adgsm/trustflow-node-gui-client/internal
 
 go 1.24.0
 
@@ -216,14 +216,16 @@ require (
 	modernc.org/token v1.1.0 // indirect
 )
 
-replace github.com/adgsm/trustflow-node/keystore => ./keystore
+replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20241007155032-5fefd90f89a9
 
-replace github.com/adgsm/trustflow-node/repo => ./repo
+replace github.com/adgsm/trustflow-node-gui-client/internal/keystore => ./keystore
 
-replace github.com/adgsm/trustflow-node/tfnode => ./tfnode
+replace github.com/adgsm/trustflow-node-gui-client/internal/repo => ./repo
 
-replace github.com/adgsm/trustflow-node/utils => ./utils
+replace github.com/adgsm/trustflow-node-gui-client/internal/tfnode => ./tfnode
 
-replace github.com/adgsm/trustflow-node/database => ./database
+replace github.com/adgsm/trustflow-node-gui-client/internal/utils => ./utils
 
-replace github.com/adgsm/trustflow-node/node_types => ./node_types
+replace github.com/adgsm/trustflow-node-gui-client/internal/database => ./database
+
+replace github.com/adgsm/trustflow-node-gui-client/internal/node_types => ./node_types

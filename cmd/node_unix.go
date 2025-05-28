@@ -8,9 +8,9 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/adgsm/trustflow-node/dependencies"
-	"github.com/adgsm/trustflow-node/node"
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/dependencies"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 	"github.com/spf13/cobra"
 )
 

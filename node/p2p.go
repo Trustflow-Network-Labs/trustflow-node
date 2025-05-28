@@ -21,13 +21,13 @@ import (
 
 	"slices"
 
-	blacklist_node "github.com/adgsm/trustflow-node/blacklist-node"
-	"github.com/adgsm/trustflow-node/database"
-	"github.com/adgsm/trustflow-node/keystore"
-	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/settings"
-	"github.com/adgsm/trustflow-node/utils"
-	"github.com/adgsm/trustflow-node/workflow"
+	blacklist_node "github.com/adgsm/trustflow-node-gui-client/internal/blacklist-node"
+	"github.com/adgsm/trustflow-node-gui-client/internal/database"
+	"github.com/adgsm/trustflow-node-gui-client/internal/keystore"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
+	"github.com/adgsm/trustflow-node-gui-client/internal/settings"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/workflow"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -70,7 +70,7 @@ func NewP2PManager() *P2PManager {
 
 	return &P2PManager{
 		daemon:             false,
-		topicNames:         []string{"lookup.service", "dummy.service"},
+		topicNames:         []string{"lookup.service"},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
 		protocolID:         "",
@@ -200,24 +200,21 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		log.Fatalf("failed to start relay v2: %v", err)
 	}
 
-	message := fmt.Sprintf("Node ID is %s", hst.ID())
+	message := fmt.Sprintf("Your Peer ID: %s", hst.ID())
 	p2pm.lm.Log("info", message, "p2p")
-	for _, ma := range hst.Addrs() {
-		message := fmt.Sprintf("Multiaddr is %s", ma.String())
-		p2pm.lm.Log("info", message, "p2p")
-	}
-
-	fmt.Println("Your Peer ID:", hst.ID())
+	fmt.Println(message)
 	for _, addr := range hst.Addrs() {
 		fullAddr := addr.Encapsulate(ma.StringCast("/p2p/" + hst.ID().String()))
-		fmt.Println("Listening on:", fullAddr)
+		message := fmt.Sprintf("Listening on %s", fullAddr)
+		p2pm.lm.Log("info", message, "p2p")
+		fmt.Println(message)
 	}
 
 	// Setup a stream handler.
 	// This gets called every time a peer connects and opens a stream to this node.
 	p2pm.h.SetStreamHandler(p2pm.protocolID, func(s network.Stream) {
-		message := fmt.Sprintf("Stream [protocol: %s] %s has been openned on node %s from node %s",
-			p2pm.protocolID, s.ID(), hst.ID(), s.Conn().RemotePeer().String())
+		message := fmt.Sprintf("Remote peer `%s` started streaming to our node `%s` in stream id `%s`, using protocol id: `%s`",
+			s.Conn().RemotePeer().String(), hst.ID(), s.ID(), p2pm.protocolID)
 		p2pm.lm.Log("info", message, "p2p")
 		go p2pm.streamProposalResponse(s)
 	})

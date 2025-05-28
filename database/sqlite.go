@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 	_ "modernc.org/sqlite"
 )
 

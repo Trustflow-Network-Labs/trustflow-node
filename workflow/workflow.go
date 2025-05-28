@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 )
 
 type WorkflowManager struct {

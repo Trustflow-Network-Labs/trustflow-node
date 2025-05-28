@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 	"github.com/robfig/cron"
 )
 

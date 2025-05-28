@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/price"
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
+	"github.com/adgsm/trustflow-node-gui-client/internal/price"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 )
 
 type CurrencyManager struct {

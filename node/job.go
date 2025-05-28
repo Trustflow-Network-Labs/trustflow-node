@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adgsm/trustflow-node/node_types"
-	"github.com/adgsm/trustflow-node/repo"
-	"github.com/adgsm/trustflow-node/utils"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
+	"github.com/adgsm/trustflow-node-gui-client/internal/repo"
+	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 

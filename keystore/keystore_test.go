@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/adgsm/trustflow-node/node_types"
+	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/stretchr/testify/assert"
 )
