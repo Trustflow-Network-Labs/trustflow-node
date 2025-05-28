@@ -237,9 +237,9 @@ func (mm *MenuManager) findServices() error {
 func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 	fmt.Printf("\n")
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Service Id", "Name", "Type"})
+	table.Header([]string{"Service Id", "Name", "Type"})
 	tableP := tablewriter.NewWriter(os.Stdout)
-	tableP.SetHeader([]string{"Resource", "Resource Unit", "Price", "Currency"})
+	tableP.Header([]string{"Resource", "Resource Unit", "Price", "Currency"})
 	row := []string{fmt.Sprintf("%s-%d", service.NodeId, service.Id), mm.tm.Shorten(service.Name, 17, 0), service.Type}
 	table.Append(row)
 	table.Render() // Prints the table
@@ -269,7 +269,7 @@ func (mm *MenuManager) printOfferedService(service node_types.ServiceOffer) {
 func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceResponse) {
 	fmt.Printf("\n")
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Node Id", "Service Id", "Job Id", "Message", "Accpeted"})
+	table.Header([]string{"Node Id", "Service Id", "Job Id", "Message", "Accpeted"})
 	row := []string{serviceResponse.NodeId, fmt.Sprintf("%d", serviceResponse.ServiceId), fmt.Sprintf("%d", serviceResponse.JobId), serviceResponse.Message, fmt.Sprintf("%t", serviceResponse.Accepted)}
 	table.Append(row)
 	table.Render() // Prints the table
@@ -785,7 +785,7 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 	// Draw table output
 	textManager := utils.NewTextManager()
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"ID", "Name", "Description", "Status"})
+	table.Header([]string{"ID", "Name", "Description", "Status"})
 	for _, workflow := range workflows {
 		row := []string{fmt.Sprintf("%d", workflow.Id), textManager.Shorten(workflow.Name, 17, 0), textManager.Shorten(workflow.Description, 17, 0), ""}
 		table.Append(row)
@@ -854,7 +854,7 @@ func (mm *MenuManager) runWorkflow() error {
 func (mm *MenuManager) printJobRunResponse(jobRunResponse node_types.JobRunResponse) {
 	fmt.Printf("\n")
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Node Id", "Job Id", "Message", "Accpeted"})
+	table.Header([]string{"Node Id", "Job Id", "Message", "Accpeted"})
 	row := []string{jobRunResponse.NodeId, fmt.Sprintf("%d", jobRunResponse.JobId), jobRunResponse.Message, fmt.Sprintf("%t", jobRunResponse.Accepted)}
 	table.Append(row)
 	table.Render() // Prints the table
@@ -1014,7 +1014,7 @@ func (mm *MenuManager) printBlacklist(blnm *blacklist_node.BlacklistNodeManager)
 
 	// Draw table output
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Node ID", "Reason", "Timestamp"})
+	table.Header([]string{"Node ID", "Reason", "Timestamp"})
 	for _, node := range nodes {
 		row := []string{mm.tm.Shorten(node.NodeId.String(), 6, 6), node.Reason, node.Timestamp.Local().Format("2006-01-02 15:04:05 MST")}
 		table.Append(row)
@@ -1132,7 +1132,7 @@ func (mm *MenuManager) printCurrencies(cm *currency.CurrencyManager) error {
 
 	// Draw table output
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Currency", "Symbol"})
+	table.Header([]string{"Currency", "Symbol"})
 	for _, currency := range currencies {
 		row := []string{currency.Currency, currency.Symbol}
 		table.Append(row)
@@ -1331,7 +1331,7 @@ func (mm *MenuManager) printResources(rm *resource.ResourceManager) error {
 
 	// Draw table output
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Id", "Resource Group", "Resource", "Resource Unit", "Active"})
+	table.Header([]string{"Id", "Resource Group", "Resource", "Resource Unit", "Active"})
 	for _, resource := range resources {
 		row := []string{strconv.FormatInt(resource.Id, 10), resource.ResourceGroup, resource.Resource, resource.ResourceUnit, fmt.Sprintf("%t", resource.Active)}
 		table.Append(row)
@@ -1893,7 +1893,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 	// Draw table output
 	textManager := utils.NewTextManager()
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"ID", "Name", "Type", "Active"})
+	table.Header([]string{"ID", "Name", "Type", "Active"})
 	for _, service := range services {
 		row := []string{fmt.Sprintf("%d", service.Id), textManager.Shorten(service.Name, 17, 0), service.Type, fmt.Sprintf("%t", service.Active)}
 		table.Append(row)

@@ -37,7 +37,10 @@ It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifia
 ```bash
 git clone https://github.com/Trustflow-Network-Labs/trustflow-node.git
 cd trustflow-node
-go build -o trustflow-node .
+# CLI
+CGO_ENABLED=0 go build -o ./trustflow-node ./internal/cli.go
+# Wails GUI
+wails dev
 # end
 ```
 

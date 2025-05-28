@@ -8,7 +8,7 @@ search_results = 10
 database_file = ./trustflow.db
 
 [log]
-logfile = logs/log
+logfile = log
 
 [keystore]
 keystore_passphrase = KEYSTORE_PASSPHRASE

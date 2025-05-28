@@ -1,6 +1,7 @@
 **/.DS_Store
 **/libs/
 **/logs/
+**/log
 **/.settings
 **/.htaccess
 **/.project
@@ -44,3 +45,4 @@
 **/trustflow-node*
 **/*.exe
 **/local_storage/
+**/build/
