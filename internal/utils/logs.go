@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -10,10 +11,14 @@ import (
 )
 
 type LogsManager struct {
+	dir string
 }
 
 func NewLogsManager() *LogsManager {
-	return &LogsManager{}
+	paths := GetAppPaths("")
+	return &LogsManager{
+		dir: paths.LogDir,
+	}
 }
 
 func (lm *LogsManager) fileInfo(skip int) string {
@@ -38,8 +43,21 @@ func (lm *LogsManager) Log(level string, message string, category string) {
 		panic(err)
 	}
 
+	// Make sure we have os specific path separator since we are adding this path to host's path
+	logFileName := config["logfile"]
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		logFileName = filepath.ToSlash(logFileName)
+	case "windows":
+		logFileName = filepath.FromSlash(logFileName)
+	default:
+		err := fmt.Errorf("unsupported OS type `%s`", runtime.GOOS)
+		panic(err)
+	}
+
 	// open log file
-	file, err := os.OpenFile(config["logfile"], os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	path := filepath.Join(lm.dir, logFileName)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		fmt.Println(err)
 		panic(err)
