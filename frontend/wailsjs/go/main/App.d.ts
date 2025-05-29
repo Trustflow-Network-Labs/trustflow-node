@@ -3,4 +3,4 @@
 
 export function StartNode(arg1:number):Promise<void>;
 
-export function StopNode(arg1:number):Promise<void>;
+export function StopNode():Promise<void>;

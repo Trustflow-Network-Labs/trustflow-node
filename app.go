@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/adgsm/trustflow-node/internal/node"
-	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
 // App struct
@@ -33,23 +32,8 @@ func (a *App) StartNode(port uint16) {
 }
 
 // Stop P2P node
-func (a *App) StopNode(pid int) {
-	if pid == 0 {
-		// Create PID Manager instance
-		pm, err := utils.NewPIDManager()
-		if err != nil {
-			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
-			fmt.Println(msg)
-			return
-		}
-		if pid, err = pm.ReadPID(); err != nil {
-			msg := fmt.Sprintf("Error reading PID: %v\n", err)
-			fmt.Println(msg)
-			return
-		}
-	}
-
-	err := a.p2pm.Stop(pid)
+func (a *App) StopNode() {
+	err := a.p2pm.Stop()
 	if err != nil {
 		msg := fmt.Sprintf("Error stopping node: %v\n", err)
 		fmt.Println(msg)

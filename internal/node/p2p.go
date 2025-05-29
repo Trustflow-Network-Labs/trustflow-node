@@ -270,7 +270,17 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	}
 }
 
-func (p2pm *P2PManager) Stop(pid int) error {
+func (p2pm *P2PManager) Stop() error {
+	if err := p2pm.h.Close(); err != nil {
+		return err
+	}
+	if err := p2pm.db.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p2pm *P2PManager) StopProcess(pid int) error {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return err

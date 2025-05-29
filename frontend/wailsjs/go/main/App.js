@@ -6,6 +6,6 @@ export function StartNode(arg1) {
   return window['go']['main']['App']['StartNode'](arg1);
 }
 
-export function StopNode(arg1) {
-  return window['go']['main']['App']['StopNode'](arg1);
+export function StopNode() {
+  return window['go']['main']['App']['StopNode']();
 }

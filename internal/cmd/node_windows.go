@@ -129,7 +129,7 @@ var stopNodeCmd = &cobra.Command{
 		}
 
 		p2pManager := node.NewP2PManager(cmd.Context())
-		err := p2pManager.Stop(pid)
+		err := p2pManager.StopProcess(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())
 			fmt.Println(msg)
