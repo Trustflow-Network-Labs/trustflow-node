@@ -6,16 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/adgsm/trustflow-node/internal/utils"
 	_ "modernc.org/sqlite"
 )
 
 type SQLiteManager struct {
+	dir string
 }
 
 func NewSQLiteManager() *SQLiteManager {
-	return &SQLiteManager{}
+	paths := utils.GetAppPaths("")
+	return &SQLiteManager{
+		dir: paths.DataDir,
+	}
 }
 
 // Create connection
@@ -30,16 +36,30 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 		return nil, err
 	}
 
+	// Make sure we have os specific path separator since we are adding this path to host's path
+	dbFileName := config["database_file"]
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		dbFileName = filepath.ToSlash(dbFileName)
+	case "windows":
+		dbFileName = filepath.FromSlash(dbFileName)
+	default:
+		err := fmt.Errorf("unsupported OS type `%s`", runtime.GOOS)
+		panic(err)
+	}
+
+	// open log file
+	path := filepath.Join(sqlm.dir, dbFileName)
+
 	// Check if DB exists
 	var newDB bool = false
-	if _, err := os.Stat(config["database_file"]); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		newDB = true
 	}
 
 	// Init db connection
 	db, err := sql.Open("sqlite",
-		fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1",
-			config["database_file"]))
+		fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", path))
 	if err != nil {
 		message := fmt.Sprintf("Can not create database connection. (%s)", err.Error())
 		logsManager.Log("error", message, "database")
