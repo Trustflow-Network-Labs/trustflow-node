@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
+	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/manifoldco/promptui"
 )
 

@@ -10,9 +10,9 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/adgsm/trustflow-node-gui-client/internal/dependencies"
-	"github.com/adgsm/trustflow-node-gui-client/internal/node"
-	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
+	"github.com/adgsm/trustflow-node/internal/dependencies"
+	"github.com/adgsm/trustflow-node/internal/node"
+	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/spf13/cobra"
 )
 

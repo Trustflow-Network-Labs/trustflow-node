@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/adgsm/trustflow-node-gui-client/internal/node"
-	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
+	"github.com/adgsm/trustflow-node/internal/node"
+	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
 // App struct

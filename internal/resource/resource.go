@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/adgsm/trustflow-node-gui-client/internal/node_types"
-	"github.com/adgsm/trustflow-node-gui-client/internal/price"
-	"github.com/adgsm/trustflow-node-gui-client/internal/utils"
+	"github.com/adgsm/trustflow-node/internal/node_types"
+	"github.com/adgsm/trustflow-node/internal/price"
+	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
 type ResourceManager struct {

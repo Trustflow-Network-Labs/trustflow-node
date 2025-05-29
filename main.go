@@ -17,7 +17,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "trustflow-node-gui-client",
+		Title:  "trustflow-node",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{
