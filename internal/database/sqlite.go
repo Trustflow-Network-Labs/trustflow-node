@@ -26,10 +26,11 @@ func NewSQLiteManager() *SQLiteManager {
 
 // Create connection
 func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
+	logsManager := utils.NewLogsManager()
+
 	// Read configs
 	configManager := utils.NewConfigManager("")
 	config, err := configManager.ReadConfigs()
-	logsManager := utils.NewLogsManager()
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
 		logsManager.Log("error", message, "database")
@@ -45,10 +46,10 @@ func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 		dbFileName = filepath.FromSlash(dbFileName)
 	default:
 		err := fmt.Errorf("unsupported OS type `%s`", runtime.GOOS)
-		panic(err)
+		return nil, err
 	}
 
-	// open log file
+	// create db file path
 	path := filepath.Join(sqlm.dir, dbFileName)
 
 	// Check if DB exists

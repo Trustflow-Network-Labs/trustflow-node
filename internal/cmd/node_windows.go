@@ -28,7 +28,7 @@ var nodeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		dependencies.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
-		p2pManager := node.NewP2PManager()
+		p2pManager := node.NewP2PManager(cmd.Context())
 		p2pManager.Start(port, daemon)
 	},
 }
@@ -81,19 +81,8 @@ var nodeDaemonCmd = &cobra.Command{
 			return
 		}
 
-		// Read configs
-		configManager := utils.NewConfigManager("")
-		config, err := configManager.ReadConfigs()
-		if err != nil {
-			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-			logsManager.Log("error", message, "node")
-			return
-		}
-		// PID file path
-		pidPath := config["pid_path"]
-
 		// Create PID Manager instance
-		pm, err := utils.NewPIDManager(pidPath)
+		pm, err := utils.NewPIDManager()
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)
@@ -123,19 +112,8 @@ var stopNodeCmd = &cobra.Command{
 		logsManager := utils.NewLogsManager()
 
 		if pid == 0 {
-			// Read configs
-			configManager := utils.NewConfigManager("")
-			config, err := configManager.ReadConfigs()
-			if err != nil {
-				message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-				logsManager.Log("error", message, "node")
-				return
-			}
-			// PID file path
-			pidPath := config["pid_path"]
-
 			// Create PID Manager instance
-			pm, err := utils.NewPIDManager(pidPath)
+			pm, err := utils.NewPIDManager()
 			if err != nil {
 				msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 				fmt.Println(msg)
@@ -150,7 +128,7 @@ var stopNodeCmd = &cobra.Command{
 			}
 		}
 
-		p2pManager := node.NewP2PManager()
+		p2pManager := node.NewP2PManager(cmd.Context())
 		err := p2pManager.Stop(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())

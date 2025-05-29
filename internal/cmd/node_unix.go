@@ -71,19 +71,8 @@ var nodeDaemonCmd = &cobra.Command{
 			return
 		}
 
-		// Read configs
-		configManager := utils.NewConfigManager("")
-		config, err := configManager.ReadConfigs()
-		if err != nil {
-			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-			logsManager.Log("error", message, "node")
-			return
-		}
-		// PID file path
-		pidPath := config["pid_path"]
-
 		// Create PID Manager instance
-		pm, err := utils.NewPIDManager(pidPath)
+		pm, err := utils.NewPIDManager()
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)
@@ -113,19 +102,8 @@ var stopNodeCmd = &cobra.Command{
 		logsManager := utils.NewLogsManager()
 
 		if pid == 0 {
-			// Read configs
-			configManager := utils.NewConfigManager("")
-			config, err := configManager.ReadConfigs()
-			if err != nil {
-				message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-				logsManager.Log("error", message, "node")
-				return
-			}
-			// PID file path
-			pidPath := config["pid_path"]
-
 			// Create PID Manager instance
-			pm, err := utils.NewPIDManager(pidPath)
+			pm, err := utils.NewPIDManager()
 			if err != nil {
 				msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 				fmt.Println(msg)

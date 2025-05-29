@@ -35,19 +35,8 @@ func (a *App) StartNode(port uint16) {
 // Stop P2P node
 func (a *App) StopNode(pid int) {
 	if pid == 0 {
-		// Read configs
-		configManager := utils.NewConfigManager("")
-		config, err := configManager.ReadConfigs()
-		if err != nil {
-			message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-			fmt.Println(message)
-			return
-		}
-		// PID file path
-		pidPath := config["pid_path"]
-
 		// Create PID Manager instance
-		pm, err := utils.NewPIDManager(pidPath)
+		pm, err := utils.NewPIDManager()
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)
