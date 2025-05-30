@@ -240,6 +240,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	go p2pm.discoverPeers(peerChannel)
 
+	p2pm.subscriptions = p2pm.subscriptions[:0]
 	for _, completeTopicName := range p2pm.completeTopicNames {
 		sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, ps, completeTopicName)
 		if err != nil {
@@ -289,6 +290,7 @@ func (p2pm *P2PManager) Stop() error {
 		if err := topic.Close(); err != nil {
 			fmt.Printf("Could not close topic %s: %s\n", key, err.Error())
 		}
+		delete(p2pm.topicsSubscribed, key)
 	}
 
 	// Stop crons
@@ -300,6 +302,7 @@ func (p2pm *P2PManager) Stop() error {
 	if err := p2pm.h.Close(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -1531,6 +1534,8 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 
 	for {
 		if sub == nil {
+			err := fmt.Errorf("subscription is nil. Will stop listening")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			break
 		}
 
@@ -1539,6 +1544,8 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			p2pm.lm.Log("error", err.Error(), "p2p")
 		}
 		if m == nil {
+			err := fmt.Errorf("message received is nil. Will stop listening")
+			p2pm.lm.Log("error", err.Error(), "p2p")
 			break
 		}
 
