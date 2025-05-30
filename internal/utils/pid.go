@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"syscall"
 )
 
 type PIDManager struct {
@@ -83,4 +84,21 @@ func (p *PIDManager) ReadPID() (int, error) {
 	}
 
 	return pid, nil
+}
+
+func (p *PIDManager) StopProcess(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	if runtime.GOOS == "windows" {
+		// On Windows
+		return process.Kill()
+	} else {
+		// On Unix-like systems
+		//return process.Signal(syscall.SIGKILL)
+		// Or for graceful termination:
+		return process.Signal(syscall.SIGTERM)
+	}
 }

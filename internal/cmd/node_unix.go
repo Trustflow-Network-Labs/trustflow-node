@@ -101,15 +101,16 @@ var stopNodeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		logsManager := utils.NewLogsManager()
 
+		// Create PID Manager instance
+		pm, err := utils.NewPIDManager()
+		if err != nil {
+			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
+			fmt.Println(msg)
+			logsManager.Log("error", msg, "node")
+			return
+		}
+
 		if pid == 0 {
-			// Create PID Manager instance
-			pm, err := utils.NewPIDManager()
-			if err != nil {
-				msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
-				fmt.Println(msg)
-				logsManager.Log("error", msg, "node")
-				return
-			}
 			if pid, err = pm.ReadPID(); err != nil {
 				msg := fmt.Sprintf("Error reading PID: %v\n", err)
 				fmt.Println(msg)
@@ -118,8 +119,7 @@ var stopNodeCmd = &cobra.Command{
 			}
 		}
 
-		p2pManager := node.NewP2PManager(cmd.Context())
-		err := p2pManager.StopProcess(pid)
+		err = pm.StopProcess(pid)
 		if err != nil {
 			msg := fmt.Sprintf("Error %s occured whilst trying to stop running node\n", err.Error())
 			fmt.Println(msg)

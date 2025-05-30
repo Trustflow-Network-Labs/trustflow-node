@@ -13,10 +13,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"slices"
@@ -304,23 +302,6 @@ func (p2pm *P2PManager) Stop() error {
 	}
 
 	return nil
-}
-
-func (p2pm *P2PManager) StopProcess(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-
-	if runtime.GOOS == "windows" {
-		// On Windows
-		return process.Kill()
-	} else {
-		// On Unix-like systems
-		//return process.Signal(syscall.SIGKILL)
-		// Or for graceful termination:
-		return process.Signal(syscall.SIGTERM)
-	}
 }
 
 func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubSub, completeTopicName string) (*pubsub.Subscription, *pubsub.Topic, error) {
