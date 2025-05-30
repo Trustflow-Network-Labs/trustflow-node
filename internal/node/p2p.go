@@ -43,6 +43,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/robfig/cron"
 )
 
 type P2PManager struct {
@@ -50,11 +51,13 @@ type P2PManager struct {
 	topicNames         []string
 	completeTopicNames []string
 	topicsSubscribed   map[string]*pubsub.Topic
+	subscriptions      []*pubsub.Subscription
 	protocolID         protocol.ID
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
 	db                 *sql.DB
+	crons              []*cron.Cron
 	lm                 *utils.LogsManager
 	wm                 *workflow.WorkflowManager
 	sc                 *node_types.ServiceOffersCache
@@ -73,11 +76,13 @@ func NewP2PManager(ctx context.Context) *P2PManager {
 		topicNames:         []string{"lookup.service"},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
+		subscriptions:      []*pubsub.Subscription{},
 		protocolID:         "",
 		idht:               nil,
 		h:                  nil,
 		ctx:                nil,
 		db:                 db,
+		crons:              []*cron.Cron{},
 		lm:                 utils.NewLogsManager(),
 		wm:                 workflow.NewWorkflowManager(db),
 		sc:                 node_types.NewServiceOffersCache(),
@@ -134,6 +139,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	}
 
 	// Read topics' names to subscribe
+	p2pm.completeTopicNames = p2pm.completeTopicNames[:0]
 	topicNamePrefix := config["topic_name_prefix"]
 	for _, topicName := range p2pm.topicNames {
 		topicName = topicNamePrefix + strings.TrimSpace(topicName)
@@ -235,11 +241,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	go p2pm.discoverPeers(peerChannel)
 
 	for _, completeTopicName := range p2pm.completeTopicNames {
-		_, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, ps, completeTopicName)
+		sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, ps, completeTopicName)
 		if err != nil {
 			p2pm.lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
+		p2pm.subscriptions = append(p2pm.subscriptions, sub)
 
 		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, peerChannel)
 
@@ -249,11 +256,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	// Start crons
 	cronManager := NewCronManager(p2pm)
-	err = cronManager.JobQueue()
+	c, err := cronManager.JobQueue()
 	if err != nil {
 		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
+	p2pm.crons = append(p2pm.crons, c)
 
 	if !daemon {
 		// Print interactive menu
@@ -271,10 +279,25 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 }
 
 func (p2pm *P2PManager) Stop() error {
-	if err := p2pm.h.Close(); err != nil {
-		return err
+	// Cancel subscriptions
+	for _, subscription := range p2pm.subscriptions {
+		subscription.Cancel()
 	}
-	if err := p2pm.db.Close(); err != nil {
+
+	// Close topics
+	for key, topic := range p2pm.topicsSubscribed {
+		if err := topic.Close(); err != nil {
+			fmt.Printf("Could not close topic %s: %s\n", key, err.Error())
+		}
+	}
+
+	// Stop crons
+	for _, c := range p2pm.crons {
+		c.Stop()
+	}
+
+	// Stop p2p node
+	if err := p2pm.h.Close(); err != nil {
 		return err
 	}
 	return nil
@@ -365,6 +388,11 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 					discoveredPeers = append(discoveredPeers, peer)
 				}
 
+				running := p2pm.IsHostRunning()
+				if !running {
+					break
+				}
+
 				skip, err := p2pm.ConnectNode(peer)
 				if err != nil {
 					continue
@@ -384,9 +412,8 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 	running := p2pm.IsHostRunning()
 	if !running {
-		msg := "host is not running"
-		p2pm.lm.Log("error", msg, "p2p")
-		err := errors.New(msg)
+		err := fmt.Errorf("host is not running")
+		p2pm.lm.Log("error", err.Error(), "p2p")
 		return false, err
 	}
 
@@ -410,7 +437,7 @@ func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
 	}
 	if connected {
 		msg := fmt.Sprintf("Node %s is already connected", peer.ID.String())
-		p2pm.lm.Log("warn", msg, "p2p")
+		p2pm.lm.Log("debug", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 
@@ -1503,9 +1530,16 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 	}
 
 	for {
+		if sub == nil {
+			break
+		}
+
 		m, err := sub.Next(ctx)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
+		}
+		if m == nil {
+			break
 		}
 
 		message := string(m.Message.Data)

@@ -19,11 +19,11 @@ func NewCronManager(p2pm *P2PManager) *CronManager {
 	}
 }
 
-func (cm *CronManager) JobQueue() error {
+func (cm *CronManager) JobQueue() (*cron.Cron, error) {
 	configs, err := cm.cfgm.ReadConfigs()
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")
-		return err
+		return nil, err
 	}
 
 	jm := NewJobManager(cm.p2pm)
@@ -31,14 +31,14 @@ func (cm *CronManager) JobQueue() error {
 	err = c.AddFunc(configs["process_job_queue"], jm.ProcessQueue)
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")
-		return err
+		return nil, err
 	}
 	err = c.AddFunc(configs["request_job_status_update"], jm.RequestWorkflowJobsStatusUpdates)
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")
-		return err
+		return nil, err
 	}
 	c.Start()
 
-	return nil
+	return c, nil
 }
