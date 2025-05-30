@@ -26,6 +26,11 @@ func (a *App) startup(ctx context.Context) {
 	a.p2pm = *p2pm
 }
 
+// Is P2P host running
+func (a *App) IsHostRunning() bool {
+	return a.p2pm.IsHostRunning()
+}
+
 // Start P2P node
 func (a *App) StartNode(port uint16) {
 	a.p2pm.Start(port, true)
