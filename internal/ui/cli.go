@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/manifoldco/promptui"
 )
@@ -22,7 +23,9 @@ func (CLI) PromptConfirm(question string) bool {
 	if err != nil {
 		return false
 	}
-	return result == "y" || result == "yes"
+
+	answer := strings.ToLower(strings.TrimSpace(result))
+	return answer == "y" || answer == "yes"
 }
 
 func (CLI) Exit(code int) {

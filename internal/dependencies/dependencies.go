@@ -12,7 +12,6 @@ import (
 
 	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
-	"github.com/manifoldco/promptui"
 )
 
 type DependencyManager struct {
@@ -32,20 +31,6 @@ func (dm *DependencyManager) contains(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func (dm *DependencyManager) installMissing(question string) bool {
-	prompt := promptui.Prompt{
-		Label:     question,
-		IsConfirm: true,
-	}
-	result, err := prompt.Run()
-	if err != nil {
-		return false
-	}
-
-	answer := strings.ToLower(strings.TrimSpace(result))
-	return answer == "y" || answer == "yes"
 }
 
 func (dm *DependencyManager) isDockerResponsive() bool {
@@ -72,29 +57,29 @@ func (dm *DependencyManager) CheckAndInstallDependencies() {
 		case "windows":
 			err = dm.initWindowsDependencies()
 		default:
-			err = errors.New("unsupported OS, please install missing tools manually")
+			err = errors.New("⚠️ unsupported OS, please install missing tools manually")
 		}
 
 		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
-			os.Exit(1)
+			dm.UI.Print("Error: " + err.Error())
+			dm.UI.Exit(1)
 		}
 
 		// Chek if Docker service is responsive
 		if !dm.isDockerResponsive() {
-			fmt.Printf("⚠️ Docker is not responsive\n")
-			os.Exit(1)
+			dm.UI.Print("⚠️ Docker is not responsive")
+			dm.UI.Exit(1)
 		}
 
 	} else {
 		// Exit app
-		os.Exit(1)
+		dm.UI.Exit(1)
 	}
 }
 
 func (dm *DependencyManager) CheckDependencies() bool {
-	fmt.Println("This program depends on Git and Docker.")
-	fmt.Println("We will now check if these are installed on your system.")
+	dm.UI.Print("This program depends on Docker.")
+	dm.UI.Print("We will now check if Docker is installed on your system.")
 
 	missing := []string{}
 	/*
@@ -124,18 +109,18 @@ func (dm *DependencyManager) CheckDependencies() bool {
 		}
 	case "windows":
 	default:
-		fmt.Println("Unsupported OS. Please install missing tools manually.")
+		dm.UI.Print("⚠️ Unsupported OS. Please install missing tools manually.")
 		return false
 	}
 
 	if len(missing) == 0 {
-		fmt.Println("✅ All required tools are installed.")
+		dm.UI.Print("✅ All required tools are installed.")
 		return true
 	}
 
-	fmt.Printf("⚠️ Missing tools detected: %s\n", strings.Join(missing, ", "))
-	if !dm.installMissing("Install or open download links now?") {
-		fmt.Println("Aborting. Please install the required tools manually.")
+	dm.UI.Print(fmt.Sprintf("⚠️ Missing tools detected: %s\n", strings.Join(missing, ", ")))
+	if !dm.UI.PromptConfirm("Install or open download links now?") {
+		dm.UI.Print("⚠️ Aborting. Please install the required tools manually.")
 		return false
 	}
 
@@ -143,7 +128,7 @@ func (dm *DependencyManager) CheckDependencies() bool {
 }
 
 func (dm *DependencyManager) installDependencies(missing []string) bool {
-	fmt.Println("We will now install dependencies on your system.")
+	dm.UI.Print("We will now install dependencies on your system.")
 
 	var err error
 
@@ -157,24 +142,24 @@ func (dm *DependencyManager) installDependencies(missing []string) bool {
 		err = dm.installWindowsDependencies(missing)
 		return err == nil
 	default:
-		fmt.Println("Unsupported OS. Please install missing tools manually.")
+		dm.UI.Print("⚠️ Unsupported OS. Please install missing tools manually.")
 		return false
 	}
 
 	if err != nil {
-		fmt.Printf("Error: %s\n", err.Error())
+		dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 	}
 
 	return err == nil
 }
 
 func (dm *DependencyManager) installLinuxDependencies(missing []string) error {
-	fmt.Println("Detected Linux...")
+	dm.UI.Print("Detected Linux...")
 	/*
 		if dm.contains(missing, "Git") {
 			err := exec.Command("sh", "-c", "sudo apt install -y git").Run()
 			if err != nil {
-				fmt.Printf("Error: %s\n", err.Error())
+				dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 			}
 			return err
 		}
@@ -182,17 +167,17 @@ func (dm *DependencyManager) installLinuxDependencies(missing []string) error {
 	if dm.contains(missing, "Docker") {
 		err := exec.Command("sh", "-c", "sudo apt install -y docker.io").Run()
 		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
+			dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 		}
 		return err
 	}
 	/*
 		if dm.contains(missing, "Kubernetes") {
-			fmt.Println("Trying to install kubectl via Snap...")
+			dm.UI.Print("Trying to install kubectl via Snap...")
 			err := exec.Command("sh", "-c", "sudo snap install kubectl --classic").Run()
 			if err != nil {
-				fmt.Printf("Snap install failed: %s\n", err.Error())
-				fmt.Println("Trying manual installation instead...")
+				dm.UI.Print(fmt.Sprintf("⚠️ Snap install failed: %s\n", err.Error()))
+				dm.UI.Print("Trying manual installation instead...")
 				// fallback to manual download
 				err = exec.Command("sh", "-c", `
 					curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" &&
@@ -200,7 +185,7 @@ func (dm *DependencyManager) installLinuxDependencies(missing []string) error {
 					sudo mv kubectl /usr/local/bin/
 				`).Run()
 				if err != nil {
-					fmt.Printf("Manual install failed: %s\n", err.Error())
+					dm.UI.Print(fmt.Sprintf("⚠️ Manual install failed: %s\n", err.Error()))
 				}
 				return err
 			}
@@ -212,7 +197,7 @@ func (dm *DependencyManager) installLinuxDependencies(missing []string) error {
 func (dm *DependencyManager) initLinuxDependencies() error {
 	if !dm.isDockerRunningLinux() {
 		// Start docker
-		fmt.Println("We will now try to start Docker on your system.")
+		dm.UI.Print("We will now try to start Docker on your system.")
 		err := exec.Command("sh", "-c", "sudo systemctl start docker").Run()
 		if err != nil {
 			return err
@@ -220,7 +205,7 @@ func (dm *DependencyManager) initLinuxDependencies() error {
 	}
 
 	if dm.isDockerRunningLinux() {
-		fmt.Println("✅ Docker started successfully.")
+		dm.UI.Print("✅ Docker started successfully.")
 	} else {
 		err := errors.New("could not start Docker")
 		return err
@@ -231,8 +216,8 @@ func (dm *DependencyManager) initLinuxDependencies() error {
 
 	// Ask user to set it permanently in shell
 	if maxApiVersion != "" {
-		fmt.Println("⚠️ Please add the following to your shell profile:")
-		fmt.Printf("export DOCKER_API_VERSION=%s\n", maxApiVersion)
+		dm.UI.Print("⚠️ Please add the following to your shell profile:")
+		dm.UI.Print(fmt.Sprintf("export DOCKER_API_VERSION=%s", maxApiVersion))
 	}
 
 	return nil
@@ -245,20 +230,19 @@ func (dm *DependencyManager) isDockerRunningLinux() bool {
 }
 
 func (dm *DependencyManager) installDarwinDependencies(missing []string) error {
-	fmt.Println("Detected macOS...")
+	dm.UI.Print("Detected macOS...")
 	/*
 		if dm.contains(missing, "Git") {
 			err := exec.Command("sh", "-c", "brew install git").Run()
 			if err != nil {
-				fmt.Printf("Error: %s\n", err.Error())
+				dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 			}
 			return err
 		}
 	*/
 	if dm.contains(missing, "Docker") || dm.contains(missing, "Colima") ||
 		dm.contains(missing, "Docker Compose") || dm.contains(missing, "Docker Buildx") || dm.contains(missing, "Kubernetes") {
-		//		fmt.Println("Installing Colima, Docker CLI tools, Kubernetes, and plugins...")
-		fmt.Println("Installing Colima, Docker CLI tools, and plugins...")
+		dm.UI.Print("Installing Colima, Docker CLI tools, and plugins...")
 		commands := []string{
 			"brew install colima",
 			"brew install docker docker-compose docker-buildx",
@@ -268,10 +252,10 @@ func (dm *DependencyManager) installDarwinDependencies(missing []string) error {
 			//			"brew install kubectl",
 		}
 		for _, cmd := range commands {
-			fmt.Printf("Executing: %s\n", cmd)
+			dm.UI.Print(fmt.Sprintf("Executing: %s", cmd))
 			err := exec.Command("sh", "-c", cmd).Run()
 			if err != nil {
-				fmt.Printf("Error: %s\n", err.Error())
+				dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 				return err
 			}
 		}
@@ -290,22 +274,22 @@ func (dm *DependencyManager) initDarwinDependencies() error {
 		}
 
 		// Start docker
-		fmt.Println("Starting Colima")
+		dm.UI.Print("Starting Colima")
 		storagePath, err := filepath.Abs(configs["local_storage"])
 		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
+			dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 			return err
 		}
 
 		commands := []string{
-			//		"colima start --with-kubernetes",
+			//			fmt.Sprintf("colima start --with-kubernetes --mount %s:w", storagePath),
 			fmt.Sprintf("colima start --mount %s:w", storagePath),
 		}
 		for _, cmd := range commands {
-			fmt.Printf("Executing: %s\n", cmd)
+			dm.UI.Print(fmt.Sprintf("Executing: %s", cmd))
 			err := exec.Command("sh", "-c", cmd).Run()
 			if err != nil {
-				fmt.Printf("Error: %s\n", err.Error())
+				dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 				return err
 			}
 		}
@@ -318,17 +302,17 @@ func (dm *DependencyManager) initDarwinDependencies() error {
 	maxApiVersion := dm.patchDockerAPIVersion()
 
 	// Ask user to set it permanently in shell
-	fmt.Println("⚠️ Please add the following to your shell profile:")
-	fmt.Println(`export DOCKER_HOST="unix://$HOME/.colima/docker.sock"`)
+	dm.UI.Print("⚠️ Please add the following to your shell profile:")
+	dm.UI.Print(`export DOCKER_HOST="unix://$HOME/.colima/docker.sock"`)
 	if maxApiVersion != "" {
-		fmt.Printf("export DOCKER_API_VERSION=%s\n", maxApiVersion)
+		dm.UI.Print(fmt.Sprintf("export DOCKER_API_VERSION=%s", maxApiVersion))
 	}
 
 	if !dm.isColimaRunning() {
 		return fmt.Errorf("colima did not start correctly")
 	}
 
-	fmt.Println("✅ Colima (and Docker) are running.")
+	dm.UI.Print("✅ Colima (and Docker) are running.")
 
 	return nil
 }
@@ -345,13 +329,13 @@ func (dm *DependencyManager) patchDockerAPIVersion() string {
 	cmd := exec.Command("docker", "ps")
 	output, err := cmd.CombinedOutput()
 	if err != nil && strings.Contains(strings.ToLower(string(output)), strings.ToLower("Maximum supported API version is")) {
-		fmt.Println("⚠️ Docker client version is too new. Patching with max supported API version.")
+		dm.UI.Print("⚠️ Docker client version is too new. Patching with max supported API version.")
 		// Detect from output
 		re := regexp.MustCompile(strings.ToLower(`Maximum supported API version is ([\d.]+)`))
 		match := re.FindStringSubmatch(strings.ToLower(string(output)))
 		if len(match) > 1 {
 			maxApiVersion = match[1]
-			fmt.Printf("set DOCKER_API_VERSION to %s\n", maxApiVersion)
+			dm.UI.Print(fmt.Sprintf("set DOCKER_API_VERSION to %s\n", maxApiVersion))
 			os.Setenv("DOCKER_API_VERSION", maxApiVersion)
 		}
 	}
@@ -360,12 +344,12 @@ func (dm *DependencyManager) patchDockerAPIVersion() string {
 }
 
 func (dm *DependencyManager) installWindowsDependencies(missing []string) error {
-	fmt.Println("Detected Windows...")
+	dm.UI.Print("Detected Windows...")
 	/*
 		if contains(missing, "Git") {
 			err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://git-scm.com/download/win").Run()
 			if err != nil {
-				fmt.Printf("Error: %s\n", err.Error())
+				dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 			}
 			return err
 		}
@@ -373,7 +357,7 @@ func (dm *DependencyManager) installWindowsDependencies(missing []string) error 
 	if dm.contains(missing, "Docker") {
 		err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://www.docker.com/products/docker-desktop/").Run()
 		if err != nil {
-			fmt.Printf("Error: %s\n", err.Error())
+			dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 		}
 		return err
 	}
@@ -383,19 +367,20 @@ func (dm *DependencyManager) installWindowsDependencies(missing []string) error 
 
 func (dm *DependencyManager) initWindowsDependencies() error {
 	if err := dm.checkSymlinkSupport(); err != nil {
-		fmt.Println("❌ Symlink creation is not supported for your current user.")
-		fmt.Println("To fix this, you can do one of the following:")
+		dm.UI.Print("❌ Symlink creation is not supported for your current user.")
+		dm.UI.Print("To fix this, you can do one of the following:")
 
-		fmt.Println("\n➡ OPTION 1: Enable Developer Mode (recommended)")
-		fmt.Println("  Run this in PowerShell (as Administrator):")
-		fmt.Println(`  reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"`)
-		fmt.Println("  OR open Settings → Privacy & Security → For Developers → Enable Developer Mode")
+		dm.UI.Print("\n➡ OPTION 1: Enable Developer Mode (recommended)")
+		dm.UI.Print("  Run this in PowerShell (as Administrator):")
+		dm.UI.Print(`  reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"`)
+		dm.UI.Print("  OR open Settings → Privacy & Security → For Developers → Enable Developer Mode")
 
-		fmt.Println("\n➡ OPTION 2: Grant SeCreateSymbolicLinkPrivilege to your user (advanced)")
-		fmt.Println("  Open Local Security Policy (secpol.msc) → Local Policies → User Rights Assignment")
-		fmt.Println("  → Find 'Create symbolic links' → Add your user → Restart")
+		dm.UI.Print("\n➡ OPTION 2: Grant SeCreateSymbolicLinkPrivilege to your user (advanced)")
+		dm.UI.Print("  Open Local Security Policy (secpol.msc) → Local Policies → User Rights Assignment")
+		dm.UI.Print("  → Find 'Create symbolic links' → Add your user → Restart")
 
-		fmt.Println("\nAfter applying one of the options above, please restart your computer and try again.")
+		dm.UI.Print("\nAfter applying one of the options above, please restart your computer and try again.")
+
 		return fmt.Errorf("symlink creation is not permitted for the current user")
 	}
 
