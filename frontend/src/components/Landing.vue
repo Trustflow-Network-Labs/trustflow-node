@@ -1,10 +1,19 @@
 <template>
-  <main>
-    <div id="result" class="result">{{ resultText }}</div>
-    <div id="input" class="input-box">
-      <input id="port" v-model="port" autocomplete="off" class="input" type="number" v-if="!hostRunning"/>
-      <button class="btn" @click="startNode" v-if="!hostRunning">Start</button>
-      <button class="btn" @click="stopNode" v-if="hostRunning">Stop</button>
+  <main class="container">
+    <div class="sections">
+      <div class="section">
+        <div class="trustflow-node-text">{{ trustflowNodeText }}</div>
+        <div class="trustflow-node-text-helper">{{ trustflowNodeTextHelper }}</div>
+      </div>
+      <div class="section">
+        <img id="logo" alt="Trustflow logo" src="../assets/images/logo.png"/>
+        <div class="start-node-text">{{ startNodeText }}</div>
+        <div id="input" class="input-box">
+          <input id="port" v-model="port" autocomplete="off" class="input" type="number" />
+          <button class="btn" @click="startNode">Start</button>
+        </div>
+        <div class="start-node-text-helper">{{ startNodeTextHelper }}</div>
+      </div>
     </div>
   </main>
 </template>

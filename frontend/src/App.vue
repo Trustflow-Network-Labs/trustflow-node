@@ -1,22 +1,9 @@
-<script setup>
-import Landing from './components/Landing.vue'
-</script>
-
 <template>
-  <img id="logo" alt="Wails logo" src="./assets/images/logo.png"/>
-  <Landing/>
+  <Landing v-if="!hostRunning"
+    @host-running="(running) => {hostRunning = running}"/>
+  <Dashboard v-if="hostRunning"
+    @host-running="(running) => {hostRunning = running}"/>
 </template>
 
-<style>
-#logo {
-  display: block;
-  width: 150px;
-  height: auto;
-  margin: auto;
-  padding: 10% 0 0;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  background-origin: content-box;
-}
-</style>
+<script src="./js/app.js" scoped />
+<style src="./scss/app.scss" lang="scss" scoped />
