@@ -10,11 +10,22 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/manifoldco/promptui"
 )
 
-func contains(slice []string, item string) bool {
+type DependencyManager struct {
+	UI ui.UI
+}
+
+func NewDependencyManager(ui ui.UI) *DependencyManager {
+	return &DependencyManager{
+		UI: ui,
+	}
+}
+
+func (dm *DependencyManager) contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if strings.EqualFold(s, item) {
 			return true
@@ -23,7 +34,7 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func installMissing(question string) bool {
+func (dm *DependencyManager) installMissing(question string) bool {
 	prompt := promptui.Prompt{
 		Label:     question,
 		IsConfirm: true,
@@ -37,29 +48,29 @@ func installMissing(question string) bool {
 	return answer == "y" || answer == "yes"
 }
 
-func isDockerResponsive() bool {
+func (dm *DependencyManager) isDockerResponsive() bool {
 	cmd := exec.Command("docker", "info")
 	err := cmd.Run()
 	return err == nil
 }
 
-func dockerSubcommandExists(subcmd string) bool {
+func (dm *DependencyManager) dockerSubcommandExists(subcmd string) bool {
 	cmd := exec.Command("docker", subcmd, "--help")
 	err := cmd.Run()
 	return err == nil
 }
 
-func CheckAndInstallDependencies() {
-	if CheckDependencies() {
+func (dm *DependencyManager) CheckAndInstallDependencies() {
+	if dm.CheckDependencies() {
 		// All good proceed
 		var err error
 		switch runtime.GOOS {
 		case "linux":
-			err = initLinuxDependencies()
+			err = dm.initLinuxDependencies()
 		case "darwin":
-			err = initDarwinDependencies()
+			err = dm.initDarwinDependencies()
 		case "windows":
-			err = initWindowsDependencies()
+			err = dm.initWindowsDependencies()
 		default:
 			err = errors.New("unsupported OS, please install missing tools manually")
 		}
@@ -70,7 +81,7 @@ func CheckAndInstallDependencies() {
 		}
 
 		// Chek if Docker service is responsive
-		if !isDockerResponsive() {
+		if !dm.isDockerResponsive() {
 			fmt.Printf("⚠️ Docker is not responsive\n")
 			os.Exit(1)
 		}
@@ -81,7 +92,7 @@ func CheckAndInstallDependencies() {
 	}
 }
 
-func CheckDependencies() bool {
+func (dm *DependencyManager) CheckDependencies() bool {
 	fmt.Println("This program depends on Git and Docker.")
 	fmt.Println("We will now check if these are installed on your system.")
 
@@ -94,10 +105,10 @@ func CheckDependencies() bool {
 	if _, err := exec.LookPath("docker"); err != nil {
 		missing = append(missing, "Docker")
 	}
-	if !dockerSubcommandExists("compose") {
+	if !dm.dockerSubcommandExists("compose") {
 		missing = append(missing, "Docker Compose")
 	}
-	if !dockerSubcommandExists("buildx") {
+	if !dm.dockerSubcommandExists("buildx") {
 		missing = append(missing, "Docker Buildx")
 	}
 	/*
@@ -123,27 +134,27 @@ func CheckDependencies() bool {
 	}
 
 	fmt.Printf("⚠️ Missing tools detected: %s\n", strings.Join(missing, ", "))
-	if !installMissing("Install or open download links now?") {
+	if !dm.installMissing("Install or open download links now?") {
 		fmt.Println("Aborting. Please install the required tools manually.")
 		return false
 	}
 
-	return installDependencies(missing)
+	return dm.installDependencies(missing)
 }
 
-func installDependencies(missing []string) bool {
+func (dm *DependencyManager) installDependencies(missing []string) bool {
 	fmt.Println("We will now install dependencies on your system.")
 
 	var err error
 
 	switch runtime.GOOS {
 	case "linux":
-		err = installLinuxDependencies(missing)
+		err = dm.installLinuxDependencies(missing)
 	case "darwin":
-		err = installDarwinDependencies(missing)
+		err = dm.installDarwinDependencies(missing)
 		return err == nil
 	case "windows":
-		err = installWindowsDependencies(missing)
+		err = dm.installWindowsDependencies(missing)
 		return err == nil
 	default:
 		fmt.Println("Unsupported OS. Please install missing tools manually.")
@@ -157,10 +168,10 @@ func installDependencies(missing []string) bool {
 	return err == nil
 }
 
-func installLinuxDependencies(missing []string) error {
+func (dm *DependencyManager) installLinuxDependencies(missing []string) error {
 	fmt.Println("Detected Linux...")
 	/*
-		if contains(missing, "Git") {
+		if dm.contains(missing, "Git") {
 			err := exec.Command("sh", "-c", "sudo apt install -y git").Run()
 			if err != nil {
 				fmt.Printf("Error: %s\n", err.Error())
@@ -168,7 +179,7 @@ func installLinuxDependencies(missing []string) error {
 			return err
 		}
 	*/
-	if contains(missing, "Docker") {
+	if dm.contains(missing, "Docker") {
 		err := exec.Command("sh", "-c", "sudo apt install -y docker.io").Run()
 		if err != nil {
 			fmt.Printf("Error: %s\n", err.Error())
@@ -176,7 +187,7 @@ func installLinuxDependencies(missing []string) error {
 		return err
 	}
 	/*
-		if contains(missing, "Kubernetes") {
+		if dm.contains(missing, "Kubernetes") {
 			fmt.Println("Trying to install kubectl via Snap...")
 			err := exec.Command("sh", "-c", "sudo snap install kubectl --classic").Run()
 			if err != nil {
@@ -198,8 +209,8 @@ func installLinuxDependencies(missing []string) error {
 	return nil
 }
 
-func initLinuxDependencies() error {
-	if !isDockerRunningLinux() {
+func (dm *DependencyManager) initLinuxDependencies() error {
+	if !dm.isDockerRunningLinux() {
 		// Start docker
 		fmt.Println("We will now try to start Docker on your system.")
 		err := exec.Command("sh", "-c", "sudo systemctl start docker").Run()
@@ -208,7 +219,7 @@ func initLinuxDependencies() error {
 		}
 	}
 
-	if isDockerRunningLinux() {
+	if dm.isDockerRunningLinux() {
 		fmt.Println("✅ Docker started successfully.")
 	} else {
 		err := errors.New("could not start Docker")
@@ -216,7 +227,7 @@ func initLinuxDependencies() error {
 	}
 
 	// Docker API client version
-	maxApiVersion := patchDockerAPIVersion()
+	maxApiVersion := dm.patchDockerAPIVersion()
 
 	// Ask user to set it permanently in shell
 	if maxApiVersion != "" {
@@ -227,16 +238,16 @@ func initLinuxDependencies() error {
 	return nil
 }
 
-func isDockerRunningLinux() bool {
+func (dm *DependencyManager) isDockerRunningLinux() bool {
 	cmd := exec.Command("sh", "-c", "systemctl is-active docker")
 	output, err := cmd.Output()
 	return err == nil && strings.TrimSpace(strings.ToLower(string(output))) == "active"
 }
 
-func installDarwinDependencies(missing []string) error {
+func (dm *DependencyManager) installDarwinDependencies(missing []string) error {
 	fmt.Println("Detected macOS...")
 	/*
-		if contains(missing, "Git") {
+		if dm.contains(missing, "Git") {
 			err := exec.Command("sh", "-c", "brew install git").Run()
 			if err != nil {
 				fmt.Printf("Error: %s\n", err.Error())
@@ -244,8 +255,8 @@ func installDarwinDependencies(missing []string) error {
 			return err
 		}
 	*/
-	if contains(missing, "Docker") || contains(missing, "Colima") ||
-		contains(missing, "Docker Compose") || contains(missing, "Docker Buildx") || contains(missing, "Kubernetes") {
+	if dm.contains(missing, "Docker") || dm.contains(missing, "Colima") ||
+		dm.contains(missing, "Docker Compose") || dm.contains(missing, "Docker Buildx") || dm.contains(missing, "Kubernetes") {
 		//		fmt.Println("Installing Colima, Docker CLI tools, Kubernetes, and plugins...")
 		fmt.Println("Installing Colima, Docker CLI tools, and plugins...")
 		commands := []string{
@@ -269,8 +280,8 @@ func installDarwinDependencies(missing []string) error {
 	return nil
 }
 
-func initDarwinDependencies() error {
-	if !isColimaRunning() {
+func (dm *DependencyManager) initDarwinDependencies() error {
+	if !dm.isColimaRunning() {
 
 		configManager := utils.NewConfigManager("")
 		configs, err := configManager.ReadConfigs()
@@ -304,7 +315,7 @@ func initDarwinDependencies() error {
 	os.Setenv("DOCKER_HOST", fmt.Sprintf("unix://%s/.colima/docker.sock", os.Getenv("HOME")))
 
 	// Docker API client version
-	maxApiVersion := patchDockerAPIVersion()
+	maxApiVersion := dm.patchDockerAPIVersion()
 
 	// Ask user to set it permanently in shell
 	fmt.Println("⚠️ Please add the following to your shell profile:")
@@ -313,7 +324,7 @@ func initDarwinDependencies() error {
 		fmt.Printf("export DOCKER_API_VERSION=%s\n", maxApiVersion)
 	}
 
-	if !isColimaRunning() {
+	if !dm.isColimaRunning() {
 		return fmt.Errorf("colima did not start correctly")
 	}
 
@@ -322,13 +333,13 @@ func initDarwinDependencies() error {
 	return nil
 }
 
-func isColimaRunning() bool {
+func (dm *DependencyManager) isColimaRunning() bool {
 	cmd := exec.Command("colima", "status")
 	output, err := cmd.CombinedOutput()
 	return err == nil && strings.Contains(strings.ToLower(string(output)), "running")
 }
 
-func patchDockerAPIVersion() string {
+func (dm *DependencyManager) patchDockerAPIVersion() string {
 	var maxApiVersion string
 	os.Setenv("DOCKER_API_VERSION", "99.999")
 	cmd := exec.Command("docker", "ps")
@@ -348,7 +359,7 @@ func patchDockerAPIVersion() string {
 	return maxApiVersion
 }
 
-func installWindowsDependencies(missing []string) error {
+func (dm *DependencyManager) installWindowsDependencies(missing []string) error {
 	fmt.Println("Detected Windows...")
 	/*
 		if contains(missing, "Git") {
@@ -359,7 +370,7 @@ func installWindowsDependencies(missing []string) error {
 			return err
 		}
 	*/
-	if contains(missing, "Docker") {
+	if dm.contains(missing, "Docker") {
 		err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "https://www.docker.com/products/docker-desktop/").Run()
 		if err != nil {
 			fmt.Printf("Error: %s\n", err.Error())
@@ -370,8 +381,8 @@ func installWindowsDependencies(missing []string) error {
 	return nil
 }
 
-func initWindowsDependencies() error {
-	if err := checkSymlinkSupport(); err != nil {
+func (dm *DependencyManager) initWindowsDependencies() error {
+	if err := dm.checkSymlinkSupport(); err != nil {
 		fmt.Println("❌ Symlink creation is not supported for your current user.")
 		fmt.Println("To fix this, you can do one of the following:")
 
@@ -404,7 +415,7 @@ func initWindowsDependencies() error {
 	return fmt.Errorf("could not start Docker Desktop")
 }
 
-func checkSymlinkSupport() error {
+func (dm *DependencyManager) checkSymlinkSupport() error {
 	// Try to create a dummy symlink and remove it
 	tmpDir := os.TempDir()
 	target := filepath.Join(tmpDir, "symlink_target.txt")
