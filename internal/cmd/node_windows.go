@@ -30,7 +30,7 @@ var nodeCmd = &cobra.Command{
 		dm := dependencies.NewDependencyManager(ui.CLI{})
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
-		p2pManager := node.NewP2PManager(cmd.Context())
+		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{})
 		p2pManager.Start(port, daemon)
 	},
 }

@@ -36,7 +36,7 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		lm:   utils.NewLogsManager(),
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),
-		dm:   repo.NewDockerManager(),
+		dm:   repo.NewDockerManager(p2pm.UI),
 		p2pm: p2pm,
 		tm:   utils.NewTextManager(),
 		vm:   utils.NewValidatorManager(),

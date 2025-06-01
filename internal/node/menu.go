@@ -14,6 +14,7 @@ import (
 	"github.com/adgsm/trustflow-node/internal/price"
 	"github.com/adgsm/trustflow-node/internal/repo"
 	"github.com/adgsm/trustflow-node/internal/resource"
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/adgsm/trustflow-node/internal/workflow"
 	"github.com/fatih/color"
@@ -921,7 +922,7 @@ func (mm *MenuManager) blacklist() {
 	}
 }
 func (mm *MenuManager) listBlacklistNodes() error {
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
 	if err != nil {
 		fmt.Println(err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
@@ -950,7 +951,7 @@ func (mm *MenuManager) addBlacklistNode() error {
 	}
 
 	// Add node to a blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
@@ -982,7 +983,7 @@ func (mm *MenuManager) removeNodeFromBlacklist() error {
 	}
 
 	// Remove node from blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
@@ -1591,7 +1592,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Run docker & build image(s)
-	dockerManager := repo.NewDockerManager()
+	dockerManager := repo.NewDockerManager(ui.CLI{})
 	_, images, errors := dockerManager.Run(repoPath, nil, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
@@ -1675,7 +1676,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Validate docker image
-	dockerManager := repo.NewDockerManager()
+	dockerManager := repo.NewDockerManager(ui.CLI{})
 	cmdOut, err := dockerManager.ValidateImage(pediResult)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))

@@ -24,6 +24,7 @@ import (
 	"github.com/adgsm/trustflow-node/internal/keystore"
 	"github.com/adgsm/trustflow-node/internal/node_types"
 	"github.com/adgsm/trustflow-node/internal/settings"
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/adgsm/trustflow-node/internal/workflow"
 	"github.com/libp2p/go-libp2p"
@@ -59,9 +60,10 @@ type P2PManager struct {
 	lm                 *utils.LogsManager
 	wm                 *workflow.WorkflowManager
 	sc                 *node_types.ServiceOffersCache
+	UI                 ui.UI
 }
 
-func NewP2PManager(ctx context.Context) *P2PManager {
+func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 	// Create a database connection
 	sqlm := database.NewSQLiteManager()
 	db, err := sqlm.CreateConnection()
@@ -84,6 +86,7 @@ func NewP2PManager(ctx context.Context) *P2PManager {
 		lm:                 utils.NewLogsManager(),
 		wm:                 workflow.NewWorkflowManager(db),
 		sc:                 node_types.NewServiceOffersCache(),
+		UI:                 ui,
 	}
 
 	if ctx != nil {
@@ -119,7 +122,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		return
 	}
 
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.db)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.db, p2pm.UI)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return
@@ -211,12 +214,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	message := fmt.Sprintf("Your Peer ID: %s", hst.ID())
 	p2pm.lm.Log("info", message, "p2p")
-	fmt.Println(message)
+	p2pm.UI.Print(message)
 	for _, addr := range hst.Addrs() {
 		fullAddr := addr.Encapsulate(ma.StringCast("/p2p/" + hst.ID().String()))
 		message := fmt.Sprintf("Listening on %s", fullAddr)
 		p2pm.lm.Log("info", message, "p2p")
-		fmt.Println(message)
+		p2pm.UI.Print(message)
 	}
 
 	// Setup a stream handler.
@@ -286,7 +289,7 @@ func (p2pm *P2PManager) Stop() error {
 	// Close topics
 	for key, topic := range p2pm.topicsSubscribed {
 		if err := topic.Close(); err != nil {
-			fmt.Printf("Could not close topic %s: %s\n", key, err.Error())
+			p2pm.UI.Print(fmt.Sprintf("Could not close topic %s: %s\n", key, err.Error()))
 		}
 		delete(p2pm.topicsSubscribed, key)
 	}

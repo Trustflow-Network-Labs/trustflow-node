@@ -18,6 +18,7 @@ type App struct {
 	dm                dependencies.DependencyManager
 	confirmFuncChan   chan bool
 	frontendReadyChan chan struct{}
+	gui               ui.UI
 }
 
 // NewApp creates a new App application struct
@@ -30,9 +31,7 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.frontendReadyChan = make(chan struct{})
-	p2pm := node.NewP2PManager(ctx)
-	a.p2pm = *p2pm
-	a.dm = *dependencies.NewDependencyManager(ui.GUI{
+	a.gui = ui.GUI{
 		PrintFunc: func(msg string) {
 			runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		},
@@ -57,7 +56,11 @@ func (a *App) startup(ctx context.Context) {
 			}
 			runtime.EventsEmit(a.ctx, "exitlog-event", msg)
 		},
-	})
+	}
+
+	p2pm := node.NewP2PManager(ctx, a.gui)
+	a.p2pm = *p2pm
+	a.dm = *dependencies.NewDependencyManager(a.gui)
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()

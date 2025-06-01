@@ -11,7 +11,11 @@ import (
 type CLI struct{}
 
 func (CLI) Print(msg string) {
-	fmt.Println(msg)
+	if strings.HasSuffix(msg, "\n") {
+		fmt.Print(msg) // already has newline, avoid adding extra one
+	} else {
+		fmt.Println(msg) // add newline
+	}
 }
 
 func (CLI) PromptConfirm(question string) bool {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/adgsm/trustflow-node/internal/node_types"
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/conngater"
@@ -19,9 +20,10 @@ type BlacklistNodeManager struct {
 	lm            *utils.LogsManager
 	tm            *utils.TextManager
 	Gater         *conngater.BasicConnectionGater
+	UI            ui.UI
 }
 
-func NewBlacklistNodeManager(db *sql.DB) (*BlacklistNodeManager, error) {
+func NewBlacklistNodeManager(db *sql.DB, ui ui.UI) (*BlacklistNodeManager, error) {
 	gater, err := conngater.NewBasicConnectionGater(nil)
 	if err != nil {
 		return nil, err
@@ -33,6 +35,7 @@ func NewBlacklistNodeManager(db *sql.DB) (*BlacklistNodeManager, error) {
 		lm:            utils.NewLogsManager(),
 		tm:            utils.NewTextManager(),
 		Gater:         gater,
+		UI:            ui,
 	}
 
 	err = blnm.loadBlacklist()
@@ -111,7 +114,7 @@ func (blnm *BlacklistNodeManager) List() ([]node_types.Blacklist, error) {
 			if err == nil {
 				t, err := time.Parse(time.RFC3339, nodeSQL.Timestamp)
 				if err != nil {
-					fmt.Println("Error parsing time:", err)
+					blnm.UI.Print(fmt.Sprintf("Error parsing time: %s", err.Error()))
 					continue
 				}
 				var node node_types.Blacklist = node_types.Blacklist{

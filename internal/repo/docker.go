@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/adgsm/trustflow-node/internal/node_types"
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 
 	"github.com/compose-spec/compose-go/loader"
@@ -44,11 +45,13 @@ import (
 
 type DockerManager struct {
 	lm *utils.LogsManager
+	UI ui.UI
 }
 
-func NewDockerManager() *DockerManager {
+func NewDockerManager(ui ui.UI) *DockerManager {
 	return &DockerManager{
 		lm: utils.NewLogsManager(),
+		UI: ui,
 	}
 }
 
@@ -310,13 +313,13 @@ func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName str
 		progress := fmt.Sprintf("%v", msg["progress"])
 
 		// Extract human-readable byte progress from "progress"
-		fmt.Println("id:", id)
-		fmt.Println("status:", status)
+		dm.UI.Print(fmt.Sprintf("id: %s", id))
+		dm.UI.Print(fmt.Sprintf("status: %s", status))
 		if progress != "<nil>" {
-			fmt.Println("progress:", dm.extractProgressAmount(progress))
-			fmt.Println(dm.extractProgressBar(progress))
+			dm.UI.Print(fmt.Sprintf("progress: %s", dm.extractProgressAmount(progress)))
+			dm.UI.Print(dm.extractProgressBar(progress))
 		}
-		fmt.Println()
+		dm.UI.Print("")
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -386,8 +389,10 @@ func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName st
 		}
 
 		if stream, ok := msg["stream"].(string); ok {
-			fmt.Print(stream) // stream usually contains newlines
+			dm.UI.Print(stream) // stream usually contains newlines
 		} else if errMsg, ok := msg["error"].(string); ok {
+			msg := fmt.Sprintf("Build error: %s\n", errMsg)
+			dm.UI.Print(msg)
 			fmt.Fprintf(os.Stderr, "Build error: %s\n", errMsg)
 		}
 	}
@@ -1048,7 +1053,7 @@ func (dm *DockerManager) Run(
 				} else {
 					msg := fmt.Sprintf("Failed to pull image %s: %v", svc.Name, err)
 					dm.lm.Log("error", msg, "docker")
-					fmt.Println(msg)
+					dm.UI.Print(msg)
 				}
 			default:
 				// Pull image if not built or missing locally
@@ -1056,7 +1061,7 @@ func (dm *DockerManager) Run(
 				if err != nil {
 					msg := fmt.Sprintf("Failed to locate image %s in local repo: %v", svc.Name, err)
 					dm.lm.Log("error", msg, "docker")
-					fmt.Println(msg)
+					dm.UI.Print(msg)
 					return
 				}
 				if svc.Build == nil && !exists {
@@ -1088,7 +1093,7 @@ func (dm *DockerManager) Run(
 				if err != nil {
 					errr := fmt.Errorf("failed to start service %s: %v", svc.Name, err)
 					dm.lm.Log("error", errr.Error(), "docker")
-					fmt.Println(errr.Error())
+					dm.UI.Print(errr.Error())
 					errsMu.Lock()
 					errrs = append(errrs, errr)
 					errsMu.Unlock()
