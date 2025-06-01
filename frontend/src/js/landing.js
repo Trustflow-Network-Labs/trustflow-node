@@ -4,16 +4,34 @@ const created = async function () {
     this.hostRunning = await this.isHostRunning()
 }
 
-const computed = {}
+const computed = {
+    appCanStart() {
+        return this.exitLogs.length == 0
+    }
+}
 
 const watch = {
     hostRunning() {
         this.$emit('host-running', this.hostRunning)
+    },
+    appLogs: {
+        handler() {
+            this.$nextTick(() => {
+                let lastIndex = this.appLogs.length - 1;
+                if (lastIndex >= 0 && this.$refs.log) {
+                    const el = this.$refs.log[lastIndex];
+                    if (el && el.scrollIntoView) {
+                        el.scrollIntoView();
+                    }
+                }
+            })
+        },
+        deep: true,
+        immediate: true,
     }
 }
 
-const mounted = async function() {
-}
+const mounted = async function() {}
 
 const methods = {
     async isHostRunning() {
@@ -38,10 +56,16 @@ const methods = {
     }
 }
 
+const unmounted = function() {}
+
 const destroyed = function() {
 }
 
 export default {
+    props: [
+        'appLogs',
+        'exitLogs',
+    ],
 	mixins: [],
 	components: {},
 	directives: {},
@@ -51,6 +75,7 @@ export default {
     watch: watch,
     mounted: mounted,
     methods: methods,
+    unmounted: unmounted,
     destroyed: destroyed,
     data() {
         return {

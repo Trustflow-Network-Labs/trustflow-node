@@ -20,7 +20,12 @@ const methods = {
         return await IsHostRunning()
     },
     async stopNode() {
-        await StopNode()
+        let err
+        this.errorText = ""
+        await (err = StopNode())
+        if (err != null && err != "") {
+            this.errorText = err
+        }
         this.hostRunning = await this.isHostRunning()
     }
 }
@@ -29,6 +34,10 @@ const destroyed = function() {
 }
 
 export default {
+    props: [
+        'appLogs',
+        'exitLogs',
+    ],
 	mixins: [],
 	components: {},
 	directives: {},
@@ -42,6 +51,7 @@ export default {
     data() {
         return {
             hostRunning: false,
+            errorText: "",
         }
     }
 }

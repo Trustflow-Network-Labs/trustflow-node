@@ -3,6 +3,7 @@
     <div id="input" class="input-box">
       <button class="btn" @click="stopNode">Stop</button>
     </div>
+    <div class="error-text">{{ errorText }}</div>
   </main>
 </template>
 
