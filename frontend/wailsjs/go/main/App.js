@@ -10,6 +10,14 @@ export function IsHostRunning() {
   return window['go']['main']['App']['IsHostRunning']();
 }
 
+export function NotifyFrontendReady() {
+  return window['go']['main']['App']['NotifyFrontendReady']();
+}
+
+export function SetUserConfirmation(arg1) {
+  return window['go']['main']['App']['SetUserConfirmation'](arg1);
+}
+
 export function StartNode(arg1) {
   return window['go']['main']['App']['StartNode'](arg1);
 }

@@ -2,10 +2,12 @@
   <Landing v-if="!hostRunning"
     :app-logs="appLogs"
     :exit-logs="exitLogs"
+    :app-confirm="sysConfirm"
     @host-running="(running) => {hostRunning = running}"/>
   <Dashboard v-if="hostRunning"
     :app-logs="appLogs"
     :exit-logs="exitLogs"
+    :app-confirm="sysConfirm"
     @host-running="(running) => {hostRunning = running}"/>
 </template>
 

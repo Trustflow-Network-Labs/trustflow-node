@@ -27,6 +27,7 @@
         </div>
       </div>
     </div>
+    <ConfirmDialog />
   </main>
 </template>
 

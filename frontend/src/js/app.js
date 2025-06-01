@@ -2,6 +2,7 @@ import Landing from '../components/Landing.vue'
 import Dashboard from '../components/Dashboard.vue'
 
 import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime'
+import { NotifyFrontendReady } from '../../wailsjs/go/main/App'
 
 const created = async function () {}
 
@@ -16,6 +17,12 @@ const mounted = async function() {
     EventsOn('exitlog-event', (msg) => {
         this.exitLogs.push(msg)
     })
+    EventsOn('sysconfirm-event', (question) => {
+        this.sysConfirm = question
+    })
+
+    // ✅ Tell backend we're ready
+    await NotifyFrontendReady()
 }
 
 const methods = {}
@@ -23,6 +30,7 @@ const methods = {}
 const unmounted = function() {
     EventsOff('syslog-event')
     EventsOff('exitlog-event')
+    EventsOff('sysconfirm-event')
 }
 
 const destroyed = function() {
@@ -49,6 +57,7 @@ export default {
             hostRunning: false,
             appLogs: [],
             exitLogs: [],
+            sysConfirm: "",
         }
     }
 }

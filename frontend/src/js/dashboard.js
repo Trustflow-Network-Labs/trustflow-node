@@ -37,6 +37,7 @@ export default {
     props: [
         'appLogs',
         'exitLogs',
+        'appConfirm',
     ],
 	mixins: [],
 	components: {},

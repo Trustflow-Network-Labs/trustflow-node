@@ -5,6 +5,10 @@ export function CheckAndInstallDependencies():Promise<void>;
 
 export function IsHostRunning():Promise<boolean>;
 
+export function NotifyFrontendReady():Promise<void>;
+
+export function SetUserConfirmation(arg1:boolean):Promise<void>;
+
 export function StartNode(arg1:number):Promise<void>;
 
 export function StopNode():Promise<void>;

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/adgsm/trustflow-node/internal/dependencies"
 	"github.com/adgsm/trustflow-node/internal/node"
@@ -12,9 +13,11 @@ import (
 
 // App struct
 type App struct {
-	ctx  context.Context
-	p2pm node.P2PManager
-	dm   dependencies.DependencyManager
+	ctx               context.Context
+	p2pm              node.P2PManager
+	dm                dependencies.DependencyManager
+	confirmFuncChan   chan bool
+	frontendReadyChan chan struct{}
 }
 
 // NewApp creates a new App application struct
@@ -26,6 +29,7 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.frontendReadyChan = make(chan struct{})
 	p2pm := node.NewP2PManager(ctx)
 	a.p2pm = *p2pm
 	a.dm = *dependencies.NewDependencyManager(ui.GUI{
@@ -33,9 +37,15 @@ func (a *App) startup(ctx context.Context) {
 			runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		},
 		ConfirmFunc: func(question string) bool {
-			// TODO
-			//			return gui.ShowConfirmationDialog(question)
-			return true
+			a.confirmFuncChan = make(chan bool)
+
+			// Send the prompt to frontend
+			runtime.EventsEmit(a.ctx, "sysconfirm-event", question)
+
+			// Wait for frontend response (blocks until received)
+			response := <-a.confirmFuncChan
+
+			return response
 		},
 		ExitFunc: func(code int) {
 			var msg = ""
@@ -48,12 +58,32 @@ func (a *App) startup(ctx context.Context) {
 			runtime.EventsEmit(a.ctx, "exitlog-event", msg)
 		},
 	})
-	a.CheckAndInstallDependencies()
+	select {
+	case <-a.frontendReadyChan:
+		a.CheckAndInstallDependencies()
+	case <-time.After(10 * time.Second): // Optional timeout
+		fmt.Println("Timeout waiting for frontend readiness")
+	}
+}
+
+// Signal that frontend is ready
+func (a *App) NotifyFrontendReady() {
+	if a.frontendReadyChan != nil {
+		close(a.frontendReadyChan)
+		a.frontendReadyChan = nil // Avoid multiple closes
+	}
 }
 
 // Check and install node dependencies
 func (a *App) CheckAndInstallDependencies() {
 	a.dm.CheckAndInstallDependencies()
+}
+
+// User confirm with the response
+func (a *App) SetUserConfirmation(response bool) {
+	if a.confirmFuncChan != nil {
+		a.confirmFuncChan <- response
+	}
 }
 
 // Is P2P host running

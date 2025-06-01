@@ -1,4 +1,11 @@
-import {IsHostRunning, StartNode} from '../../wailsjs/go/main/App'
+import {IsHostRunning, StartNode, SetUserConfirmation} from '../../wailsjs/go/main/App'
+import ConfirmDialog from 'primevue/confirmdialog'
+import { useConfirm } from "primevue/useconfirm"
+
+let Confirm
+const setup = function() {
+    Confirm = useConfirm()
+}
 
 const created = async function () {
     this.hostRunning = await this.isHostRunning()
@@ -23,6 +30,26 @@ const watch = {
                     if (el && el.scrollIntoView) {
                         el.scrollIntoView();
                     }
+                }
+            })
+        },
+        deep: true,
+        immediate: true,
+    },
+    appConfirm: {
+        handler() {
+            if (this.appConfirm == "") {
+                return
+            }
+            Confirm.require({
+                message: this.appConfirm,
+                header: 'Confirmation',
+                icon: 'pi pi-exclamation-triangle',
+                accept: async () => {
+                    await SetUserConfirmation(true)
+                },
+                reject: async () => {
+                    await SetUserConfirmation(false)
                 }
             })
         },
@@ -62,14 +89,19 @@ const destroyed = function() {
 }
 
 export default {
+    plugins: [],
     props: [
         'appLogs',
         'exitLogs',
+        'appConfirm',
     ],
 	mixins: [],
-	components: {},
+	components: {
+        ConfirmDialog,
+    },
 	directives: {},
 	name: 'Landing',
+    setup: setup,
     created: created,
     computed: computed,
     watch: watch,
@@ -81,6 +113,7 @@ export default {
         return {
             hostRunning: false,
             port: 30609,
+            confirm: null,
             startNodeText: "Enter the node port number below 👇",
             startNodeTextHelper: "The Trustflow Node will use this port and the next five ports for various communication protocols (TCP, QUIC, WS, etc.).",
             trustflowNodeText: "Powering the decentralized backend of tomorrow  ",
