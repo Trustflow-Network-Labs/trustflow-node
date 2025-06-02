@@ -20,6 +20,9 @@ const mounted = async function() {
     EventsOn('sysconfirm-event', (question) => {
         this.sysConfirm = question
     })
+    EventsOn('dependenciesready-event', (ready) => {
+        this.appCanStart = ready
+    })
 
     // ✅ Tell backend we're ready
     await NotifyFrontendReady()
@@ -31,6 +34,7 @@ const unmounted = function() {
     EventsOff('syslog-event')
     EventsOff('exitlog-event')
     EventsOff('sysconfirm-event')
+    EventsOff('dependenciesready-event')
 }
 
 const destroyed = function() {
@@ -58,6 +62,7 @@ export default {
             appLogs: [],
             exitLogs: [],
             sysConfirm: "",
+            appCanStart: false,
         }
     }
 }

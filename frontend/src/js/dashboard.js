@@ -38,6 +38,7 @@ export default {
         'appLogs',
         'exitLogs',
         'appConfirm',
+        'appCanStart',
     ],
 	mixins: [],
 	components: {},

@@ -3,11 +3,13 @@
     :app-logs="appLogs"
     :exit-logs="exitLogs"
     :app-confirm="sysConfirm"
+    :app-can-start="appCanStart"
     @host-running="(running) => {hostRunning = running}"/>
   <Dashboard v-if="hostRunning"
     :app-logs="appLogs"
     :exit-logs="exitLogs"
     :app-confirm="sysConfirm"
+    :app-can-start="appCanStart"
     @host-running="(running) => {hostRunning = running}"/>
 </template>
 

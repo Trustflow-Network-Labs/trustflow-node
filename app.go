@@ -64,6 +64,7 @@ func (a *App) startup(ctx context.Context) {
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()
+		runtime.EventsEmit(a.ctx, "dependenciesready-event", true)
 	case <-time.After(10 * time.Second): // Optional timeout
 		fmt.Println("Timeout waiting for frontend readiness")
 	}

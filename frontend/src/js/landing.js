@@ -11,11 +11,7 @@ const created = async function () {
     this.hostRunning = await this.isHostRunning()
 }
 
-const computed = {
-    appCanStart() {
-        return this.exitLogs.length == 0
-    }
-}
+const computed = {}
 
 const watch = {
     hostRunning() {
@@ -94,6 +90,7 @@ export default {
         'appLogs',
         'exitLogs',
         'appConfirm',
+        'appCanStart',
     ],
 	mixins: [],
 	components: {
