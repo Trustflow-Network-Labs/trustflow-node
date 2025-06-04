@@ -851,11 +851,23 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.sc.PruneExpired(time.Hour)
 				p2pm.sc.AddOrUpdate(service)
 				// If we are in interactive mode print Service Offer to CLI
-				if !p2pm.daemon {
+				uiType, err := ui.DetectUIType(p2pm.UI)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
+				}
+				switch uiType {
+				case "CLI":
 					menuManager := NewMenuManager(p2pm)
 					menuManager.printOfferedService(service)
-				} else {
-					// TODO, Otherwise, if we are connected with other client (web, gui) push message
+				case "GUI":
+					// TODO, GUI push message
+				default:
+					err := fmt.Errorf("unknown UI type %s", uiType)
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Reset()
+					return
 				}
 			}
 		} else if streamData.Type == 1 {
@@ -1124,11 +1136,23 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 			// Draw table output
 			// If we are in interactive mode print Service Offer to CLI
-			if !p2pm.daemon {
+			uiType, err := ui.DetectUIType(p2pm.UI)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
+				return
+			}
+			switch uiType {
+			case "CLI":
 				menuManager := NewMenuManager(p2pm)
 				menuManager.printServiceResponse(serviceResponse)
-			} else {
-				// TODO, Otherwise, if we are connected with other client (web, gui) push message
+			case "GUI":
+				// TODO, GUI push message
+			default:
+				err := fmt.Errorf("unknown UI type %s", uiType)
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
+				return
 			}
 		} else if streamData.Type == 6 {
 			// Received a Job Run Response from the remote peer
@@ -1160,11 +1184,23 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 			// Draw table output
 			// If we are in interactive mode print Service Offer to CLI
-			if !p2pm.daemon {
+			uiType, err := ui.DetectUIType(p2pm.UI)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
+				return
+			}
+			switch uiType {
+			case "CLI":
 				menuManager := NewMenuManager(p2pm)
 				menuManager.printJobRunResponse(jobRunResponse)
-			} else {
-				// TODO, Otherwise, if we are connected with other client (web, gui) push message
+			case "GUI":
+				// TODO, GUI push message
+			default:
+				err := fmt.Errorf("unknown UI type %s", uiType)
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
+				return
 			}
 		} else if streamData.Type == 7 {
 			// Received a Job Run Status update from the remote peer
