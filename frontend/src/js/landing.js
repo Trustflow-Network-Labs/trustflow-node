@@ -124,10 +124,6 @@ export default {
             hostRunning: false,
             port: 30609,
             confirm: null,
-            startNodeText: "Enter the node port number below 👇",
-            startNodeTextHelper: "The Trustflow Node will use this port and the next five ports for various communication protocols (TCP, QUIC, WS, etc.).",
-            trustflowNodeText: "Powering the decentralized backend of tomorrow  ",
-            trustflowNodeTextHelper: "Trustflow Node is an open-source, decentralized framework for trust-based data exchange and secure computation across distributed networks. It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifiable, and scalable infrastructure for the next generation of decentralized applications.",
         }
     }
 }

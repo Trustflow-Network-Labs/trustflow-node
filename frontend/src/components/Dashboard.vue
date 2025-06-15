@@ -1,7 +1,7 @@
 <template>
-  <main>
+  <main :class="dashboardClass">
     <div id="input" class="input-box">
-      <button class="btn" @click="stopNode">Stop</button>
+      <button class="btn" @click="stopNode">{{ $t("message.dashboard.stop-node-button-text") }}</button>
     </div>
     <div class="error-text">{{ errorText }}</div>
   </main>
