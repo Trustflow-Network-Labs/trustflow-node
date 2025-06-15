@@ -1,4 +1,4 @@
-.rows-container {
+.common-landing {
     display: flex;
     flex-direction: column;
     flex-wrap: nowrap;
@@ -168,4 +168,16 @@
             }
         }
     }
+
+    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
+        .columns-container {
+            .sections {
+                flex-direction: column;
+            }
+        }
+    }
+}
+
+.common-landing-default {
+	@extend .common-landing !optional;
 }

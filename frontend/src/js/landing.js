@@ -11,7 +11,20 @@ const created = async function () {
     this.hostRunning = await this.isHostRunning()
 }
 
-const computed = {}
+const computed = {
+    landingClass() {
+		return this.theme + '-landing-' + this.themeVariety
+	},
+	locale() {
+		return this.$store.getters['main/getLocale']
+	},
+	theme() {
+		return this.$store.getters['main/getTheme']
+	},
+	themeVariety() {
+		return this.$store.getters['main/getThemeVariety']
+	},
+}
 
 const watch = {
     hostRunning() {

@@ -1,5 +1,5 @@
 <template>
-  <main class="rows-container">
+  <main :class="landingClass">
     <div class="columns-container">
       <div class="sections">
         <div class="section">
