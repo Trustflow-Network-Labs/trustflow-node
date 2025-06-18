@@ -1,61 +1,112 @@
 .common-dashboard {
     display: flex;
-    flex-direction: column;
+    flex-direction: rows;
     flex-wrap: nowrap;
     justify-content: flex-start;
     align-content: flex-start;
     align-items: flex-start;
 
     width: 100%;
+    height: 100vh;
 
-    .input-box .btn {
-        min-width: 60px;
-        height: 30px;
-        line-height: 30px;
-        border-radius: 3px;
-        border: none;
-        margin: 0 0 0 20px;
-        padding: 0 8px;
-        cursor: pointer;
-        background-color: rgb(205, 81, 36);
-        color: #fff;
-        font-size: .9rem;
+    .menu-container {
+        width: 250px;
+        overflow: auto;
+        height: 100vh;
 
-        &.disabled {
-            background-color: #333333;
-            cursor: not-allowed;
+        background-color: rgb(38, 49, 65);
+        color: white;
+
+        .input-box .btn {
+            min-width: 60px;
+            height: 30px;
+            line-height: 30px;
+            border-radius: 3px;
+            border: none;
+            margin: 0 0 0 20px;
+            padding: 0 8px;
+            cursor: pointer;
+            background-color: rgb(205, 81, 36);
+            color: #fff;
+            font-size: .9rem;
+
+            &.disabled {
+                background-color: #333333;
+                cursor: not-allowed;
+            }
+        }
+
+        .input-box .btn:hover {
+            background-color: rgb(246, 114, 66);
+
+            &.disabled {
+                background-color: #333333;
+                cursor: not-allowed;
+            }
+        }
+
+        .input-box .input {
+            color: #000;
+            border: none;
+            border-radius: 3px;
+            outline: none;
+            height: 30px;
+            line-height: 30px;
+            padding: 0 10px;
+            background-color: rgba(240, 240, 240, 1);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .input-box .input:hover {
+            border: none;
+            background-color: rgba(255, 255, 255, 1);
+        }
+
+        .input-box .input:focus {
+            border: none;
+            background-color: rgba(255, 255, 255, 1);
         }
     }
 
-    .input-box .btn:hover {
-        background-color: rgb(246, 114, 66);
+    .resizer {
+        position: relative;
+        width: 8px;
+        height: 100vh;
+        background-color: rgb(77, 89, 109);
+        cursor: col-resize;
 
-        &.disabled {
-            background-color: #333333;
-            cursor: not-allowed;
+        // Handle style
+        &::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            
+            width: 4px;
+            height: 40px;
+            
+            background-image: repeating-linear-gradient(
+            to bottom,
+            #fff,
+            #fff 2px,
+            transparent 2px,
+            transparent 4px
+            );
+
+            border-radius: 2px;
+        }
+
+        &:hover {
+            background-color:  rgb(107, 123, 151);
         }
     }
 
-    .input-box .input {
-        color: #000;
-        border: none;
-        border-radius: 3px;
-        outline: none;
-        height: 30px;
-        line-height: 30px;
-        padding: 0 10px;
-        background-color: rgba(240, 240, 240, 1);
-        -webkit-font-smoothing: antialiased;
-    }
+    .main-container {    
+        flex: 1;
 
-    .input-box .input:hover {
-        border: none;
-        background-color: rgba(255, 255, 255, 1);
-    }
-
-    .input-box .input:focus {
-        border: none;
-        background-color: rgba(255, 255, 255, 1);
+        overflow: auto;
+        height: 100vh;
     }
 
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {

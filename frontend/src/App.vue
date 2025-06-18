@@ -1,4 +1,4 @@
-<template>
+<template class="app">
   <Landing v-if="!hostRunning"
     :app-logs="appLogs"
     :exit-logs="exitLogs"

@@ -1,5 +1,7 @@
 import {IsHostRunning, StopNode} from '../../wailsjs/go/main/App'
 
+import initResizer from '../mixins/window-resizer.js'
+
 const created = async function () {
     this.hostRunning = await this.isHostRunning()
 }
@@ -26,6 +28,7 @@ const watch = {
 }
 
 const mounted = async function() {
+    this.initResizer('.window-container', '.menu-container', '.main-container', '.resizer')
 }
 
 const methods = {
@@ -53,7 +56,9 @@ export default {
         'appConfirm',
         'appCanStart',
     ],
-	mixins: [],
+	mixins: [
+        initResizer,
+    ],
 	components: {},
 	directives: {},
 	name: 'Dashboard',
