@@ -1,6 +1,12 @@
 import {IsHostRunning, StopNode} from '../../wailsjs/go/main/App'
 
 import initResizer from '../mixins/window-resizer.js'
+import { useMainStore } from '../stores/main.js'
+
+let MainStore
+const setup = function() {
+    MainStore = useMainStore()
+}
 
 const created = async function () {
     this.hostRunning = await this.isHostRunning()
@@ -11,13 +17,13 @@ const computed = {
 		return this.theme + '-dashboard-' + this.themeVariety
 	},
 	locale() {
-		return this.$store.getters['main/getLocale']
+		return MainStore.getLocale
 	},
 	theme() {
-		return this.$store.getters['main/getTheme']
+		return MainStore.getTheme
 	},
 	themeVariety() {
-		return this.$store.getters['main/getThemeVariety']
+		return MainStore.getThemeVariety
 	},
 }
 
@@ -62,6 +68,7 @@ export default {
 	components: {},
 	directives: {},
 	name: 'Dashboard',
+    setup: setup,
     created: created,
     computed: computed,
     watch: watch,

@@ -1,10 +1,12 @@
 import {IsHostRunning, StartNode, SetUserConfirmation} from '../../wailsjs/go/main/App'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from "primevue/useconfirm"
+import { useMainStore } from '../stores/main.js'
 
-let Confirm
+let Confirm, MainStore
 const setup = function() {
     Confirm = useConfirm()
+    MainStore = useMainStore()
 }
 
 const created = async function () {
@@ -16,13 +18,13 @@ const computed = {
 		return this.theme + '-landing-' + this.themeVariety
 	},
 	locale() {
-		return this.$store.getters['main/getLocale']
+		return MainStore.getLocale
 	},
 	theme() {
-		return this.$store.getters['main/getTheme']
+		return MainStore.getTheme
 	},
 	themeVariety() {
-		return this.$store.getters['main/getThemeVariety']
+		return MainStore.getThemeVariety
 	},
 }
 

@@ -18,11 +18,7 @@ const methods = {
             const containerOffsetLeft = container.offsetLeft
             const newLeftWidth = e.clientX - containerOffsetLeft
 
-            // Set minimum/maximum limits if desired
-//            if (newLeftWidth > 300 && newLeftWidth < container.offsetWidth - 100) {
-                leftPane.style.width = `${newLeftWidth}px`
-console.log(leftPane.style.width)
-                //            }
+            leftPane.style.width = `${newLeftWidth}px`
         })
 
         document.addEventListener('mouseup', () => {

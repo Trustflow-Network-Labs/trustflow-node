@@ -1,5 +1,5 @@
-import {createApp} from 'vue'
-import { createStore  } from 'vuex'
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import { createI18n } from 'vue-i18n/dist/vue-i18n.cjs'
 
 import App from './App.vue'
@@ -10,14 +10,7 @@ import Aura from '@primeuix/themes/aura'
 import ConfirmationService from 'primevue/confirmationservice'
 import 'primeicons/primeicons.css'
 
-import MainStore from './stores/main.js'
 import Locale_en_GB from './locales/en_GB.js'
-
-const store = createStore({
-	modules: {
-		main: MainStore
-	}
-})
 
 const messages = {
 	'en_GB': Locale_en_GB
@@ -30,13 +23,14 @@ const i18n = createI18n({
 })
 
 const app = createApp(App)
+const pinia = createPinia()
 
 app.use(PrimeVue, {
     theme: {
         preset: Aura
     }
 })
-app.use(store)
+app.use(pinia)
 app.use(i18n)
 app.use(ConfirmationService)
 
