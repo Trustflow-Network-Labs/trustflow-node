@@ -27,10 +27,12 @@ const computed = {
         let selectedComponent = MainStore.getSelectedMenuKey
         console.log(selectedComponent)
         switch (selectedComponent) {
+            case 'dashboard':
+                return defineAsyncComponent(() => import('../../components/cockpit/Dashboard.vue'))
             case 'find-services':
                 return defineAsyncComponent(() => import('../../components/cockpit/FindServices.vue'))
             default:
-                return defineAsyncComponent(() => import('../../components/cockpit/404.vue'))
+                return defineAsyncComponent(() => import('../../components/cockpit/Dashboard.vue'))
         }
     }
 }

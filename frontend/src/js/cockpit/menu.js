@@ -81,6 +81,10 @@ export default {
             hostRunning: false,
             menuItems: [
                 {
+                    label: 'Dashboard',
+                    command: function() {That.emitSelection('dashboard')},
+                },
+                {
                     label: 'Workflows & Jobs',
                     items: [
                         { label: 'Find services', command: function() {That.emitSelection('find-services')} },

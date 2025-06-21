@@ -9,8 +9,8 @@ const created = async function () {
 }
 
 const computed = {
-    cockpit404Class() {
-		return this.theme + '-cockpit-404-' + this.themeVariety
+    cockpitDashboardClass() {
+		return this.theme + '-cockpit-dashboard-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -43,7 +43,7 @@ export default {
 	components: {
     },
 	directives: {},
-	name: '404',
+	name: 'Dashboard',
     setup: setup,
     created: created,
     computed: computed,

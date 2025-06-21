@@ -1,0 +1,9 @@
+.common-cockpit-dashboard {
+
+    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
+    }
+}
+
+.common-cockpit-dashboard-default {
+	@extend .common-cockpit-dashboard !optional;
+}

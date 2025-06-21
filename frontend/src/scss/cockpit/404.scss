@@ -1,9 +1,0 @@
-.common-cockpit-404 {
-
-    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
-    }
-}
-
-.common-cockpit-404-default {
-	@extend .common-cockpit-404 !optional;
-}
