@@ -9,7 +9,7 @@ export default {
 			"console-log": "Console log",
 		},
 		"cockpit": {
-			"stop-node-button-text": "Stop",
+			"stop-node-button-text": "Stop node",
 		},
 	}
 }

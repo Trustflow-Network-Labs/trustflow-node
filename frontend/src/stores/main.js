@@ -6,6 +6,7 @@ export const useMainStore = defineStore('main', {
         themeVariety: 'default',
         themeName: 'Main theme, variety default',
         locale: 'en_GB',
+        selectedMenuKey: null,
     }),
 
     getters: {
@@ -13,6 +14,7 @@ export const useMainStore = defineStore('main', {
         getThemeVariety: (state) => state.themeVariety,
         getThemeName: (state) => state.themeName,
         getLocale: (state) => state.locale,
+        getSelectedMenuKey: (state) => state.selectedMenuKey,
     },
 
     actions: {
@@ -27,6 +29,9 @@ export const useMainStore = defineStore('main', {
         },
         setLocale(locale) {
             this.locale = locale
+        },
+        setSelectedMenuKey(menuKey) {
+            this.selectedMenuKey = menuKey
         },
     }
 })

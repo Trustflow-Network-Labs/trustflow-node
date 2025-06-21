@@ -1,8 +1,6 @@
-import Menu from '../components/cockpit/Menu.vue'
-import Detail from '../components/cockpit/Detail.vue'
+import { defineAsyncComponent } from 'vue'
 
-import initResizer from '../mixins/window-resizer.js'
-import { useMainStore } from '../stores/main.js'
+import { useMainStore } from '../../stores/main.js'
 
 let MainStore
 const setup = function() {
@@ -13,8 +11,8 @@ const created = async function () {
 }
 
 const computed = {
-    cockpitClass() {
-		return this.theme + '-cockpit-' + this.themeVariety
+    cockpitDetailClass() {
+		return this.theme + '-cockpit-detail-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -25,16 +23,22 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
-}
-
-const watch = {
-    hostRunning() {
-        this.$emit('host-running', this.hostRunning)
+    currentComponent() {
+        let selectedComponent = MainStore.getSelectedMenuKey
+        console.log(selectedComponent)
+        switch (selectedComponent) {
+            case 'find-services':
+                return defineAsyncComponent(() => import('../../components/cockpit/FindServices.vue'))
+            default:
+                return defineAsyncComponent(() => import('../../components/cockpit/404.vue'))
+        }
     }
 }
 
+const watch = {
+}
+
 const mounted = async function() {
-    this.initResizer('.window-container', '.menu-container', '.main-container', '.resizer')
 }
 
 const methods = {
@@ -45,20 +49,13 @@ const destroyed = function() {
 
 export default {
     props: [
-        'appLogs',
-        'exitLogs',
-        'appConfirm',
-        'appCanStart',
     ],
 	mixins: [
-        initResizer,
     ],
 	components: {
-        Menu,
-        Detail,
     },
 	directives: {},
-	name: 'Cockpit',
+	name: 'Detail',
     setup: setup,
     created: created,
     computed: computed,
@@ -68,7 +65,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
         }
     }
 }

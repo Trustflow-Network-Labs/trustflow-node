@@ -1,8 +1,4 @@
-import Menu from '../components/cockpit/Menu.vue'
-import Detail from '../components/cockpit/Detail.vue'
-
-import initResizer from '../mixins/window-resizer.js'
-import { useMainStore } from '../stores/main.js'
+import { useMainStore } from '../../stores/main.js'
 
 let MainStore
 const setup = function() {
@@ -13,8 +9,8 @@ const created = async function () {
 }
 
 const computed = {
-    cockpitClass() {
-		return this.theme + '-cockpit-' + this.themeVariety
+    cockpit404Class() {
+		return this.theme + '-cockpit-404-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -28,13 +24,9 @@ const computed = {
 }
 
 const watch = {
-    hostRunning() {
-        this.$emit('host-running', this.hostRunning)
-    }
 }
 
 const mounted = async function() {
-    this.initResizer('.window-container', '.menu-container', '.main-container', '.resizer')
 }
 
 const methods = {
@@ -45,20 +37,13 @@ const destroyed = function() {
 
 export default {
     props: [
-        'appLogs',
-        'exitLogs',
-        'appConfirm',
-        'appCanStart',
     ],
 	mixins: [
-        initResizer,
     ],
 	components: {
-        Menu,
-        Detail,
     },
 	directives: {},
-	name: 'Cockpit',
+	name: '404',
     setup: setup,
     created: created,
     computed: computed,
@@ -68,7 +53,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
         }
     }
 }
