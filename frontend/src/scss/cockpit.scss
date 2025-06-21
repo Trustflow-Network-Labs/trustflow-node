@@ -1,4 +1,4 @@
-.common-dashboard {
+.common-cockpit {
     display: flex;
     flex-direction: rows;
     flex-wrap: nowrap;
@@ -113,6 +113,6 @@
     }
 }
 
-.common-dashboard-default {
-	@extend .common-dashboard !optional;
+.common-cockpit-default {
+	@extend .common-cockpit !optional;
 }

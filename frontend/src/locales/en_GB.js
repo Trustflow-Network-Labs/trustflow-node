@@ -8,7 +8,7 @@ export default {
             "start-node-text-helper": "The Trustflow Node will use this port and the next five ports for various communication protocols (TCP, QUIC, WS, etc.).",
 			"console-log": "Console log",
 		},
-		"dashboard": {
+		"cockpit": {
 			"stop-node-button-text": "Stop",
 		},
 	}

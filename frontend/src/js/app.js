@@ -1,5 +1,5 @@
 import Landing from '../components/Landing.vue'
-import Dashboard from '../components/Dashboard.vue'
+import Cockpit from '../components/Cockpit.vue'
 
 import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime'
 import { NotifyFrontendReady } from '../../wailsjs/go/main/App'
@@ -45,7 +45,7 @@ export default {
 	mixins: [],
 	components: {
 		Landing,
-        Dashboard
+        Cockpit
 	},
 	directives: {},
 	name: 'App',

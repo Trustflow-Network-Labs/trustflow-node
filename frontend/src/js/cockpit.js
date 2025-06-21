@@ -1,4 +1,4 @@
-import {IsHostRunning, StopNode} from '../../wailsjs/go/main/App'
+import {IsHostRunning, StopNode} from '../../wailsjs/go/main/App.js'
 
 import initResizer from '../mixins/window-resizer.js'
 import { useMainStore } from '../stores/main.js'
@@ -13,8 +13,8 @@ const created = async function () {
 }
 
 const computed = {
-    dashboardClass() {
-		return this.theme + '-dashboard-' + this.themeVariety
+    cockpitClass() {
+		return this.theme + '-cockpit-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -67,7 +67,7 @@ export default {
     ],
 	components: {},
 	directives: {},
-	name: 'Dashboard',
+	name: 'Cockpit',
     setup: setup,
     created: created,
     computed: computed,
