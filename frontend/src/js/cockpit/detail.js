@@ -29,8 +29,8 @@ const computed = {
         switch (selectedComponent) {
             case 'dashboard':
                 return defineAsyncComponent(() => import('../../components/cockpit/Dashboard.vue'))
-            case 'find-services':
-                return defineAsyncComponent(() => import('../../components/cockpit/FindServices.vue'))
+            case 'workflow-editor':
+                return defineAsyncComponent(() => import('../../components/cockpit/WorkflowEditor.vue'))
             default:
                 return defineAsyncComponent(() => import('../../components/cockpit/Dashboard.vue'))
         }

@@ -9,8 +9,8 @@ const created = async function () {
 }
 
 const computed = {
-    cockpitFindServicesClass() {
-		return this.theme + '-cockpit-find-services-' + this.themeVariety
+    cockpitWorkflowEditorClass() {
+		return this.theme + '-cockpit-workflow-editor-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -43,7 +43,7 @@ export default {
 	components: {
     },
 	directives: {},
-	name: 'FindServices',
+	name: 'WorkflowEditor',
     setup: setup,
     created: created,
     computed: computed,

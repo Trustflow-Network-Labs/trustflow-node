@@ -85,62 +85,35 @@ export default {
                     command: function() {That.emitSelection('dashboard')},
                 },
                 {
-                    label: 'Workflows & Jobs',
+                    label: 'Workflows',
                     items: [
-                        { label: 'Find services', command: function() {That.emitSelection('find-services')} },
-                        { label: 'Request services', command: function() {That.emitSelection('request-services')} },
                         { label: 'List workflows', command: function() {That.emitSelection('list-workflows')} },
-                        { label: 'Run workflow', command: function() {That.emitSelection('run-workflow')} }
+                        { label: 'Create Workflow', command: function() {That.emitSelection('workflow-editor')} },
                     ]
                 },
                 {
                     label: 'Configure node',
                     items: [
-                    {
-                        label: 'Blacklist',
-                        items: [
-                            { label: 'List nodes', command: function() {That.emitSelection('list-blacklist-nodes')} },
-                            { label: 'Add node', command: function() {That.emitSelection('add-blacklist-node')} },
-                            { label: 'Remove node', command: function() {That.emitSelection('remove-blacklist-node')} }
-                        ]
-                    },
-                    {
-                        label: 'Currencies',
-                        items: [
-                            { label: 'List currencies', command: function() {That.emitSelection('list-currencies')} },
-                            { label: 'Add currency', command: function() {That.emitSelection('add-currency')} },
-                            { label: 'Remove currency', command: function() {That.emitSelection('remove-currency')} }
-                        ]
-                    },
-                    {
-                        label: 'Resources',
-                        items: [
-                            { label: 'List resources', command: function() {That.emitSelection('list-resources')} },
-                            { label: 'Add resource', command: function() {That.emitSelection('add-resource')} },
-                            { label: 'Remove resource', command: function() {That.emitSelection('remove-resource')} },
-                            { label: 'Set resource active', command: function() {That.emitSelection('set-resource-active')} },
-                            { label: 'Set resource inactive', command: function() {That.emitSelection('set-resource-inactive')} }
-                        ]
-                    },
-                    {
-                        label: 'Services',
-                        items: [
-                            { label: 'List services', command: function() {That.emitSelection('list-services')} },
-                            { label: 'Add service', command: function() {That.emitSelection('add-service')} },
-                            { label: 'Remove service', command: function() {That.emitSelection('remove-service')} },
-                            { label: 'Set service active', command: function() {That.emitSelection('set-service-active')} },
-                            { label: 'Set service inactive', command: function() {That.emitSelection('set-service-inactive')} },
-                            { label: 'Show service details', command: function() {That.emitSelection('show-service-details')} }
-                        ]
-                    },
-                    {
-                        label: 'Settings',
-                        items: [
-                            { label: 'List settings', command: function() {That.emitSelection('list-settings')} },
-                            { label: 'Add setting', command: function() {That.emitSelection('add-setting')} },
-                            { label: 'Remove setting', command: function() {That.emitSelection('remove-setting')} }
-                        ]
-                    }
+                        {
+                            label: 'Blacklist',
+                            command: function() {That.emitSelection('blacklist')},
+                        },
+                        {
+                            label: 'Currencies',
+                            command: function() {That.emitSelection('currencies')},
+                        },
+                        {
+                            label: 'Resources',
+                            command: function() {That.emitSelection('resources')},
+                        },
+                        {
+                            label: 'Services',
+                            command: function() {That.emitSelection('services')},
+                        },
+                        {
+                            label: 'Settings',
+                            command: function() {That.emitSelection('settings')},
+                        }
                     ]
                 }
             ],

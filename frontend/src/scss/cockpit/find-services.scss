@@ -1,9 +1,0 @@
-.common-cockpit-find-services {
-
-    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
-    }
-}
-
-.common-cockpit-find-services-default {
-	@extend .common-cockpit-find-services !optional;
-}
