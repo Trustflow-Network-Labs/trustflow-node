@@ -1,5 +1,6 @@
 const methods = {
-	initResizer(containerClass, leftPaneClass, rightPaneClass, resizerClass) {
+	initResizer(containerClass, leftPaneClass, rightPaneClass, resizerClass,
+            mousedownCallback, mousemoveCallback, mouseupCallback) {
         const resizer = document.querySelector(resizerClass)
         const leftPane = document.querySelector(leftPaneClass)
         const rightPane = document.querySelector(rightPaneClass)
@@ -10,6 +11,9 @@ const methods = {
         resizer.addEventListener('mousedown', (e) => {
             isResizing = true
             document.body.style.cursor = 'col-resize'
+
+            if (mousedownCallback != null)
+                mousedownCallback(e)
         })
 
         document.addEventListener('mousemove', (e) => {
@@ -19,11 +23,17 @@ const methods = {
             const newLeftWidth = e.clientX - containerOffsetLeft
 
             leftPane.style.width = `${newLeftWidth}px`
+
+            if (mousemoveCallback != null)
+                mousemoveCallback(e)
         })
 
         document.addEventListener('mouseup', () => {
             isResizing = false
             document.body.style.cursor = 'default'
+
+            if (mouseupCallback != null)
+                mouseupCallback()
         })
     }
 }

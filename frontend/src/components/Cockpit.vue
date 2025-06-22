@@ -1,12 +1,13 @@
 <template>
-  <main :class="[cockpitClass, 'window-container']">
+  <main id="cockpit" :class="[cockpitClass, 'window-container']">
     <div class="menu-container">
       <Menu
         @host-running="(running) => {hostRunning = running}" />
     </div>
     <div class="resizer"></div>
     <div class="main-container">
-      <Detail />
+      <Detail
+        :panes-resized="panesResized" />
     </div>
   </main>
 </template>

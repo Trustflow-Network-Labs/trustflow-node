@@ -38,6 +38,9 @@ const computed = {
 }
 
 const watch = {
+    panesResized() {
+        this.$emit('panes-resized', this.panesResized)
+    }
 }
 
 const mounted = async function() {
@@ -51,6 +54,7 @@ const destroyed = function() {
 
 export default {
     props: [
+        'panesResized',
     ],
 	mixins: [
     ],

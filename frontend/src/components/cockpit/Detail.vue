@@ -1,6 +1,8 @@
 <template>
   <main :class="cockpitDetailClass">
-    <component :is="currentComponent" />
+    <component
+      :is="currentComponent"
+      :panes-resized="panesResized" />
   </main>
 </template>
 

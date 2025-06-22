@@ -4,12 +4,13 @@ import Detail from '../components/cockpit/Detail.vue'
 import initResizer from '../mixins/window-resizer.js'
 import { useMainStore } from '../stores/main.js'
 
-let MainStore
+let MainStore, That
 const setup = function() {
     MainStore = useMainStore()
 }
 
-const created = async function () {
+const created = function () {
+    That = this
 }
 
 const computed = {
@@ -33,8 +34,15 @@ const watch = {
     }
 }
 
-const mounted = async function() {
-    this.initResizer('.window-container', '.menu-container', '.main-container', '.resizer')
+const mounted = function() {
+    this.initResizer('.window-container', '.menu-container', '.main-container', '.resizer',
+        function() {
+            That.panesResized = false
+        },
+        null
+        , function() {
+            That.panesResized = true
+        })
 }
 
 const methods = {
@@ -69,6 +77,7 @@ export default {
     data() {
         return {
             hostRunning: false,
+            panesResized: false,
         }
     }
 }
