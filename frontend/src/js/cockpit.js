@@ -26,6 +26,9 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
+    appCanStart() {
+		return MainStore.getAppCanStart
+    },
 }
 
 const watch = {
@@ -53,10 +56,6 @@ const destroyed = function() {
 
 export default {
     props: [
-        'appLogs',
-        'exitLogs',
-        'appConfirm',
-        'appCanStart',
     ],
 	mixins: [
         initResizer,

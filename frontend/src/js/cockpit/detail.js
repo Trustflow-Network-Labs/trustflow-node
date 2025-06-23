@@ -25,7 +25,6 @@ const computed = {
 	},
     currentComponent() {
         let selectedComponent = MainStore.getSelectedMenuKey
-        console.log(selectedComponent)
         switch (selectedComponent) {
             case 'dashboard':
                 return defineAsyncComponent(() => import('../../components/cockpit/Dashboard.vue'))

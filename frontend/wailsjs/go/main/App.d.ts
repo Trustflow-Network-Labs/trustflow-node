@@ -3,6 +3,8 @@
 
 export function CheckAndInstallDependencies():Promise<void>;
 
+export function FindServices(arg1:string,arg2:string):Promise<void>;
+
 export function IsHostRunning():Promise<boolean>;
 
 export function NotifyFrontendReady():Promise<void>;

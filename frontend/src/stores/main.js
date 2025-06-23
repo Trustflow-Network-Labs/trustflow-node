@@ -6,7 +6,12 @@ export const useMainStore = defineStore('main', {
         themeVariety: 'default',
         themeName: 'Main theme, variety default',
         locale: 'en_GB',
+        appCanStart: false,
+        appConfirm: "",
+        appLogs: [],
+        exitLogs: [],
         selectedMenuKey: null,
+        serviceOffer: null,
     }),
 
     getters: {
@@ -14,7 +19,12 @@ export const useMainStore = defineStore('main', {
         getThemeVariety: (state) => state.themeVariety,
         getThemeName: (state) => state.themeName,
         getLocale: (state) => state.locale,
+        getAppCanStart: (state) => state.appCanStart,
+        getAppConfirm: (state) => state.appConfirm,
+        getAppLogs: (state) => state.appLogs,
+        getExitLogs: (state) => state.exitLogs,
         getSelectedMenuKey: (state) => state.selectedMenuKey,
+        getServiceOffer: (state) => state.serviceOffer,
     },
 
     actions: {
@@ -30,8 +40,23 @@ export const useMainStore = defineStore('main', {
         setLocale(locale) {
             this.locale = locale
         },
+        setAppCanStart(appCanStart) {
+            this.appCanStart = appCanStart
+        },
+        setAppConfirm(appConfirm) {
+            this.appConfirm = appConfirm
+        },
+        setAppLogs(appLogs) {
+            this.appLogs = appLogs
+        },
+        setExitLogs(exitLogs) {
+            this.exitLogs = exitLogs
+        },
         setSelectedMenuKey(menuKey) {
             this.selectedMenuKey = menuKey
+        },
+        setServiceOffer(serviceOffer) {
+            this.serviceOffer = serviceOffer
         },
     }
 })

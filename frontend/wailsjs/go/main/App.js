@@ -6,6 +6,10 @@ export function CheckAndInstallDependencies() {
   return window['go']['main']['App']['CheckAndInstallDependencies']();
 }
 
+export function FindServices(arg1, arg2) {
+  return window['go']['main']['App']['FindServices'](arg1, arg2);
+}
+
 export function IsHostRunning() {
   return window['go']['main']['App']['IsHostRunning']();
 }

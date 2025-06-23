@@ -7,6 +7,7 @@ import (
 
 	"github.com/adgsm/trustflow-node/internal/dependencies"
 	"github.com/adgsm/trustflow-node/internal/node"
+	"github.com/adgsm/trustflow-node/internal/node_types"
 	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -16,6 +17,7 @@ type App struct {
 	ctx               context.Context
 	p2pm              node.P2PManager
 	dm                dependencies.DependencyManager
+	sm                node.ServiceManager
 	confirmFuncChan   chan bool
 	frontendReadyChan chan struct{}
 	gui               ui.UI
@@ -56,11 +58,15 @@ func (a *App) startup(ctx context.Context) {
 			}
 			runtime.EventsEmit(a.ctx, "exitlog-event", msg)
 		},
+		ServiceOfferFunc: func(serviceOffer node_types.ServiceOffer) {
+			runtime.EventsEmit(a.ctx, "serviceofferlog-event", serviceOffer)
+		},
 	}
 
 	p2pm := node.NewP2PManager(ctx, a.gui)
 	a.p2pm = *p2pm
 	a.dm = *dependencies.NewDependencyManager(a.gui)
+	a.sm = *node.NewServiceManager(p2pm)
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()
@@ -107,4 +113,9 @@ func (a *App) StopNode() error {
 		return err
 	}
 	return nil
+}
+
+// Find services
+func (a *App) FindServices(searchPhrases string, serviceTypes string) error {
+	return a.sm.LookupRemoteService(searchPhrases, serviceTypes)
 }

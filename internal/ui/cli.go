@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/adgsm/trustflow-node/internal/node_types"
 	"github.com/manifoldco/promptui"
 )
 
@@ -34,4 +35,8 @@ func (CLI) PromptConfirm(question string) bool {
 
 func (CLI) Exit(code int) {
 	os.Exit(code)
+}
+
+func (CLI) ServiceOffer(serviceOffer node_types.ServiceOffer) {
+	// TODO
 }

@@ -4,6 +4,13 @@ import Cockpit from '../components/Cockpit.vue'
 import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime'
 import { NotifyFrontendReady } from '../../wailsjs/go/main/App'
 
+import { useMainStore } from '../stores/main.js'
+
+let MainStore
+const setup = function() {
+    MainStore = useMainStore()
+}
+
 const created = async function () {}
 
 const computed = {}
@@ -12,16 +19,23 @@ const watch = {}
 
 const mounted = async function() {
     EventsOn('syslog-event', (msg) => {
-        this.appLogs.push(msg)
+        let appLogs = MainStore.getAppLogs
+        appLogs.push(msg)
+        MainStore.setAppLogs(appLogs)
     })
     EventsOn('exitlog-event', (msg) => {
-        this.exitLogs.push(msg)
+        let exitLogs = MainStore.getExitLogs
+        exitLogs.push(msg)
+        MainStore.setExitLogs(exitLogs)
     })
     EventsOn('sysconfirm-event', (question) => {
-        this.sysConfirm = question
+        MainStore.setAppConfirm(question)
     })
-    EventsOn('dependenciesready-event', (ready) => {
-        this.appCanStart = ready
+    EventsOn('dependenciesready-event', (appCanStart) => {
+        MainStore.setAppCanStart(appCanStart)
+    })
+    EventsOn('serviceofferlog-event', (serviceOffer) => {
+        MainStore.setServiceOffer(serviceOffer)
     })
 
     // ✅ Tell backend we're ready
@@ -35,6 +49,7 @@ const unmounted = function() {
     EventsOff('exitlog-event')
     EventsOff('sysconfirm-event')
     EventsOff('dependenciesready-event')
+    EventsOff('serviceofferlog-event')
 }
 
 const destroyed = function() {
@@ -49,6 +64,7 @@ export default {
 	},
 	directives: {},
 	name: 'App',
+    setup: setup,
     created: created,
     computed: computed,
     watch: watch,
@@ -59,10 +75,6 @@ export default {
     data() {
         return {
             hostRunning: false,
-            appLogs: [],
-            exitLogs: [],
-            sysConfirm: "",
-            appCanStart: false,
         }
     }
 }

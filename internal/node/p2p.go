@@ -862,7 +862,8 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 					menuManager := NewMenuManager(p2pm)
 					menuManager.printOfferedService(service)
 				case "GUI":
-					// TODO, GUI push message
+					// Push message
+					p2pm.UI.ServiceOffer(service)
 				default:
 					err := fmt.Errorf("unknown UI type %s", uiType)
 					p2pm.lm.Log("error", err.Error(), "p2p")

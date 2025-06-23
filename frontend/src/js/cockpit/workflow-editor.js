@@ -1,3 +1,5 @@
+import { FindServices } from '../../../wailsjs/go/main/App'
+
 import { useMainStore } from '../../stores/main.js'
 
 import PlainDraggable from "plain-draggable"
@@ -9,13 +11,15 @@ import InputText from 'primevue/inputtext';
 import InputGroupAddon from 'primevue/inputgroupaddon';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
+import Card from 'primevue/card'
 
-let MainStore
+let MainStore, That
 const setup = function() {
     MainStore = useMainStore()
 }
 
 const created = async function () {
+    That = this
 }
 
 const computed = {
@@ -31,6 +35,9 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
+    serviceOffer() {
+        return MainStore.getServiceOffer
+    }
 }
 
 const watch = {
@@ -38,7 +45,11 @@ const watch = {
         if (this.panesResized == true) {
             this.repositionSearchServicesBox()
         }
-    }
+    },
+    serviceOffer() {
+        console.log(this.serviceOffer)
+        this.serviceOffers.push(this.serviceOffer)
+    },
 }
 
 const mounted = function() {
@@ -76,6 +87,10 @@ const methods = {
         }
         this.repositionSearchServicesBox()
     },
+    async findServices({item}){
+        this.serviceOffers.length = 0
+        await FindServices(this.searchServicesPhrases, item.id)
+    },
 }
 
 const destroyed = function() {
@@ -94,6 +109,7 @@ export default {
         InputGroupAddon,
         Menu,
         Button,
+        Card,
     },
 	directives: {},
 	name: 'WorkflowEditor',
@@ -106,34 +122,39 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            searchServiceTypes: [
+            searchServicesPhrases: "",
+            searchServicesTypes: [
                 {
+                    id: '',
                     label: 'Any',
                     icon: 'pi pi-asterisk',
-                    command: () => {
-                        
+                    command: async (event) => {
+                        await That.findServices(event)
                     },
                 },
                 {
                     separator: true
                 },
                 {
+                    id: 'DATA',
                     label: 'Data',
                     icon: 'pi pi-file',
-                    command: () => {
-                        
+                    command: async (event) => {
+                        await That.findServices(event)
                     },
                 },
                 {
+                    id: 'DOCKER EXECUTION ENVIRONMENT,STANDALONE EXECUTABLE',
                     label: 'Functions',
                     icon: 'pi pi-code',
-                    command: () => {
-                        
+                    command: async(event) => {
+                        await That.findServices(event)
                     },
                 },
             ],
             draggableSearchServices: null,
             searchServicesWindowOpen: true,
+            serviceOffers: [],
         }
     }
 }

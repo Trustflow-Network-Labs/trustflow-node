@@ -1,9 +1,14 @@
 package ui
 
+import (
+	"github.com/adgsm/trustflow-node/internal/node_types"
+)
+
 type GUI struct {
-	ConfirmFunc func(question string) bool
-	PrintFunc   func(msg string)
-	ExitFunc    func(code int)
+	ConfirmFunc      func(question string) bool
+	PrintFunc        func(msg string)
+	ExitFunc         func(code int)
+	ServiceOfferFunc func(node_types.ServiceOffer)
 }
 
 func (g GUI) Print(msg string) {
@@ -22,5 +27,11 @@ func (g GUI) PromptConfirm(question string) bool {
 func (g GUI) Exit(code int) {
 	if g.ExitFunc != nil {
 		g.ExitFunc(code)
+	}
+}
+
+func (g GUI) ServiceOffer(serviceOffer node_types.ServiceOffer) {
+	if g.ExitFunc != nil {
+		g.ServiceOfferFunc(serviceOffer)
 	}
 }

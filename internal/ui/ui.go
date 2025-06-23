@@ -1,11 +1,16 @@
 package ui
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/adgsm/trustflow-node/internal/node_types"
+)
 
 type UI interface {
 	Print(msg string)
 	PromptConfirm(question string) bool
 	Exit(code int)
+	ServiceOffer(node_types.ServiceOffer)
 }
 
 func DetectUIType(u UI) (string, error) {
