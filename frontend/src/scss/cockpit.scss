@@ -1,7 +1,13 @@
 .common-cockpit {
     --p-menu-background: rgb(38, 49, 65);
+    --p-menu-item-focus-color: rgba(240, 240, 240, 1);
     --p-menu-item-focus-background: rgba(205, 81, 36, 1);
     --p-menu-item-icon-color: rgba(240, 240, 240, 1);
+    --p-menu-item-icon-focus-color: rgba(240, 240, 240, 1);
+    --p-menu-item-color: rgba(240, 240, 240, 1);
+    --p-content-color: rgba(240, 240, 240, 1);
+    --p-panelmenu-submenu-icon-color: rgba(240, 240, 240, 1);
+    --p-panelmenu-submenu-icon-focus-color: rgba(240, 240, 240, 1);
 
     display: flex;
     flex-direction: rows;
