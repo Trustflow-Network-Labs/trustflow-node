@@ -11,7 +11,6 @@ import InputText from 'primevue/inputtext';
 import InputGroupAddon from 'primevue/inputgroupaddon';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
-import Card from 'primevue/card'
 
 let MainStore, That
 const setup = function() {
@@ -109,7 +108,6 @@ export default {
         InputGroupAddon,
         Menu,
         Button,
-        Card,
     },
 	directives: {},
 	name: 'WorkflowEditor',
