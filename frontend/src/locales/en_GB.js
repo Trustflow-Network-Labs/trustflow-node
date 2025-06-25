@@ -10,6 +10,19 @@ export default {
 		},
 		"cockpit": {
 			"stop-node-button-text": "Stop node",
+			"detail": {
+				"workflow-editor": {
+					"search-services": {
+						"search-services": "Search services",
+						"search-phrases": "Search phrases (comma separated)",
+						"services-found": "Services found",
+					},
+					"service-box": {
+						"service-details": "Full service details",
+						"request-service": "Request service",
+					},
+				},
+			},
 		},
 	}
 }

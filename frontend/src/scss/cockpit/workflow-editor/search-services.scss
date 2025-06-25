@@ -13,7 +13,6 @@
     --p-button-text-secondary-hover-background: rgb(246, 114, 66);
 
     position: fixed;
-    width: 400px;
     height: 100vh;
     margin: 0;
     padding: 0;
@@ -31,7 +30,6 @@
     
     .search-services {
         position: relative;
-        width: 398px;
         margin: 0;
         padding: 0;
 
@@ -56,6 +54,7 @@
 
             .search-services-header-window-controls {
                 cursor: pointer;
+                margin-left: 8px;
             }
         }
 
@@ -91,14 +90,6 @@
             .service-offers {
                 overflow: auto;
                 height: calc(100vh - 144px);
-
-                .service {
-                    max-width: 360px;
-                    margin: 1rem;
-                    padding: 1rem;
-                    border: 1px solid #fff;
-                    overflow: auto;
-                }
             }
         }
     }

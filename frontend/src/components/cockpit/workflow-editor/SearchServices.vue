@@ -3,17 +3,17 @@
     <div class="search-services">
       <div class="search-services-header">
         <div class="search-services-header-title">
-          <i class="pi pi-eye"></i> Search services
+          <i class="pi pi-eye"></i> {{ $t("message.cockpit.detail.workflow-editor.search-services.search-services") }}
         </div>
         <div class="search-services-header-window-controls">
           <i :class="['pi', {'pi-window-minimize': searchServicesWindowMinimized, 'pi-window-maximize': !searchServicesWindowMinimized}]"
             @click="toggleWindow('search-services')"></i>
         </div>
       </div>
-      <div v-show="searchServicesWindowMinimized" class="search-services-body">
+      <div v-show="!searchServicesWindowMinimized" class="search-services-body">
         <div>
           <InputGroup>
-              <InputText v-model="searchServicesPhrases" placeholder="Search phrases (comma separated)"></InputText>
+              <InputText v-model="searchServicesPhrases" :placeholder="$t('message.cockpit.detail.workflow-editor.search-services.search-phrases')"></InputText>
               <InputGroupAddon>
                   <Button icon="pi pi-search" severity="secondary" variant="text"
                     @click="toggleSearchServiceTypes"></Button>
@@ -21,32 +21,10 @@
           </InputGroup>
           <Menu appendTo="#cockpit" ref="menu" :model="searchServicesTypes" popup class="!min-w-fit"></Menu>
         </div>
-        <div class="separator">Services found:</div>
+        <div class="separator">{{ $t("message.cockpit.detail.workflow-editor.search-services.services-found") }}:</div>
         <div class="service-offers">
-          <div class="service" v-for="(serviceOffer, serviceOfferIndex) in serviceOffers" :key="serviceOfferIndex">
-            <div class="service-header">
-              {{ serviceOffer.node_id + "-" + serviceOffer.id }}
-            </div>
-            <div class="service-title">{{ serviceOffer.name }}</div>
-            <div class="service-subtitle">{{ serviceOffer.type }}</div>
-            <div class="service-content">
-                <p class="service-content-section">
-                    Description: {{ serviceOffer.description }}
-                </p>
-                <p class="service-content-section">
-                    Service price model: {{ serviceOffer.service_price_model }}
-                </p>
-                <p class="service-content-section" v-for="(intfce, intfceIndex) in serviceOffer.interfaces" :key="intfceIndex">
-                    Interface type: {{ intfce.interface_type }}
-                    Interface paths: {{ intfce.path }}
-                    Interface description: {{ intfce.description }}
-                </p>
-            </div>
-            <div class="service-footer">
-                    <Button label="Cancel" severity="secondary" outlined class="w-full"></Button>
-                    <Button label="Save" class="w-full"></Button>
-            </div>
-          </div>
+          <ServiceBox v-for="(serviceOffer, serviceOfferIndex) in serviceOffers" :key="serviceOfferIndex"
+            :service="serviceOffer" />
         </div>
       </div>
     </div>

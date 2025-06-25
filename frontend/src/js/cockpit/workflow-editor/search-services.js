@@ -1,4 +1,5 @@
 import { FindServices } from '../../../../wailsjs/go/main/App'
+import ServiceBox from '../../../components/cockpit/workflow-editor/ServiceBox.vue'
 
 import { useMainStore } from '../../../stores/main.js'
 
@@ -72,6 +73,7 @@ export default {
 	mixins: [
     ],
 	components: {
+        ServiceBox,
         InputGroup,
         InputText,
         InputGroupAddon,

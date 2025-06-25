@@ -18,61 +18,40 @@
     --p-panelmenu-item-padding: .5rem;
     --p-panelmenu-item-focus-background: rgb(205, 81, 36);
 
+
     .input-box {
         &.gap-top-2 {
             margin-top: 2rem !important;
         }
-    }
 
-    .input-box .btn {
-        width: calc(100% - .5rem);
-        min-width: 60px;
-        height: 30px;
-        line-height: 30px;
-        border-radius: 3px;
-        border: none;
-        margin: 0;
-        padding: 0 8px;
-        cursor: pointer;
-        background-color: rgb(205, 81, 36);
-        color: #fff;
-        font-size: .9rem;
+        .btn {
+            width: calc(100% - .5rem);
+            min-width: 60px;
+            height: 30px;
+            line-height: 30px;
+            border-radius: 3px;
+            border: none;
+            margin: 0;
+            padding: 0 8px;
+            cursor: pointer;
+            background-color: rgb(205, 81, 36);
+            color: #fff;
+            font-size: .9rem;
 
-        &.disabled {
-            background-color: #333333;
-            cursor: not-allowed;
+            &.disabled {
+                background-color: #333333;
+                cursor: not-allowed;
+            }
+
+            &:hover {
+                background-color: rgb(246, 114, 66);
+
+                &.disabled {
+                    background-color: #333333;
+                    cursor: not-allowed;
+                }
+            }
         }
-    }
-
-    .input-box .btn:hover {
-        background-color: rgb(246, 114, 66);
-
-        &.disabled {
-            background-color: #333333;
-            cursor: not-allowed;
-        }
-    }
-
-    .input-box .input {
-        color: #000;
-        border: none;
-        border-radius: 3px;
-        outline: none;
-        height: 30px;
-        line-height: 30px;
-        padding: 0 10px;
-        background-color: rgba(240, 240, 240, 1);
-        -webkit-font-smoothing: antialiased;
-    }
-
-    .input-box .input:hover {
-        border: none;
-        background-color: rgba(255, 255, 255, 1);
-    }
-
-    .input-box .input:focus {
-        border: none;
-        background-color: rgba(255, 255, 255, 1);
     }
 
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
