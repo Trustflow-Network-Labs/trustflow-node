@@ -66,6 +66,17 @@
             &::-webkit-scrollbar { 
                 display: none;
             }
+
+            display: flex;
+            flex-direction: rows;
+            flex-wrap: nowrap;
+            justify-content: space-between;
+            align-content: center;
+            align-items: center;
+
+            .clickable {
+                cursor: pointer;
+            }
         }
 
         .service-content {
@@ -83,7 +94,6 @@
                 margin: .5rem 0 -.5rem 0;
                 font-size: .75rem;
                 color: #777;
-                font-weight: bold;
             }
 
             .service-content-section {
@@ -100,6 +110,38 @@
 
                 &.ind-1 {
                     margin-left: .5rem;
+                }
+
+                .service-content-section-data {
+                    font-size: 1rem;
+                    color: rgb(27, 38, 54);
+
+                    &.ind-m-1 {
+                        margin-left: -.5rem;
+                    }
+
+                    display: flex;
+                    flex-direction: rows;
+                    flex-wrap: nowrap;
+                    justify-content: space-between;
+                    align-content: center;
+                    align-items: center;
+
+                    .clickable {
+                        cursor: pointer;
+                    }
+                }
+
+                .service-price-model {
+                    margin: 0 0 .5rem 0;
+
+                    .service-price {
+                        font-weight: bold;
+
+                        &.upper {
+                            text-transform: uppercase;
+                        }
+                    }
                 }
             }
         }

@@ -38,7 +38,6 @@ const computed = {
 
 const watch = {
     serviceOffer() {
-        console.log(this.serviceOffer)
         this.serviceOffers.push(this.serviceOffer)
     },
 }

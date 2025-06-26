@@ -1,5 +1,6 @@
 import { useMainStore } from '../../../stores/main.js'
 import shorten from '../../../mixins/text.js'
+import copyToClipboard from '../../../mixins/clipboard.js'
 
 let MainStore, That
 const setup = function() {
@@ -43,6 +44,7 @@ export default {
     ],
 	mixins: [
         shorten,
+        copyToClipboard,
     ],
 	components: {
     },
