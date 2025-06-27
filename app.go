@@ -76,6 +76,13 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
+func (a *App) shutdown(ctx context.Context) {
+	// Stop node before closing
+	if a.IsHostRunning() {
+		a.StopNode()
+	}
+}
+
 // Signal that frontend is ready
 func (a *App) NotifyFrontendReady() {
 	if a.frontendReadyChan != nil {
