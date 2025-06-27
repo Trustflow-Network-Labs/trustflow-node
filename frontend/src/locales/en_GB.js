@@ -17,7 +17,7 @@ export default {
 						"search-phrases": "Search phrases (comma separated)",
 						"services-found": "Services found",
 					},
-					"service-box": {
+					"search-result": {
 						"description": "Description",
 						"service-price-model": "Service price model",
 						"free": "Free",

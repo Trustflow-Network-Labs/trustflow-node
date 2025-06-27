@@ -1,5 +1,5 @@
 import { FindServices } from '../../../../wailsjs/go/main/App'
-import ServiceBox from '../../../components/cockpit/workflow-editor/ServiceBox.vue'
+import ServiceBox from '../../../components/cockpit/workflow-editor/SearchResult.vue'
 
 import { useMainStore } from '../../../stores/main.js'
 
@@ -8,6 +8,7 @@ import InputText from 'primevue/inputtext';
 import InputGroupAddon from 'primevue/inputgroupaddon';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
+import SearchResult from '../../../components/cockpit/workflow-editor/SearchResult.vue';
 
 let MainStore, That
 const setup = function() {
@@ -61,6 +62,36 @@ const methods = {
         this.serviceOffers.length = 0
         await FindServices(this.searchServicesPhrases, item.id)
     },
+	dragStartFunc(event, service) {
+        MainStore.setSelectedService(service)
+/*
+        let draggingEl = document.createElement('div')
+		draggingEl.className = 'dragging-service-box'
+		draggingEl.id = "drag-ghost"
+		draggingEl.textNode = "Dragging"
+		draggingEl.style.position = "absolute"
+		draggingEl.style.top = "-1000px"
+		this.workflowEditorEl.appendChild(draggingEl)
+	  
+		event.dataTransfer.setDragImage(draggingEl, 80, 50)
+		event.dataTransfer.dropEffect = "copy"
+*/
+	},
+	dragEndFunc(event) {
+        event.preventDefault()
+        // ignore
+        MainStore.setSelectedService(null)
+
+	},
+	dragOverFunc(event) {
+        event.preventDefault()
+        // ignore
+	},
+	dropFunc(event) {
+        event.preventDefault()
+        // ignore
+        MainStore.setSelectedService(null)
+	},
 }
 
 const destroyed = function() {
@@ -68,11 +99,12 @@ const destroyed = function() {
 
 export default {
     props: [
+        'workflowEditorEl',
     ],
 	mixins: [
     ],
 	components: {
-        ServiceBox,
+        SearchResult,
         InputGroup,
         InputText,
         InputGroupAddon,

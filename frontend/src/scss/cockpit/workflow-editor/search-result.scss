@@ -1,4 +1,4 @@
-.common-cockpit-workflow-editor-service-box {
+.common-cockpit-workflow-editor-search-result {
     font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
@@ -215,6 +215,6 @@
     }
 }
 
-.common-cockpit-workflow-editor-service-box-default {
-	@extend .common-cockpit-workflow-editor-service-box !optional;
+.common-cockpit-workflow-editor-search-result-default {
+	@extend .common-cockpit-workflow-editor-search-result !optional;
 }

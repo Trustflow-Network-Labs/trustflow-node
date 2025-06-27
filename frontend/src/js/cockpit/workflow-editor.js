@@ -36,9 +36,39 @@ const watch = {
 }
 
 const mounted = function() {
+    this.workflowEditorEl = this.$refs.workflowEditor
+    this.initGrid(this.snapXPoints, this.snapYPoints, this.gridSizeX, this.gridSizeY, this.gridSnapGravity)
 }
 
 const methods = {
+    initGrid(x, y, w, h, g) {
+        let gridEl = this.$refs['workflowEditor']
+        gridEl.style.setProperty(`--grid-size-x`, this.gridSizeX)
+        gridEl.style.setProperty(`--grid-size-y`, this.gridSizeY)
+        gridEl.style.setProperty(`--dash-length`, this.dashLength)
+        gridEl.style.setProperty(`--grid-width`, this.dashWidth)
+        gridEl.style.setProperty(`--dash-color`, this.dashColor)
+        gridEl.style.setProperty(`--background`, this.backgroundColor)
+
+        this.initGridSnap(x, y, w, h)
+    },
+    initGridSnap(x, y, w, h) {
+    	for (let i = 0; i < x; i++) {
+            for (let j = 0; j < y; j++) {
+                this.gridSnapTargets.push({x: i * w, y: j * h})
+            }
+        }
+    },
+	dragEndFunc(event) {
+        event.preventDefault()
+	},
+	dragOverFunc(event) {
+        event.preventDefault()
+	},
+	dropFunc(event) {
+        event.preventDefault()
+        MainStore.setSelectedService(null)
+	},
 }
 
 const destroyed = function() {
@@ -64,6 +94,17 @@ export default {
     destroyed: destroyed,
     data() {
         return {
+            workflowEditorEl: null,
+            snapXPoints: 160,
+            snapYPoints: 100,
+            gridSizeX: '160px',
+            gridSizeY: '100px',
+            dashLength: '5px',
+            dashWidth: '1px',
+            dashColor: 'rgba(205, 81, 36, .5)',
+            backgroundColor: 'rgb(27, 38, 54)',
+			gridSnapGravity: 60,
+			gridSnapTargets: [],
        }
     }
 }

@@ -23,8 +23,13 @@
         </div>
         <div class="separator">{{ $t("message.cockpit.detail.workflow-editor.search-services.services-found") }}:</div>
         <div class="service-offers">
-          <ServiceBox v-for="(serviceOffer, serviceOfferIndex) in serviceOffers" :key="serviceOfferIndex"
-            :service="serviceOffer" />
+          <SearchResult draggable="true"
+            v-for="(serviceOffer, serviceOfferIndex) in serviceOffers" :key="serviceOfferIndex"
+            :service="serviceOffer"
+            @dragstart="dragStartFunc($event, serviceOffer)"
+            @dragend="dragEndFunc($event)"
+            @dragover="dragOverFunc($event)"
+            @drop="dropFunc($event)" />
         </div>
       </div>
     </div>

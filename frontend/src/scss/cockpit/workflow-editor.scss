@@ -8,22 +8,29 @@
     height: 100vh;
     overflow: auto;
 
-    $grid-size: 100px;
-    $dash-length: 5px;
-    $dash-width: 1px;
-    $dash-color: rgba(205, 81, 36, .5);
-    $background: rgb(27, 38, 54);
+    --grid-size-x: 100px;
+    --grid-size-y: 100px;
+    --dash-length: 5px;
+    --dash-width: 1px;
+    --dash-color: rgba(205, 81, 36, .5);
+    --background: rgb(27, 38, 54);
 
-    background-color: $background;
-    background-size: $dash-length*2 $dash-length*2, $grid-size $grid-size;
+    background-color: var(--background);
+    background-size: calc(var(--dash-length) * 2) calc(var(--dash-length) * 2), var(--grid-size-x) var(--grid-size-y);
     background-image:
-        linear-gradient(to bottom, transparent $dash-length, $background $dash-length),
-        linear-gradient(to right, $dash-color $dash-width, transparent $dash-width),
-        linear-gradient(to right, transparent $dash-length, $background $dash-length),
-        linear-gradient(to bottom, $dash-color $dash-width, transparent $dash-width);
+        linear-gradient(to bottom, transparent var(--dash-length), var(--background) var(--dash-length)),
+        linear-gradient(to right, var(--dash-color) var(--dash-width), transparent var(--dash-width)),
+        linear-gradient(to right, transparent var(--dash-length), var(--background) var(--dash-length)),
+        linear-gradient(to bottom, var(--dash-color) var(--dash-width), transparent var(--dash-width));
     background-attachment: local;
     
-
+    .dragging-service-box{
+        width: 100px;
+        height: 160px;
+        border: 1px solid red;
+        background-color: #fff;
+    }
+    
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
     }
 }

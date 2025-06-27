@@ -12,6 +12,7 @@ export const useMainStore = defineStore('main', {
         exitLogs: [],
         selectedMenuKey: null,
         serviceOffer: null,
+        selectedService: null,
     }),
 
     getters: {
@@ -25,6 +26,7 @@ export const useMainStore = defineStore('main', {
         getExitLogs: (state) => state.exitLogs,
         getSelectedMenuKey: (state) => state.selectedMenuKey,
         getServiceOffer: (state) => state.serviceOffer,
+        getSelectedService: (state) => state.selectedService,
     },
 
     actions: {
@@ -57,6 +59,9 @@ export const useMainStore = defineStore('main', {
         },
         setServiceOffer(serviceOffer) {
             this.serviceOffer = serviceOffer
+        },
+        setSelectedService(service) {
+            this.selectedService = service
         },
     }
 })
