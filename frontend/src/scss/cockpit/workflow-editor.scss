@@ -8,8 +8,10 @@
     height: 100vh;
     overflow: auto;
 
-    --grid-size-x: 100px;
-    --grid-size-y: 100px;
+    --grid-size-x: 160px;
+    --grid-size-y: 200px;
+    --grid-gap-size-x: 180px;
+    --grid-gap-size-y: 220px;
     --dash-length: 5px;
     --dash-width: 1px;
     --dash-color: rgba(205, 81, 36, .5);
@@ -23,14 +25,7 @@
         linear-gradient(to right, transparent var(--dash-length), var(--background) var(--dash-length)),
         linear-gradient(to bottom, var(--dash-color) var(--dash-width), transparent var(--dash-width));
     background-attachment: local;
-    
-    .dragging-service-box{
-        width: 100px;
-        height: 160px;
-        border: 1px solid red;
-        background-color: #fff;
-    }
-    
+
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
     }
 }

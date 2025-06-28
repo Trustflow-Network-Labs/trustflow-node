@@ -1,14 +1,14 @@
 import { FindServices } from '../../../../wailsjs/go/main/App'
-import ServiceBox from '../../../components/cockpit/workflow-editor/SearchResult.vue'
 
 import { useMainStore } from '../../../stores/main.js'
+
+import SearchResult from '../../../components/cockpit/workflow-editor/SearchResult.vue'
 
 import InputGroup from 'primevue/inputgroup';
 import InputText from 'primevue/inputtext';
 import InputGroupAddon from 'primevue/inputgroupaddon';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
-import SearchResult from '../../../components/cockpit/workflow-editor/SearchResult.vue';
 
 let MainStore, That
 const setup = function() {

@@ -6,6 +6,9 @@
     <SearchServices
       v-if="workflowEditorEl"
       :workflow-editor-el="$refs['workflowEditor']" />
+    <component v-for="(serviceCard, serviceCardIndex) in serviceCards" :key="serviceCardIndex"
+      :is="serviceCard.type" v-bind="serviceCard.props"
+      :ref="`serviceCard${serviceCardIndex}`" />
   </main>
 </template>
 

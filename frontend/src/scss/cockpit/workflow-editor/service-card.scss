@@ -1,0 +1,97 @@
+.common-cockpit-workflow-editor-service-card {
+    position: absolute;
+    width: 160px !important;
+    height: 200px !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #000;
+    filter: drop-shadow(1px 1px 3px rgba(0, 0, 0, 0.3));
+
+    .card-top {
+        flex: 1 1 auto;
+        max-height: 130px;
+        background-color: #fff;
+        border-top-right-radius: 5px;
+        border-top-left-radius: 5px;
+
+        display: flex;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        align-content: center;
+        align-items: center;
+
+        .service-name {
+            padding: 8px;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-clamp: 3;
+            -webkit-line-clamp: 3;
+        }
+
+        .service-type {
+            width: 100%;
+            background-color: rgba(205, 81, 36, 1);
+            color: #fff;
+            padding: 8px;
+            margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    .card-bottom {
+        background-color: #fff;
+        border-bottom-right-radius: 5px;
+        border-bottom-left-radius: 5px;
+        padding: 5px;
+        height: 50px;
+    }
+
+    .card-rip {
+        background-color: #fff;
+        height: 20px;
+        margin: 0 10px;
+        background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAACCAYAAAB7Xa1eAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAYdEVYdFNvZnR3YXJlAHBhaW50Lm5ldCA0LjAuOWwzfk4AAAAaSURBVBhXY5g7f97/2XPn/AcCBmSMQ+I/AwB2eyNBlrqzUQAAAABJRU5ErkJggg==);
+        background-size: 4px 2px;
+        background-repeat: repeat-x;
+        background-position: center;
+        position: relative;
+        box-shadow: 0 1px 0 0 #fff, 0 -1px 0 0 #fff;
+
+        &:before,
+        &:after {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            top: 50%;
+            transform: translate(-50%, -50%) rotate(45deg);
+            border: 5px solid transparent;
+            border-top-color: #fff;
+            border-right-color: #fff;
+            border-radius: 100%;
+            pointer-events:none;
+        }
+
+        &:before {
+            left: -10px;
+        }
+
+        &:after {
+            transform: translate(-50%, -50%) rotate(225deg);
+            right: -40px;
+        }
+    }
+
+    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
+    }
+}
+
+.common-cockpit-workflow-editor-service-card-default {
+	@extend .common-cockpit-workflow-editor-service-card !optional;
+}

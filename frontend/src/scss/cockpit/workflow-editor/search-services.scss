@@ -13,12 +13,12 @@
     --p-button-text-secondary-hover-background: rgb(246, 114, 66);
 
     position: fixed;
-    height: 100vh;
     margin: 0;
     padding: 0;
     top: 0;
     right: 0;
     overflow: hidden;
+    z-index: 2;
 
     $border-color: rgba(205, 81, 36, .5);
     $background: rgb(27, 38, 54);
