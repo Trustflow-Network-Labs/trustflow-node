@@ -33,6 +33,9 @@ const mounted = function() {
 }
 
 const methods = {
+    closeServiceCard() {
+        this.$emit('close-service-card', this.serviceCardId)
+    }
 }
 
 const destroyed = function() {
@@ -40,6 +43,7 @@ const destroyed = function() {
 
 export default {
     props: [
+        'serviceCardId',
         'service',
     ],
 	mixins: [

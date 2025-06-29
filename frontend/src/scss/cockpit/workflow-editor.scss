@@ -8,23 +8,31 @@
     height: 100vh;
     overflow: auto;
 
-    --grid-size-x: 160px;
-    --grid-size-y: 200px;
-    --grid-gap-size-x: 180px;
-    --grid-gap-size-y: 220px;
+    --grid-x-size: 1000%;
+    --grid-y-size: 1000%;
+    --grid-box-x-size: 160px;
+    --grid-box-y-size: 200px;
     --dash-length: 5px;
     --dash-width: 1px;
     --dash-color: rgba(205, 81, 36, .5);
     --background: rgb(27, 38, 54);
 
-    background-color: var(--background);
-    background-size: calc(var(--dash-length) * 2) calc(var(--dash-length) * 2), var(--grid-size-x) var(--grid-size-y);
-    background-image:
-        linear-gradient(to bottom, transparent var(--dash-length), var(--background) var(--dash-length)),
-        linear-gradient(to right, var(--dash-color) var(--dash-width), transparent var(--dash-width)),
-        linear-gradient(to right, transparent var(--dash-length), var(--background) var(--dash-length)),
-        linear-gradient(to bottom, var(--dash-color) var(--dash-width), transparent var(--dash-width));
-    background-attachment: local;
+    .grid {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: var(--grid-x-size);
+        height: var(--grid-y-size);
+
+        background-color: var(--background);
+        background-size: calc(var(--dash-length) * 2) calc(var(--dash-length) * 2), var(--grid-box-x-size) var(--grid-box-y-size);
+        background-image:
+            linear-gradient(to bottom, transparent var(--dash-length), var(--background) var(--dash-length)),
+            linear-gradient(to right, var(--dash-color) var(--dash-width), transparent var(--dash-width)),
+            linear-gradient(to right, transparent var(--dash-length), var(--background) var(--dash-length)),
+            linear-gradient(to bottom, var(--dash-color) var(--dash-width), transparent var(--dash-width));
+        background-attachment: local;
+    }
 
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
     }

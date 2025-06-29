@@ -39,18 +39,20 @@ const watch = {
 
 const mounted = function() {
     this.workflowEditorEl = this.$refs.workflowEditor
-    this.initGrid(this.snapXPoints, this.snapYPoints, this.gridSizeX, this.gridSizeY, this.gridSnapGravity)
+    this.initGrid(this.snapXPoints, this.snapYPoints, this.gridBoxXSize, this.gridBoxYSize, this.gridSnapGravity)
 }
 
 const methods = {
     initGrid(x, y, w, h) {
-        let gridEl = this.$refs['workflowEditor']
-        gridEl.style.setProperty(`--grid-size-x`, `${this.gridSizeX}px`)
-        gridEl.style.setProperty(`--grid-size-y`, `${this.gridSizeY}px`)
-        gridEl.style.setProperty(`--dash-length`, `${this.dashLength}px`)
-        gridEl.style.setProperty(`--grid-width`, `${this.dashWidth}px`)
-        gridEl.style.setProperty(`--dash-color`, this.dashColor)
-        gridEl.style.setProperty(`--background`, this.backgroundColor)
+        let workFlowEl = this.$refs['workflowEditor']
+        workFlowEl.style.setProperty(`--grid-x-size`, `${this.gridXRelSize * 100}%`)
+        workFlowEl.style.setProperty(`--grid-y-size`, `${this.gridYRelSize * 100}%`)
+        workFlowEl.style.setProperty(`--grid-box-x-size`, `${this.gridBoxXSize}px`)
+        workFlowEl.style.setProperty(`--grid-box-y-size`, `${this.gridBoxYSize}px`)
+        workFlowEl.style.setProperty(`--dash-length`, `${this.dashLength}px`)
+        workFlowEl.style.setProperty(`--grid-width`, `${this.dashWidth}px`)
+        workFlowEl.style.setProperty(`--dash-color`, this.dashColor)
+        workFlowEl.style.setProperty(`--background`, this.backgroundColor)
 
         this.initGridSnap(x, y, w, h)
     },
@@ -70,13 +72,18 @@ const methods = {
 	dropFunc(event) {
         event.preventDefault()
 
-        let service = MainStore.getSelectedService
+        if(event.target.className.indexOf('grid') == -1)
+            return
+
+        let service = MainStore.getPickedService
         if (service == null)
             return
 
         this.serviceCards.push({
+            index: this.serviceCards.length,
             type: 'ServiceCard',
             props: {
+                serviceCardId: this.serviceCards.length,
                 service: service,
             }
         })
@@ -90,8 +97,8 @@ const methods = {
             serviceCardDraggable.top = event.y
 
             if (That.snapToGrid) {
-                let x = Math.round(event.x/this.gridSizeX)*this.gridSizeX - this.gridSizeX
-    			let y = Math.round(event.y/this.gridSizeY)*this.gridSizeY - this.gridSizeY
+                let x = Math.round(event.x/this.gridBoxXSize)*this.gridBoxXSize - this.gridBoxXSize
+    			let y = Math.round(event.y/this.gridBoxYSize)*this.gridBoxYSize - this.gridBoxYSize
                 serviceCardDraggable.left = x
                 serviceCardDraggable.top = y
 
@@ -99,12 +106,22 @@ const methods = {
                     targets: That.gridSnapTargets, gravity: That.gridSnapGravity
                 }
             }
-
-
         })
 
-        MainStore.setSelectedService(null)
+        MainStore.setPickedService(null)
 	},
+    removeServiceCard(index) {
+        let removeIndex = -1
+        for (let i = 0; i < this.serviceCards.length; i++) {
+            if (this.serviceCards[i].index == index) {
+                removeIndex = i
+                break
+            } 
+            
+        }
+        if (removeIndex >= 0) 
+            this.serviceCards.splice(removeIndex, 1)
+    },
 }
 
 const destroyed = function() {
@@ -134,13 +151,15 @@ export default {
             workflowEditorEl: null,
             snapXPoints: 100,
             snapYPoints: 100,
-            gridSizeX: 160,
-            gridSizeY: 100,
+            gridBoxXSize: 160,
+            gridBoxYSize: 100,
+            gridXRelSize: 10,
+            gridYRelSize: 10,
             dashLength: 5,
             dashWidth: 1,
             dashColor: 'rgba(205, 81, 36, .5)',
             backgroundColor: 'rgb(27, 38, 54)',
-            snapToGrid: true,
+            snapToGrid: false,
 			gridSnapGravity: 80,
 			gridSnapTargets: [],
             serviceCards: [],

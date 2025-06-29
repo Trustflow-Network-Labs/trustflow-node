@@ -1,14 +1,16 @@
 <template>
-  <main ref="workflowEditor" :class="cockpitWorkflowEditorClass"
-    @dragend="dragEndFunc($event)"
-    @dragover="dragOverFunc($event)"
-    @drop="dropFunc($event)">
+  <main ref="workflowEditor" :class="cockpitWorkflowEditorClass">
+    <div ref="grid" class="grid"
+      @dragend="dragEndFunc($event)"
+      @dragover="dragOverFunc($event)"
+      @drop="dropFunc($event)">
+      <component v-for="(serviceCard, serviceCardIndex) in serviceCards" :key="serviceCardIndex"
+        :is="serviceCard.type" v-bind="serviceCard.props"
+        :ref="`serviceCard${serviceCardIndex}`"
+        @close-service-card="(index) => removeServiceCard(index)" />
+    </div>
     <SearchServices
-      v-if="workflowEditorEl"
-      :workflow-editor-el="$refs['workflowEditor']" />
-    <component v-for="(serviceCard, serviceCardIndex) in serviceCards" :key="serviceCardIndex"
-      :is="serviceCard.type" v-bind="serviceCard.props"
-      :ref="`serviceCard${serviceCardIndex}`" />
+      v-if="workflowEditorEl" />
   </main>
 </template>
 

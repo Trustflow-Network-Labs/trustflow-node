@@ -63,24 +63,12 @@ const methods = {
         await FindServices(this.searchServicesPhrases, item.id)
     },
 	dragStartFunc(event, service) {
-        MainStore.setSelectedService(service)
-/*
-        let draggingEl = document.createElement('div')
-		draggingEl.className = 'dragging-service-box'
-		draggingEl.id = "drag-ghost"
-		draggingEl.textNode = "Dragging"
-		draggingEl.style.position = "absolute"
-		draggingEl.style.top = "-1000px"
-		this.workflowEditorEl.appendChild(draggingEl)
-	  
-		event.dataTransfer.setDragImage(draggingEl, 80, 50)
-		event.dataTransfer.dropEffect = "copy"
-*/
+        MainStore.setPickedService(service)
 	},
 	dragEndFunc(event) {
         event.preventDefault()
         // ignore
-        MainStore.setSelectedService(null)
+        MainStore.setPickedService(null)
 
 	},
 	dragOverFunc(event) {
@@ -90,7 +78,7 @@ const methods = {
 	dropFunc(event) {
         event.preventDefault()
         // ignore
-        MainStore.setSelectedService(null)
+        MainStore.setPickedService(null)
 	},
 }
 
@@ -99,7 +87,6 @@ const destroyed = function() {
 
 export default {
     props: [
-        'workflowEditorEl',
     ],
 	mixins: [
     ],

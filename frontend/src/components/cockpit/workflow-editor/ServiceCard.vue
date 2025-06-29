@@ -1,6 +1,10 @@
 <template>
   <main :class="cockpitWorkflowEditorServiceCardClass">
     <div class="card-top">
+      <div class="card-controls">
+        <i class="pi pi-times"
+          @click="closeServiceCard"></i>
+      </div>
       <div class="service-name">{{ service.name }}</div>
       <div class="service-type">{{ service.type }}</div>
     </div>
