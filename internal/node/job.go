@@ -361,6 +361,7 @@ func (jm *JobManager) UpdateJobExecutionConstraint(id int64, constraint string) 
 func (jm *JobManager) RequestService(
 	peer peer.AddrInfo,
 	workflowId int64,
+	workflowJobId int64,
 	serviceId int64,
 	entrypoint, commands []string,
 	Interfaces []node_types.RequestInterface,
@@ -376,6 +377,7 @@ func (jm *JobManager) RequestService(
 	serviceRequest := node_types.ServiceRequest{
 		NodeId:                    peer.ID.String(),
 		WorkflowId:                workflowId,
+		WorkflowJobId:             workflowJobId,
 		ServiceId:                 serviceId,
 		Entrypoint:                entrypoint,
 		Commands:                  commands,

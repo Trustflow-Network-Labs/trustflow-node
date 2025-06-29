@@ -72,6 +72,11 @@ const methods = {
 	dropFunc(event) {
         event.preventDefault()
 
+        this.addServiceCard(event)
+
+        MainStore.setPickedService(null)
+	},
+    addServiceCard(event) {
         if(event.target.className.indexOf('grid') == -1)
             return
 
@@ -79,12 +84,23 @@ const methods = {
         if (service == null)
             return
 
+        let x = event.x
+        let y = event.y
+        if (this.snapToGrid) {
+            x = Math.round(x/this.gridBoxXSize)*this.gridBoxXSize - this.gridBoxXSize
+            y = Math.round(y/this.gridBoxYSize)*this.gridBoxYSize - this.gridBoxYSize
+        }
+
         this.serviceCards.push({
             index: this.serviceCards.length,
             type: 'ServiceCard',
             props: {
                 serviceCardId: this.serviceCards.length,
                 service: service,
+            },
+            coords: {
+                x: x,
+                y, y,
             }
         })
 
@@ -93,23 +109,16 @@ const methods = {
             let serviceCardEl = That.$refs[serviceCardRef][0].$el
 
             let serviceCardDraggable = new PlainDraggable(serviceCardEl)
-            serviceCardDraggable.left = event.x
-            serviceCardDraggable.top = event.y
+            serviceCardDraggable.left = x
+            serviceCardDraggable.top = y
 
             if (That.snapToGrid) {
-                let x = Math.round(event.x/this.gridBoxXSize)*this.gridBoxXSize - this.gridBoxXSize
-    			let y = Math.round(event.y/this.gridBoxYSize)*this.gridBoxYSize - this.gridBoxYSize
-                serviceCardDraggable.left = x
-                serviceCardDraggable.top = y
-
                 serviceCardDraggable.snap = {
                     targets: That.gridSnapTargets, gravity: That.gridSnapGravity
                 }
             }
         })
-
-        MainStore.setPickedService(null)
-	},
+    },
     removeServiceCard(index) {
         let removeIndex = -1
         for (let i = 0; i < this.serviceCards.length; i++) {

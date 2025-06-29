@@ -409,6 +409,7 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"workflow_id" INTEGER NOT NULL,
 	"node_id" TEXT NOT NULL,
+	"service_id" INTEGER NOT NULL,
 	"job_id" INTEGER NOT NULL,
 	"expected_job_outputs" TEXT NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'READY', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',

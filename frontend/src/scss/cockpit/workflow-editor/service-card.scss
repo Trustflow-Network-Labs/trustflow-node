@@ -87,6 +87,10 @@
         i {
             font-size: 1rem;
             cursor: pointer;
+
+            &.red {
+                color: rgb(211, 31, 31);
+            }
         }
 
     }

@@ -64,7 +64,7 @@ export default {
     data() {
         return {
             ready: false,
-            free: false,
+            paid: false,
         }
     }
 }

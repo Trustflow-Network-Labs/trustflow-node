@@ -279,7 +279,7 @@ func (mm *MenuManager) printServiceResponse(serviceResponse node_types.ServiceRe
 
 // Print request service sub-menu
 func (mm *MenuManager) requestService() error {
-	var entrypoint, commands []string
+	//	var entrypoint, commands []string
 
 	// Service Id
 	sidResult, err := mm.inputPromptHelper("Service ID", "", mm.vm.NotEmpty, nil)
@@ -297,13 +297,13 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Check Service Offers Cache
-	serviceOffer, exists := mm.p2pm.sc.ServiceOffers[sidResult]
-	if !exists {
-		msg := fmt.Sprintf("Could not find provided Service ID `%s` in Service Offers Cache.\nPlease use `Find Services` option first to look up for remote services.", sidResult)
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
-		return err
-	}
+	//	serviceOffer, exists := mm.p2pm.sc.ServiceOffers[sidResult]
+	//	if !exists {
+	//		msg := fmt.Sprintf("Could not find provided Service ID `%s` in Service Offers Cache.\nPlease use `Find Services` option first to look up for remote services.", sidResult)
+	//		fmt.Println(msg)
+	//		mm.lm.Log("error", msg, "menu")
+	//		return err
+	//	}
 
 	peerId := serviceIdPair[0]
 	sid := serviceIdPair[1]
@@ -321,16 +321,16 @@ func (mm *MenuManager) requestService() error {
 		fmt.Printf("Service Id %s seems to be invalid Id: %s\n", sid, err.Error())
 		return err
 	}
-	if serviceOffer.Type == "DOCKER EXECUTION ENVIRONMENT" {
-		entrypoint, commands, err = mm.imageEntrypointCommands(serviceOffer.Entrypoint, serviceOffer.Commands)
-		if err != nil {
-			fmt.Printf("Collecting service entrypoint and commands failed for service ID: %s. Error: %s\n", sid, err.Error())
-			return err
-		}
-	}
+	//	if serviceOffer.Type == "DOCKER EXECUTION ENVIRONMENT" {
+	//		entrypoint, commands, err = mm.imageEntrypointCommands(serviceOffer.Entrypoint, serviceOffer.Commands)
+	//		if err != nil {
+	//			fmt.Printf("Collecting service entrypoint and commands failed for service ID: %s. Error: %s\n", sid, err.Error())
+	//			return err
+	//		}
+	//	}
 
 	// Collect job interfaces
-	serviceRequestInterfaces, inputsRequired, err := mm.jobInterfaces(serviceOffer.Interfaces)
+	//	serviceRequestInterfaces, inputsRequired, err := mm.jobInterfaces(serviceOffer.Interfaces)
 	if err != nil {
 		fmt.Printf("Could not collect job interfaces: %s\n", err.Error())
 		return err
@@ -347,13 +347,14 @@ func (mm *MenuManager) requestService() error {
 			return err
 		}
 	*/
-	var cResult string = "NONE"
-	if *inputsRequired {
-		cResult = "INPUTS READY"
-	}
+	//	var cResult string = "NONE"
+	//	if *inputsRequired {
+	//		cResult = "INPUTS READY"
+	//	}
 
 	// Use existing workflow or create a new one service prompt
 	var workflowId int64
+	//	var workflowJobId int64
 
 	nwResult, err := mm.confirmPromptHelper("Should we integrate this service or job into an existing workflow")
 	if err != nil {
@@ -386,18 +387,34 @@ func (mm *MenuManager) requestService() error {
 			return err
 		}
 
-		workflowId, err = mm.wm.Add(wfnResult, wfdResult, "", 0)
+		// Add workflow and a workflow job
+		workflowId, _, err = mm.wm.Add(wfnResult, wfdResult, peer.ID.String(), serviceId, 0)
 		if err != nil {
 			fmt.Printf("Adding new workflow failed: %s\n", err.Error())
 			return err
 		}
 	}
 
-	err = mm.jm.RequestService(peer, workflowId, serviceId, entrypoint, commands, serviceRequestInterfaces, cResult, "")
+	// Add job to the workflow
+	_, err = mm.wm.AddWorkflowJob(workflowId, peer.ID.String(), serviceId, 0, "")
 	if err != nil {
-		fmt.Printf("Requesting service failed: %s\n", err.Error())
+		fmt.Printf("Adding new workflow job failed: %s\n", err.Error())
 		return err
 	}
+
+	/*
+		TODO, this method should be renamed to "addWorkflowJob"
+		Below code should be moved to a new method "requestService"
+		This will allow 'offline' workflow creation while requesting
+		paying for service should come once flow is ready to run
+	*/
+	/*
+		err = mm.jm.RequestService(peer, workflowId, serviceId, entrypoint, commands, serviceRequestInterfaces, cResult, "")
+		if err != nil {
+			fmt.Printf("Requesting service failed: %s\n", err.Error())
+			return err
+		}
+	*/
 
 	return nil
 }

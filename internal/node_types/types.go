@@ -174,6 +174,7 @@ type RequestInterface struct {
 type ServiceRequest struct {
 	NodeId                    string             `json:"node_id"`
 	WorkflowId                int64              `json:"workflow_id"`
+	WorkflowJobId             int64              `json:"workflow_job_id"`
 	ServiceId                 int64              `json:"service_id"`
 	Entrypoint                []string           `json:"entrypoint"`
 	Commands                  []string           `json:"commands"`
@@ -245,6 +246,7 @@ type WorkflowJob struct {
 	Id                 int64  `json:"id"`
 	WorkflowId         int64  `json:"workflow_id"`
 	NodeId             string `json:"node_id"`
+	ServiceId          int64  `json:"service_id"`
 	JobId              int64  `json:"job_id"`
 	ExpectedJobOutputs string `json:"expected_job_outputs"`
 	Status             string `json:"status"`
