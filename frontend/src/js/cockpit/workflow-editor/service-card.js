@@ -63,6 +63,8 @@ export default {
     destroyed: destroyed,
     data() {
         return {
+            ready: false,
+            free: false,
         }
     }
 }

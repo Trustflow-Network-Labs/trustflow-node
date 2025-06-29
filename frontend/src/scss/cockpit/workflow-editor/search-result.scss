@@ -34,6 +34,14 @@
         content: "";
 
         transition: transform 0.5s ease-in-out;
+
+        &.data {
+            border: 17px solid rgb(205, 81, 36);
+        }
+
+        &.function {
+            border: 17px solid #5D9CEC;
+        }
     }
 
     .hover-ring:hover {
@@ -171,6 +179,16 @@
                         }
                     }
 
+                    &.data {
+                        background-color: rgb(205, 81, 36);
+                        color: #fff;
+                    }
+
+                    &.function {
+                        background-color: #5D9CEC;
+                        color: #fff;
+                    }
+
                     &.disabled {
                         background-color: #333333;
                         cursor: not-allowed;
@@ -182,6 +200,15 @@
                         &.disabled {
                             background-color: #333333;
                             cursor: not-allowed;
+                        }
+
+                        &.data {
+                            background-color: rgb(246, 114, 66);
+                        }
+
+                        &.function {
+                            background-color: #3d71b6;
+                            color: #fff;
                         }
                     }
                 }

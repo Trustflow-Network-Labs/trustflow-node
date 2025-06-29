@@ -48,7 +48,8 @@
       </div>
       <div class="service-footer">
         <div id="input" class="input-box">
-          <button class="btn" @click="">{{ $t("message.cockpit.detail.workflow-editor.search-result.add-to-workflow") }}</button>
+          <button :class="['btn', {'data': service.type == 'DATA', 'function': service.type == 'DOCKER EXECUTION ENVIRONMENT' || service.type == 'STANDALONE EXECUTABLE'}]"
+            @click="">{{ $t("message.cockpit.detail.workflow-editor.search-result.add-to-workflow") }}</button>
         </div>
       </div>
     </div>
