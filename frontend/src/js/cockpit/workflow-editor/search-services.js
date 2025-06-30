@@ -9,6 +9,8 @@ import InputText from 'primevue/inputtext';
 import InputGroupAddon from 'primevue/inputgroupaddon';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
+import FloatLabel from 'primevue/floatlabel';
+import Textarea from 'primevue/textarea';
 
 let MainStore, That
 const setup = function() {
@@ -52,6 +54,9 @@ const methods = {
     },
     toggleWindow(win) {
         switch (win) {
+            case 'workflow-details':
+                this.workflowDetailsWindowMinimized = !this.workflowDetailsWindowMinimized
+                break
             case 'search-services':
                 this.searchServicesWindowMinimized = !this.searchServicesWindowMinimized
                 break
@@ -97,6 +102,8 @@ export default {
         InputGroupAddon,
         Menu,
         Button,
+        FloatLabel,
+        Textarea,
     },
 	directives: {},
 	name: 'WorkflowEditorSearchServices',
@@ -139,6 +146,9 @@ export default {
                     },
                 },
             ],
+            workflowDetailsWindowMinimized: false,
+            workflowName: "",
+            workflowDescription: "",
             searchServicesWindowMinimized: false,
             serviceOffers: [],
         }

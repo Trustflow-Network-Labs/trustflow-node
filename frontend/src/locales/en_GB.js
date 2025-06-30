@@ -12,6 +12,13 @@ export default {
 			"stop-node-button-text": "Stop node",
 			"detail": {
 				"workflow-editor": {
+					"workflow-details": {
+						"workflow-details": "Workflow details",
+						"workflow-name": "Workflow name",
+						"workflow-description": "Workflow description",
+						"save": "Save",
+						"delete": "Delete",
+					},
 					"search-services": {
 						"search-services": "Search services",
 						"search-phrases": "Search phrases (comma separated)",

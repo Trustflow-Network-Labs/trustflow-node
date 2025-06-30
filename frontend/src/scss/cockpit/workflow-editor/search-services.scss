@@ -11,6 +11,13 @@
     --p-inputgroup-addon-color: rgba(240, 240, 240, 1);
     --p-button-text-secondary-color: rgba(240, 240, 240, 1);
     --p-button-text-secondary-hover-background: rgb(246, 114, 66);
+    --p-floatlabel-on-active-background: #fff;
+    --p-inputtext-focus-border-color: rgb(27, 38, 54);
+    --p-floatlabel-focus-color: rgb(27, 38, 54);
+    --p-textarea-background: #fff;
+    --p-textarea-color: rgb(27, 38, 54);
+    --p-textarea-focus-border-color: rgba(205, 81, 36, .5);
+
 
     position: fixed;
     margin: 0;
@@ -28,6 +35,12 @@
 
     background-color: transparent;
     
+    input,
+    textarea {
+        width: 100%;
+    }
+
+    .workflow-details,
     .search-services {
         position: relative;
         margin: 0;
@@ -37,6 +50,7 @@
         border: 1px dotted $border-color;
         background-color: $background;
 
+        .workflow-details-header,
         .search-services-header {
             position: relative;
             text-align: left;
@@ -52,17 +66,123 @@
             align-content: center;
             align-items: center;
 
+            .workflow-details-header-window-controls,
             .search-services-header-window-controls {
                 cursor: pointer;
                 margin-left: 8px;
             }
         }
 
+        .workflow-details-body,
         .search-services-body {
             position: relative;
             text-align: left;
             background-color: $tools-background;
             padding: 10px 5px;
+
+            .workflow-details-body-section,
+            .search-services-body-section {
+                margin: .5rem 0;
+
+                &:first-child {
+                    margin-top: 0;
+                }
+
+                &:last-child {
+                    margin-bottom: 0;
+                }
+
+                &.buttons {
+                    display: flex;
+                    flex-direction: rows;
+                    flex-wrap: nowrap;
+                    justify-content: flex-end;
+                    align-content: center;
+                    align-items: center;
+                }
+
+                .input-box {
+                    .btn {
+                        min-width: 60px;
+                        height: 30px;
+                        line-height: 30px;
+                        border-radius: 3px;
+                        border: none;
+                        margin: 0 5px 0 0 ;
+                        padding: 0 8px;
+                        cursor: pointer;
+                        background-color: rgb(205, 81, 36);
+                        color: #fff;
+                        font-size: .9rem;
+
+                        &.light {
+                            background-color: #fff;
+                            color: rgb(27, 38, 54);
+
+                            &:hover {
+                                background-color: #fff;
+                                color: rgb(205, 81, 36);
+                            }
+                        }
+
+                        &.data {
+                            background-color: rgb(205, 81, 36);
+                            color: #fff;
+                        }
+
+                        &.function {
+                            background-color: #5D9CEC;
+                            color: #fff;
+                        }
+
+                        &.disabled {
+                            background-color: #333333;
+                            cursor: not-allowed;
+                        }
+
+                        &:hover {
+                            background-color: rgb(246, 114, 66);
+
+                            &.disabled {
+                                background-color: #333333;
+                                cursor: not-allowed;
+                            }
+
+                            &.data {
+                                background-color: rgb(246, 114, 66);
+                            }
+
+                            &.function {
+                                background-color: #3d71b6;
+                                color: #fff;
+                            }
+                        }
+                    }
+
+                    .input {
+                        color: #000;
+                        border: none;
+                        border-radius: 3px;
+                        outline: none;
+                        height: 30px;
+                        line-height: 30px;
+                        padding: 0 10px;
+                        background-color: rgba(240, 240, 240, 1);
+                        -webkit-font-smoothing: antialiased;
+
+                        &:hover {
+                            border: none;
+                            background-color: rgba(255, 255, 255, 1);
+                        }
+
+                        &:focus {
+                            border: none;
+                            background-color: rgba(255, 255, 255, 1);
+                        }
+                    }
+                }
+    
+            }
 
             .separator {
                 display: flex;

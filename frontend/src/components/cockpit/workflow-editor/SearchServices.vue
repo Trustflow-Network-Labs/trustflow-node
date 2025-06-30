@@ -1,9 +1,44 @@
 <template>
   <main :class="cockpitWorkflowEditorSearchServicesClass">
+    <div class="workflow-details">
+      <div class="workflow-details-header">
+        <div class="workflow-details-header-title">
+          <i class="pi pi-receipt"></i> {{ $t("message.cockpit.detail.workflow-editor.workflow-details.workflow-details") }}
+        </div>
+        <div class="workflow-details-header-window-controls">
+          <i :class="['pi', {'pi-window-minimize': workflowDetailsWindowMinimized, 'pi-window-maximize': !workflowDetailsWindowMinimized}]"
+            @click="toggleWindow('workflow-details')"></i>
+        </div>
+      </div>
+      <div v-show="!workflowDetailsWindowMinimized" class="workflow-details-body">
+        <div class="workflow-details-body-section">
+          <FloatLabel variant="on">
+            <InputText id="workflowName" v-model="workflowName" />
+            <label for="workflowName">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.workflow-name") }}</label>
+          </FloatLabel>
+        </div>
+        <div class="workflow-details-body-section">
+          <FloatLabel variant="on">
+              <Textarea id="workflowDescription" v-model="workflowDescription" rows="5" cols="30" style="resize: none" />
+              <label for="workflowDescription">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.workflow-description") }}</label>
+          </FloatLabel>
+        </div>
+        <div class="workflow-details-body-section buttons">
+          <div id="input" class="input-box">
+            <button :class="['btn', 'light']"
+              @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.delete") }}</button>
+          </div>
+          <div id="input" class="input-box">
+            <button :class="['btn']"
+              @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.save") }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="search-services">
       <div class="search-services-header">
         <div class="search-services-header-title">
-          <i class="pi pi-eye"></i> {{ $t("message.cockpit.detail.workflow-editor.search-services.search-services") }}
+          <i class="pi pi-search"></i> {{ $t("message.cockpit.detail.workflow-editor.search-services.search-services") }}
         </div>
         <div class="search-services-header-window-controls">
           <i :class="['pi', {'pi-window-minimize': searchServicesWindowMinimized, 'pi-window-maximize': !searchServicesWindowMinimized}]"
@@ -11,7 +46,7 @@
         </div>
       </div>
       <div v-show="!searchServicesWindowMinimized" class="search-services-body">
-        <div>
+        <div class="search-services-body-section">
           <InputGroup>
               <InputText v-model="searchServicesPhrases" :placeholder="$t('message.cockpit.detail.workflow-editor.search-services.search-phrases')"></InputText>
               <InputGroupAddon>
