@@ -6,8 +6,8 @@
       @drop="dropFunc($event)">
       <component v-for="(serviceCard, serviceCardIndex) in serviceCards" :key="serviceCardIndex"
         :is="serviceCard.type" v-bind="serviceCard.props"
-        :ref="`serviceCard${serviceCardIndex}`"
-        @close-service-card="(index) => removeServiceCard(index)" />
+        :ref="`serviceCard${serviceCard.props.serviceCardId}`"
+        @close-service-card="(id) => removeServiceCard(id)" />
     </div>
     <SearchServices
       v-if="workflowEditorEl" />

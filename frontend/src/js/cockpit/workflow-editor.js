@@ -35,6 +35,23 @@ const watch = {
         if (this.panesResized == true) {
         }
     },
+    serviceCards: {
+        handler(current, before) {
+            for (let i = 0; i < this.serviceCards.length; i++) {
+                const serviceCard = this.serviceCards[i]
+                const id = serviceCard.id
+                if (this.draggableServiceCards[id] != null) {
+                    this.draggableServiceCards[id].remove()
+                    delete this.draggableServiceCards[id]
+                }
+                this.$nextTick(() => {
+                    That.initDraggableServiceCard(serviceCard)
+                })
+            }
+        },
+        deep: true,
+		immediate: false,
+    }
 }
 
 const mounted = function() {
@@ -91,45 +108,74 @@ const methods = {
             y = Math.round(y/this.gridBoxYSize)*this.gridBoxYSize - this.gridBoxYSize
         }
 
-        this.serviceCards.push({
-            index: this.serviceCards.length,
+        let id = this.serviceCards.length
+        let serviceCard = {
+            id: id,
             type: 'ServiceCard',
             props: {
-                serviceCardId: this.serviceCards.length,
+                serviceCardId: id,
                 service: service,
             },
             coords: {
                 x: x,
                 y, y,
             }
+        }
+
+        this.serviceCards.push(serviceCard)
+    },
+    initDraggableServiceCard(serviceCard) {
+        const serviceCardRef = `serviceCard${serviceCard.id}`
+        const serviceCardEl = this.$refs[serviceCardRef][0].$el
+
+        this.draggableServiceCards[serviceCard.id] = new PlainDraggable(serviceCardEl, {
+            autoScroll: true,
         })
+        this.draggableServiceCards[serviceCard.id].left = serviceCard.coords.x
+        this.draggableServiceCards[serviceCard.id].top = serviceCard.coords.y
 
-        this.$nextTick(() => {
-            let serviceCardRef = `serviceCard${That.serviceCards.length-1}`
-            let serviceCardEl = That.$refs[serviceCardRef][0].$el
+        if (this.snapToGrid) {
+            this.draggableServiceCards[serviceCard.id].snap = {
+                targets: this.gridSnapTargets, gravity: this.gridSnapGravity
+            }
+        }
 
-            let serviceCardDraggable = new PlainDraggable(serviceCardEl)
-            serviceCardDraggable.left = x
-            serviceCardDraggable.top = y
-
-            if (That.snapToGrid) {
-                serviceCardDraggable.snap = {
-                    targets: That.gridSnapTargets, gravity: That.gridSnapGravity
+        let serviceCardIndex = this.findServiceCardIndex(serviceCard.id)
+        this.draggableServiceCards[serviceCard.id].onDragEnd = (pos) => {
+            if (serviceCardIndex >= 0) {
+                That.serviceCards[serviceCardIndex].coords = {
+                    x: pos.left,
+                    y: pos.top,
                 }
             }
-        })
+        }
     },
-    removeServiceCard(index) {
+    findServiceCardIndex(id) {
+        let serviceCardIndex = -1
+        for (let i = 0; i < this.serviceCards.length; i++) {
+            if (this.serviceCards[i].id == id) {
+                serviceCardIndex = i
+                break
+            } 
+        }
+        return serviceCardIndex
+    },
+    removeServiceCard(id) {
         let removeIndex = -1
         for (let i = 0; i < this.serviceCards.length; i++) {
-            if (this.serviceCards[i].index == index) {
+            if (this.serviceCards[i].id == id) {
                 removeIndex = i
                 break
             } 
             
         }
-        if (removeIndex >= 0) 
+        if (removeIndex >= 0) {
+            if (this.draggableServiceCards[id] != null) {
+                this.draggableServiceCards[id].remove()
+                delete this.draggableServiceCards[id]
+            }
             this.serviceCards.splice(removeIndex, 1)
+        }
     },
 }
 
@@ -172,6 +218,7 @@ export default {
 			gridSnapGravity: 80,
 			gridSnapTargets: [],
             serviceCards: [],
+            draggableServiceCards: {},
        }
     }
 }
