@@ -22,8 +22,8 @@ const created = async function () {
 }
 
 const computed = {
-    cockpitWorkflowEditorSearchServicesClass() {
-		return this.theme + '-cockpit-workflow-editor-search-services-' + this.themeVariety
+    cockpitWorkflowEditorWorkflowToolsClass() {
+		return this.theme + '-cockpit-workflow-editor-workflow-tools-' + this.themeVariety
 	},
 	locale() {
 		return MainStore.getLocale
@@ -106,7 +106,7 @@ export default {
         Textarea,
     },
 	directives: {},
-	name: 'WorkflowEditorSearchServices',
+	name: 'WorkflowEditorWorkflowTools',
     setup: setup,
     created: created,
     computed: computed,

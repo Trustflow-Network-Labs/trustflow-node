@@ -1,6 +1,6 @@
 import { useMainStore } from '../../stores/main.js'
 
-import SearchServices from '../../components/cockpit/workflow-editor/SearchServices.vue'
+import WorkflowTools from '../../components/cockpit/workflow-editor/WorkflowTools.vue'
 import ServiceCard from '../../components/cockpit/workflow-editor/ServiceCard.vue'
 
 import PlainDraggable from "plain-draggable"
@@ -189,7 +189,7 @@ export default {
 	mixins: [
     ],
 	components: {
-        SearchServices,
+        WorkflowTools,
         ServiceCard,
     },
 	directives: {},

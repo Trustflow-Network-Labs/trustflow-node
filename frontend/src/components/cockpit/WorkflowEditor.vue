@@ -9,7 +9,7 @@
         :ref="`serviceCard${serviceCard.props.serviceCardId}`"
         @close-service-card="(id) => removeServiceCard(id)" />
     </div>
-    <SearchServices
+    <WorkflowTools
       v-if="workflowEditorEl" />
   </main>
 </template>

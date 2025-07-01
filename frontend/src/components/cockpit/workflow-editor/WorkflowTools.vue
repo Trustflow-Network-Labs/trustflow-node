@@ -1,5 +1,5 @@
 <template>
-  <main :class="cockpitWorkflowEditorSearchServicesClass">
+  <main :class="cockpitWorkflowEditorWorkflowToolsClass">
     <div class="workflow-details">
       <div class="workflow-details-header">
         <div class="workflow-details-header-title">
@@ -71,5 +71,5 @@
   </main>
 </template>
 
-<script src="../../../js/cockpit/workflow-editor/search-services.js" scoped />
-<style src="../../../scss/cockpit/workflow-editor/search-services.scss" lang="scss" scoped />
+<script src="../../../js/cockpit/workflow-editor/workflow-tools.js" scoped />
+<style src="../../../scss/cockpit/workflow-editor/workflow-tools.scss" lang="scss" scoped />
