@@ -43,6 +43,15 @@ const watch = {
     serviceOffer() {
         this.serviceOffers.push(this.serviceOffer)
     },
+    searchServicesWindowMinimized() {
+        let workflowToolsContainer = this.$refs['workflowToolsContainer']
+        if (this.searchServicesWindowMinimized) {
+            workflowToolsContainer.style.setProperty(`--height`, `none`)
+        }
+        else {
+            workflowToolsContainer.style.setProperty(`--height`, `100vh`)
+        }
+    },
 }
 
 const mounted = function() {

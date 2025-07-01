@@ -1,5 +1,6 @@
 <template>
   <main :class="cockpitWorkflowEditorWorkflowToolsClass">
+    <div ref="workflowToolsContainer" class="workflow-tools-container">
     <div class="workflow-details">
       <div class="workflow-details-header">
         <div class="workflow-details-header-title">
@@ -67,6 +68,7 @@
             @drop="dropFunc($event)" />
         </div>
       </div>
+    </div>
     </div>
   </main>
 </template>
