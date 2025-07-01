@@ -24,14 +24,22 @@
               <label for="workflowDescription">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.workflow-description") }}</label>
           </FloatLabel>
         </div>
-        <div class="workflow-details-body-section buttons">
-          <div id="input" class="input-box">
-            <button :class="['btn', 'light']"
-              @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.delete") }}</button>
+        <div class="workflow-details-body-section in-line-stretch">
+          <div class="workflow-details-body-section-left">
+            <div>Snap to grid</div>
+            <div>
+              <ToggleButton v-model="snapToGrid" onLabel="On" offLabel="Off" size="small" />
+            </div>
           </div>
-          <div id="input" class="input-box">
-            <button :class="['btn']"
-              @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.save") }}</button>
+          <div class="workflow-details-body-section-right">
+            <div id="input" class="input-box">
+              <button :class="['btn', 'light']"
+                @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.delete") }}</button>
+            </div>
+            <div id="input" class="input-box">
+              <button :class="['btn']"
+                @click="">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.save") }}</button>
+            </div>
           </div>
         </div>
       </div>

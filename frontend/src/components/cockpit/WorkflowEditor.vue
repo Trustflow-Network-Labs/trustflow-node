@@ -10,7 +10,8 @@
         @close-service-card="(id) => removeServiceCard(id)" />
     </div>
     <WorkflowTools
-      v-if="workflowEditorEl" />
+      v-if="workflowEditorEl"
+      @snap-to-grid="(snap) => snapToGrid = snap" />
   </main>
 </template>
 

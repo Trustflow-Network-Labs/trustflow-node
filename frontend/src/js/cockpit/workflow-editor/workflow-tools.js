@@ -4,13 +4,14 @@ import { useMainStore } from '../../../stores/main.js'
 
 import SearchResult from '../../../components/cockpit/workflow-editor/SearchResult.vue'
 
-import InputGroup from 'primevue/inputgroup';
-import InputText from 'primevue/inputtext';
-import InputGroupAddon from 'primevue/inputgroupaddon';
-import Menu from 'primevue/menu';
-import Button from 'primevue/button';
-import FloatLabel from 'primevue/floatlabel';
-import Textarea from 'primevue/textarea';
+import InputGroup from 'primevue/inputgroup'
+import InputText from 'primevue/inputtext'
+import InputGroupAddon from 'primevue/inputgroupaddon'
+import Menu from 'primevue/menu'
+import Button from 'primevue/button'
+import FloatLabel from 'primevue/floatlabel'
+import Textarea from 'primevue/textarea'
+import ToggleButton from 'primevue/togglebutton'
 
 let MainStore, That
 const setup = function() {
@@ -51,6 +52,9 @@ const watch = {
         else {
             workflowToolsContainer.style.setProperty(`--height`, `100vh`)
         }
+    },
+    snapToGrid() {
+        this.$emit('snap-to-grid', this.snapToGrid)
     },
 }
 
@@ -113,6 +117,7 @@ export default {
         Button,
         FloatLabel,
         Textarea,
+        ToggleButton,
     },
 	directives: {},
 	name: 'WorkflowEditorWorkflowTools',
@@ -160,6 +165,7 @@ export default {
             workflowDescription: "",
             searchServicesWindowMinimized: false,
             serviceOffers: [],
+            snapToGrid: false,
         }
     }
 }

@@ -17,6 +17,13 @@
     --p-textarea-background: #fff;
     --p-textarea-color: rgb(27, 38, 54);
     --p-textarea-focus-border-color: rgba(205, 81, 36, .5);
+    --p-togglebutton-background: #fff;
+    --p-togglebutton-border-color: none;
+    --p-togglebutton-hover-background: rgb(246, 114, 66);
+    --p-togglebutton-hover-color: #fff;
+    --p-togglebutton-checked-background: rgb(246, 114, 66);
+    --p-togglebutton-checked-border-color: none;
+    --p-togglebutton-content-checked-background: rgb(246, 114, 66);
 
     --height: 100vh;
 
@@ -93,7 +100,7 @@
             padding: 10px;
 
             display: flex;
-            flex-direction: rows;
+            flex-direction: row;
             flex-wrap: nowrap;
             justify-content: space-between;
             align-content: center;
@@ -125,13 +132,41 @@
                     margin-bottom: 0;
                 }
 
-                &.buttons {
+                &.in-line-stretch {
                     display: flex;
-                    flex-direction: rows;
+                    flex-direction: row;
                     flex-wrap: nowrap;
-                    justify-content: flex-end;
+                    justify-content: space-between;
                     align-content: center;
                     align-items: center;
+
+                    .workflow-details-body-section-left {
+                        display: flex;
+                        flex-direction: row;
+                        flex-wrap: nowrap;
+                        justify-content: flex-start;
+                        align-content: center;
+                        align-items: center;
+
+                        div {
+                            font-size: .75rem;
+                            
+                            &:first-child {
+                                margin-right: .5rem;
+                            }
+                        }
+                    }
+
+                    .workflow-details-body-section-right {
+                        flex: 1;
+
+                        display: flex;
+                        flex-direction: row;
+                        flex-wrap: nowrap;
+                        justify-content: flex-end;
+                        align-content: center;
+                        align-items: center;
+                    }
                 }
 
                 .input-box {
