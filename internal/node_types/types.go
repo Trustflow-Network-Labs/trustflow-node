@@ -241,15 +241,20 @@ type Workflow struct {
 	Jobs        []WorkflowJob `json:"jobs"`
 }
 
-// Declare workflow job struct
-type WorkflowJob struct {
-	Id                 int64  `json:"id"`
-	WorkflowId         int64  `json:"workflow_id"`
+// Declare workflow job base struct
+type WorkflowJobBase struct {
 	NodeId             string `json:"node_id"`
 	ServiceId          int64  `json:"service_id"`
 	JobId              int64  `json:"job_id"`
 	ExpectedJobOutputs string `json:"expected_job_outputs"`
-	Status             string `json:"status"`
+}
+
+// Declare workflow job struct
+type WorkflowJob struct {
+	Id              int64           `json:"id"`
+	WorkflowId      int64           `json:"workflow_id"`
+	WorkflowJobBase WorkflowJobBase `json:"workflow_job_base"`
+	Status          string          `json:"status"`
 }
 
 // Declare job base struct

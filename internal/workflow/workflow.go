@@ -114,9 +114,11 @@ func (wm *WorkflowManager) Get(id int64) (node_types.Workflow, error) {
 
 	var workflowjobs []node_types.WorkflowJob
 	for rows.Next() {
+		var workflowjobBase node_types.WorkflowJobBase
 		var workflowjob node_types.WorkflowJob
-		if err := rows.Scan(&workflowjob.Id, &workflowjob.WorkflowId, &workflowjob.NodeId,
-			&workflowjob.ServiceId, &workflowjob.JobId, &workflowjob.Status); err == nil {
+		if err := rows.Scan(&workflowjob.Id, &workflowjob.WorkflowId, &workflowjobBase.NodeId,
+			&workflowjobBase.ServiceId, &workflowjobBase.JobId, &workflowjob.Status); err == nil {
+			workflowjob.WorkflowJobBase = workflowjobBase
 			workflowjobs = append(workflowjobs, workflowjob)
 		}
 	}
@@ -196,72 +198,155 @@ func (wm *WorkflowManager) List(params ...uint32) ([]node_types.Workflow, error)
 }
 
 // Add a workflow
-func (wm *WorkflowManager) Add(name string, description string, nodeId string, serviceId int64, jobId int64) (int64, int64, error) {
-	wm.lm.Log("debug", fmt.Sprintf("add workflow %s (%s-%d) service id: %d", name, nodeId, jobId, serviceId), "workflows")
+func (wm *WorkflowManager) Add(name string, description string, workflowJobBases []node_types.WorkflowJobBase) (int64, []int64, error) {
+	wm.lm.Log("debug", fmt.Sprintf("adding workflow %s", name), "workflows")
 
-	var wjid int64 = 0
+	var wjids []int64
 
 	result, err := wm.db.ExecContext(context.Background(), "insert into workflows (name, description) values (?, ?);",
 		name, description)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")
-		return 0, 0, err
+		return 0, nil, err
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")
-		return 0, 0, err
+		return 0, nil, err
 	}
 
-	if serviceId > 0 {
-		result, err = wm.db.ExecContext(context.Background(), "insert into workflow_jobs (workflow_id, node_id, service_id, job_id) values (?, ?, ?, ?);",
-			id, nodeId, serviceId, jobId)
+	if len(workflowJobBases) > 0 {
+		wjids, err = wm.AddWorkflowJobs(id, workflowJobBases)
 		if err != nil {
 			wm.lm.Log("error", err.Error(), "workflows")
-			return 0, 0, err
-		}
-
-		wjid, err = result.LastInsertId()
-		if err != nil {
-			wm.lm.Log("error", err.Error(), "workflows")
-			return 0, 0, err
+			return 0, nil, err
 		}
 	}
 
-	return id, wjid, nil
+	return id, wjids, nil
+}
+
+// Update a workflow
+func (wm *WorkflowManager) Update(workflowId int64, name string, description string, workflowJobBases []node_types.WorkflowJobBase) ([]int64, error) {
+	wm.lm.Log("debug", fmt.Sprintf("updating workflow %s", name), "workflows")
+
+	var wjids []int64
+
+	// Get workflow
+	workflow, err := wm.Get(workflowId)
+	if err != nil {
+		wm.lm.Log("debug", err.Error(), "workflows")
+		return nil, err
+	}
+
+	_, err = wm.db.ExecContext(context.Background(), "update workflows set name = ?, description = ? where id = ?);",
+		name, description, workflowId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return nil, err
+	}
+
+	for _, workflowJob := range workflow.Jobs {
+		err = wm.RemoveWorkflowJob(workflowJob.Id)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflows")
+			return nil, err
+		}
+	}
+
+	if len(workflowJobBases) > 0 {
+		wjids, err = wm.AddWorkflowJobs(workflowId, workflowJobBases)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflows")
+			return nil, err
+		}
+	}
+
+	return wjids, nil
 }
 
 // Add a workflow job
-func (wm *WorkflowManager) AddWorkflowJob(workflowId int64, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) (int64, error) {
+func (wm *WorkflowManager) AddWorkflowJobs(workflowId int64, workflowJobBases []node_types.WorkflowJobBase) ([]int64, error) {
 	// Check if workflow exists
 	if err, exists := wm.Exists(workflowId); err != nil || !exists {
 		err = fmt.Errorf("workflow %d does not exist", workflowId)
 		wm.lm.Log("debug", err.Error(), "workflows")
-		return 0, err
+		return nil, err
 	}
 
-	// Add workflow job
-	wm.lm.Log("debug", fmt.Sprintf("add workflow job %s-%d (service id: %d) to workflow id %d", nodeId, jobId, serviceId, workflowId), "workflows")
+	var ids []int64
+	// Add workflow jobs
+	for _, workflowJobBase := range workflowJobBases {
+		wm.lm.Log("debug", fmt.Sprintf("add workflow job %s-%d (service id: %d) to workflow id %d", workflowJobBase.NodeId, workflowJobBase.JobId, workflowJobBase.ServiceId, workflowId), "workflows")
 
-	result, err := wm.db.ExecContext(context.Background(), "insert into workflow_jobs (workflow_id, node_id, service_id, job_id, expected_job_outputs) values (?, ?, ?, ?, ?);",
-		workflowId, nodeId, serviceId, jobId, expectedJobOutputs)
-	if err != nil {
-		wm.lm.Log("error", err.Error(), "workflows")
-		return 0, err
+		result, err := wm.db.ExecContext(context.Background(), "insert into workflow_jobs (workflow_id, node_id, service_id, job_id, expected_job_outputs) values (?, ?, ?, ?, ?);",
+			workflowId, workflowJobBase.NodeId, workflowJobBase.ServiceId, workflowJobBase.JobId, workflowJobBase.ExpectedJobOutputs)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflows")
+			return nil, err
+		}
+
+		id, err := result.LastInsertId()
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflows")
+			return nil, err
+		}
+		ids = append(ids, id)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		wm.lm.Log("error", err.Error(), "workflows")
-		return 0, err
-	}
-
-	return id, nil
+	return ids, nil
 }
 
-// Accepted a workflow job
-func (wm *WorkflowManager) AcceptedWorkflowJob(workflowId int64, workflowJobId int64, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) error {
+// Get workflow job
+func (wm *WorkflowManager) GetWorkflowJob(id int64) (node_types.WorkflowJob, error) {
+	var workflowjob node_types.WorkflowJob
+	var workflowjobBase node_types.WorkflowJobBase
+	// Search for a workflow job
+	row := wm.db.QueryRowContext(context.Background(), "select id, workflow_id, node_id, service_id, job_id, status from workflow_jobs where id = ?;", id)
+
+	err := row.Scan(&workflowjob.Id, &workflowjob.WorkflowId, &workflowjobBase.NodeId, &workflowjobBase.ServiceId, &workflowjobBase.JobId, &workflowjob.Status)
+	if err != nil {
+		msg := err.Error()
+		wm.lm.Log("debug", msg, "workflows")
+		return workflowjob, err
+	}
+
+	workflowjob.WorkflowJobBase = workflowjobBase
+
+	return workflowjob, nil
+}
+
+// Remove a workflow job
+func (wm *WorkflowManager) RemoveWorkflowJob(workflowJobId int64) error {
+	// Get workflow job
+	workflowJob, err := wm.GetWorkflowJob(workflowJobId)
+	if err != nil {
+		wm.lm.Log("debug", err.Error(), "workflows")
+		return err
+	}
+
+	if workflowJob.Status != "IDLE" {
+		err = fmt.Errorf("can not remove workflow job id %d in status %s",
+			workflowJobId, workflowJob.Status)
+		wm.lm.Log("debug", err.Error(), "workflows")
+		return err
+	}
+
+	// Remove workflow job
+	wm.lm.Log("debug", fmt.Sprintf("removing workflow job %d", workflowJobId), "workflows")
+
+	_, err = wm.db.ExecContext(context.Background(), "delete from workflow_jobs where id = ?;", workflowJobId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return err
+	}
+
+	return nil
+}
+
+// Update status of a requested service / job to accepted
+func (wm *WorkflowManager) RegisteredWorkflowJob(workflowId int64, workflowJobId int64, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) error {
 	// Check if workflow exists
 	if err, exists := wm.Exists(workflowId); err != nil || !exists {
 		err = fmt.Errorf("workflow %d does not exist", workflowId)
@@ -274,50 +359,6 @@ func (wm *WorkflowManager) AcceptedWorkflowJob(workflowId int64, workflowJobId i
 
 	_, err := wm.db.ExecContext(context.Background(), "update workflow_jobs set job_id = ?, expected_job_outputs = ? where id = ?;",
 		jobId, expectedJobOutputs, workflowJobId)
-	if err != nil {
-		wm.lm.Log("error", err.Error(), "workflows")
-		return err
-	}
-
-	return nil
-}
-
-// Remove a workflow job
-func (wm *WorkflowManager) RemoveWorkflowJob(workflowId int64, nodeId string, jobId int64) error {
-	// Check if workflow exists
-	if err, exists := wm.Exists(workflowId); err != nil || !exists {
-		err = fmt.Errorf("workflow %d does not exist", workflowId)
-		wm.lm.Log("debug", err.Error(), "workflows")
-		return err
-	}
-
-	// Check job status
-	workflow, err := wm.Get(workflowId)
-	if err != nil {
-		wm.lm.Log("debug", err.Error(), "workflows")
-		return err
-	}
-
-	var wfjob node_types.WorkflowJob
-	for _, job := range workflow.Jobs {
-		if job.JobId == jobId {
-			wfjob = job
-			break
-		}
-	}
-
-	if wfjob.Status != "IDLE" {
-		err = fmt.Errorf("can not remove workflow job in status %s from workflow Id %d",
-			wfjob.Status, workflowId)
-		wm.lm.Log("debug", err.Error(), "workflows")
-		return err
-	}
-
-	// Remove workflow job
-	wm.lm.Log("debug", fmt.Sprintf("remove workflow job %s-%d from workflow id %d", nodeId, jobId, workflowId), "workflows")
-
-	_, err = wm.db.ExecContext(context.Background(), "delete from workflow_jobs where workflow_id = ? and node_id = ? and job_id = ?;",
-		workflowId, nodeId, jobId)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")
 		return err
@@ -344,7 +385,7 @@ func (wm *WorkflowManager) UpdateWorkflowJobStatus(workflowId int64, nodeId stri
 
 	var exists bool = false
 	for _, job := range workflow.Jobs {
-		if job.JobId == jobId {
+		if job.WorkflowJobBase.JobId == jobId {
 			exists = true
 			break
 		}

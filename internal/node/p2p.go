@@ -1124,7 +1124,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				p2pm.lm.Log("error", msg, "p2p")
 			} else {
 				// Add job to the workflow
-				err = p2pm.wm.AcceptedWorkflowJob(serviceResponse.WorkflowId, serviceResponse.WorkflowJobId,
+				err = p2pm.wm.RegisteredWorkflowJob(serviceResponse.WorkflowId, serviceResponse.WorkflowJobId,
 					serviceResponse.NodeId, serviceResponse.ServiceId, serviceResponse.JobId, serviceResponse.Message)
 				if err != nil {
 					msg := fmt.Sprintf("Workflow job acceptance (%s-%d) to workflow %d ended up with error.\n\n%s",

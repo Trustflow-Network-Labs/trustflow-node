@@ -388,15 +388,28 @@ func (mm *MenuManager) requestService() error {
 		}
 
 		// Add workflow and a workflow job
-		workflowId, _, err = mm.wm.Add(wfnResult, wfdResult, peer.ID.String(), serviceId, 0)
+		// Create workflow jobs
+		workflowJob := node_types.WorkflowJobBase{
+			NodeId:             peer.ID.String(),
+			ServiceId:          serviceId,
+			JobId:              0,
+			ExpectedJobOutputs: "",
+		}
+		workflowId, _, err = mm.wm.Add(wfnResult, wfdResult, []node_types.WorkflowJobBase{workflowJob})
 		if err != nil {
 			fmt.Printf("Adding new workflow failed: %s\n", err.Error())
 			return err
 		}
 	}
 
-	// Add job to the workflow
-	_, err = mm.wm.AddWorkflowJob(workflowId, peer.ID.String(), serviceId, 0, "")
+	// Create workflow jobs
+	workflowJob := node_types.WorkflowJobBase{
+		NodeId:             peer.ID.String(),
+		ServiceId:          serviceId,
+		JobId:              0,
+		ExpectedJobOutputs: "",
+	}
+	_, err = mm.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJobBase{workflowJob})
 	if err != nil {
 		fmt.Printf("Adding new workflow job failed: %s\n", err.Error())
 		return err
@@ -409,7 +422,7 @@ func (mm *MenuManager) requestService() error {
 		paying for service should come once flow is ready to run
 	*/
 	/*
-		err = mm.jm.RequestService(peer, workflowId, serviceId, entrypoint, commands, serviceRequestInterfaces, cResult, "")
+		err = mm.jm.RequestJob(peer, workflowId, serviceId, entrypoint, commands, serviceRequestInterfaces, cResult, "")
 		if err != nil {
 			fmt.Printf("Requesting service failed: %s\n", err.Error())
 			return err
@@ -809,7 +822,7 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 		table.Append(row)
 
 		for i, job := range workflow.Jobs {
-			row = []string{"", fmt.Sprintf("%d.%d Job ID:", workflow.Id, i+1), fmt.Sprintf("%d-%s-%d", workflow.Id, job.NodeId, job.JobId), job.Status}
+			row = []string{"", fmt.Sprintf("%d.%d Job ID:", workflow.Id, i+1), fmt.Sprintf("%d-%s-%d", workflow.Id, job.WorkflowJobBase.NodeId, job.WorkflowJobBase.JobId), job.Status}
 			table.Append(row)
 		}
 	}
@@ -854,12 +867,12 @@ func (mm *MenuManager) runWorkflow() error {
 	}
 
 	for _, job := range workflow.Jobs {
-		peer, err := mm.p2pm.GeneratePeerAddrInfo(job.NodeId)
+		peer, err := mm.p2pm.GeneratePeerAddrInfo(job.WorkflowJobBase.NodeId)
 		if err != nil {
 			mm.lm.Log("error", err.Error(), "menu")
 			return err
 		}
-		err = mm.jm.RequestJobRun(peer, workflow.Id, job.JobId)
+		err = mm.jm.RequestJobRun(peer, workflow.Id, job.WorkflowJobBase.JobId)
 		if err != nil {
 			mm.lm.Log("error", err.Error(), "menu")
 			return err

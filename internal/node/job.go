@@ -358,7 +358,7 @@ func (jm *JobManager) UpdateJobExecutionConstraint(id int64, constraint string) 
 	return nil
 }
 
-func (jm *JobManager) RequestService(
+func (jm *JobManager) RequestJob(
 	peer peer.AddrInfo,
 	workflowId int64,
 	workflowJobId int64,
