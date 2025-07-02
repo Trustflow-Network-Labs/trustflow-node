@@ -140,6 +140,34 @@ func (jm *JobManager) GetJob(id int64) (node_types.Job, error) {
 	return job, nil
 }
 
+// Remove a  job
+func (jm *JobManager) RemoveJob(id int64) error {
+	// Get job
+	job, err := jm.GetJob(id)
+	if err != nil {
+		jm.lm.Log("debug", err.Error(), "jobs")
+		return err
+	}
+
+	if job.Status != "IDLE" {
+		err = fmt.Errorf("can not remove job id %d in status %s",
+			id, job.Status)
+		jm.lm.Log("debug", err.Error(), "jobs")
+		return err
+	}
+
+	// Remove job
+	jm.lm.Log("debug", fmt.Sprintf("removing job %d", id), "jobs")
+
+	_, err = jm.db.ExecContext(context.Background(), "delete from jobs where id = ?;", id)
+	if err != nil {
+		jm.lm.Log("error", err.Error(), "jobs")
+		return err
+	}
+
+	return nil
+}
+
 // Get jobs by service ID
 func (jm *JobManager) GetJobsByServiceId(serviceId int64, params ...uint32) ([]node_types.Job, error) {
 	var jobSql node_types.JobSql
@@ -387,6 +415,34 @@ func (jm *JobManager) RequestJob(
 	}
 
 	err = StreamData(jm.p2pm, peer, &serviceRequest, nil, nil)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	return nil
+}
+
+func (jm *JobManager) RequestJobCancellation(
+	peer peer.AddrInfo,
+	jobId int64,
+	workflowJobId int64,
+) error {
+	_, err := jm.p2pm.ConnectNode(peer)
+	if err != nil {
+		msg := err.Error()
+		jm.lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	serviceRequestCancellation := node_types.ServiceRequestCancellation{
+		NodeId:        peer.ID.String(),
+		JobId:         jobId,
+		WorkflowJobId: workflowJobId,
+	}
+
+	err = StreamData(jm.p2pm, peer, &serviceRequestCancellation, nil, nil)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")

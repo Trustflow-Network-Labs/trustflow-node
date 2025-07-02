@@ -192,6 +192,22 @@ type ServiceResponse struct {
 	ServiceRequest
 }
 
+// Declare service request cancellation type
+type ServiceRequestCancellation struct {
+	NodeId        string `json:"node_id"`
+	JobId         int64  `json:"job_id"`
+	WorkflowJobId int64  `json:"workflow_job_id"`
+}
+
+// Declare response type for a service request cancellation
+type ServiceResponseCancellation struct {
+	JobId          int64  `json:"job_id"`
+	Accepted       bool   `json:"accepted"`
+	Message        string `json:"message"`
+	OrderingNodeId string `json:"ordering_node_id"`
+	ServiceRequestCancellation
+}
+
 // Declare service offer type
 type ServiceOffer struct {
 	Service

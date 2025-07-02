@@ -508,6 +508,10 @@ func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, jo
 		t = 9
 	case *node_types.JobDataRequest:
 		t = 10
+	case *node_types.ServiceRequestCancellation:
+		t = 11
+	case *node_types.ServiceResponseCancellation:
+		t = 12
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.lm.Log("error", msg, "p2p")
@@ -621,6 +625,12 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	case 10:
 		// Request to receive a Job Data Request from the remote peer
 		accepted = settingsManager.ReadBoolSetting("accept_job_data_request")
+	case 11:
+		// Request to receive a Service Request Cancllation from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_service_request_cancellation")
+	case 12:
+		// Request to receive a Service Response Cancellation from the remote peer
+		accepted = settingsManager.ReadBoolSetting("accept_service_response_cancellation")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
 		p2pm.lm.Log("debug", message, "p2p")
@@ -695,7 +705,8 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse,
 		*node_types.JobRunRequest, *node_types.JobRunResponse,
 		*node_types.JobRunStatus, *node_types.JobRunStatusRequest,
-		*node_types.JobDataReceiptAcknowledgement, *node_types.JobDataRequest:
+		*node_types.JobDataReceiptAcknowledgement, *node_types.JobDataRequest,
+		*node_types.ServiceRequestCancellation, *node_types.ServiceResponseCancellation:
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.lm.Log("error", err.Error(), "p2p")
@@ -790,7 +801,7 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	// Determine data type
 	switch streamData.Type {
-	case 0, 1, 4, 5, 6, 7, 8, 9, 10:
+	case 0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12:
 		// Prepare to read back the data
 		var data []byte
 		for {
@@ -1358,6 +1369,142 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			if err != nil {
 				p2pm.lm.Log("error", err.Error(), "p2p")
 				s.Close()
+				return
+			}
+		} else if streamData.Type == 11 {
+			// Received a Service Request Cancelation from the remote peer
+			var serviceRequestCancellation node_types.ServiceRequestCancellation
+
+			peerId := s.Conn().RemotePeer()
+			peer, err := p2pm.GeneratePeerAddrInfo(peerId.String())
+			if err != nil {
+				msg := err.Error()
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Close()
+				return
+			}
+
+			err = json.Unmarshal(data, &serviceRequestCancellation)
+			if err != nil {
+				msg := fmt.Sprintf("Could not load received binary stream into a Service Request Cancellation struct.\n\n%s", err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Close()
+				return
+			}
+
+			remotePeer := peerId.String()
+			serviceResponseCancellation := node_types.ServiceResponseCancellation{
+				JobId:                      serviceRequestCancellation.JobId,
+				Accepted:                   false,
+				Message:                    "",
+				OrderingNodeId:             remotePeer,
+				ServiceRequestCancellation: serviceRequestCancellation,
+			}
+
+			// Get job
+			jobManager := NewJobManager(p2pm)
+			job, err := jobManager.GetJob(serviceRequestCancellation.JobId)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+
+				serviceResponseCancellation.Message = err.Error()
+				err = StreamData(p2pm, peer, &serviceResponseCancellation, nil, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+
+			// Check if job is owned by ordering peer
+			if job.OrderingNodeId != remotePeer {
+				err := fmt.Errorf("job cancellation request for job Id %d is made by node %s who is not owning the job", serviceRequestCancellation.JobId, remotePeer)
+				p2pm.lm.Log("error", err.Error(), "p2p")
+
+				serviceResponseCancellation.Message = err.Error()
+				err = StreamData(p2pm, peer, &serviceResponseCancellation, nil, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+
+			// Remove a job
+			err = jobManager.RemoveJob(serviceRequestCancellation.JobId)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+
+				serviceResponseCancellation.Message = err.Error()
+				err = StreamData(p2pm, peer, &serviceResponseCancellation, nil, nil)
+				if err != nil {
+					p2pm.lm.Log("error", err.Error(), "p2p")
+					s.Close()
+					return
+				}
+
+				s.Close()
+				return
+			}
+
+			// Send a response
+			serviceResponseCancellation.Accepted = true
+			err = StreamData(p2pm, peer, &serviceResponseCancellation, nil, nil)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Close()
+				return
+			}
+		} else if streamData.Type == 12 {
+			// Received a Service Response Cancellation from the remote peer
+			var serviceResponseCancellation node_types.ServiceResponseCancellation
+			err := json.Unmarshal(data, &serviceResponseCancellation)
+			if err != nil {
+				msg := fmt.Sprintf("Could not load received binary stream into a Service Response Cancellation struct.\n\n%s", err.Error())
+				p2pm.lm.Log("error", msg, "p2p")
+				s.Reset()
+				return
+			}
+
+			if !serviceResponseCancellation.Accepted {
+				msg := fmt.Sprintf("Service Request Cancellation (job Id %d) for node Id %s is not accepted with the following reason: %s.\n\n",
+					serviceResponseCancellation.JobId, serviceResponseCancellation.NodeId, serviceResponseCancellation.Message)
+				p2pm.lm.Log("error", msg, "p2p")
+			} else {
+				// Remove a workflow job
+				err = p2pm.wm.RemoveWorkflowJob(serviceResponseCancellation.WorkflowJobId)
+				if err != nil {
+					msg := fmt.Sprintf("Removing Workflow Job id %d from node id %s ended up with error.\n\n%s",
+						serviceResponseCancellation.JobId, serviceResponseCancellation.NodeId, err.Error())
+					p2pm.lm.Log("error", msg, "p2p")
+					s.Reset()
+					return
+				}
+			}
+
+			// Draw table output
+			// If we are in interactive mode print to CLI
+			uiType, err := ui.DetectUIType(p2pm.UI)
+			if err != nil {
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
+				return
+			}
+			switch uiType {
+			case "CLI":
+				// TODO, CLI
+			case "GUI":
+				// TODO, GUI push message
+			default:
+				err := fmt.Errorf("unknown UI type %s", uiType)
+				p2pm.lm.Log("error", err.Error(), "p2p")
+				s.Reset()
 				return
 			}
 		}
