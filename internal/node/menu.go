@@ -43,10 +43,10 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 		sm:   NewServiceManager(p2pm),
 		vm:   utils.NewValidatorManager(),
 		tm:   utils.NewTextManager(),
-		pm:   price.NewPriceManager(p2pm.db),
-		rm:   resource.NewResourceManager(p2pm.db),
-		cm:   currency.NewCurrencyManager(p2pm.db),
-		wm:   workflow.NewWorkflowManager(p2pm.db),
+		pm:   price.NewPriceManager(p2pm.DB),
+		rm:   resource.NewResourceManager(p2pm.DB),
+		cm:   currency.NewCurrencyManager(p2pm.DB),
+		wm:   workflow.NewWorkflowManager(p2pm.DB),
 		jm:   NewJobManager(p2pm),
 	}
 }
@@ -952,7 +952,7 @@ func (mm *MenuManager) blacklist() {
 	}
 }
 func (mm *MenuManager) listBlacklistNodes() error {
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
 	if err != nil {
 		fmt.Println(err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
@@ -981,7 +981,7 @@ func (mm *MenuManager) addBlacklistNode() error {
 	}
 
 	// Add node to a blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
@@ -1013,7 +1013,7 @@ func (mm *MenuManager) removeNodeFromBlacklist() error {
 	}
 
 	// Remove node from blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.db, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")

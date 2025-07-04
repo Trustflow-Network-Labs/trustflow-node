@@ -55,7 +55,7 @@ type P2PManager struct {
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
-	db                 *sql.DB
+	DB                 *sql.DB
 	crons              []*cron.Cron
 	lm                 *utils.LogsManager
 	wm                 *workflow.WorkflowManager
@@ -81,7 +81,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		idht:               nil,
 		h:                  nil,
 		ctx:                nil,
-		db:                 db,
+		DB:                 db,
 		crons:              []*cron.Cron{},
 		lm:                 utils.NewLogsManager(),
 		wm:                 workflow.NewWorkflowManager(db),
@@ -122,7 +122,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		return
 	}
 
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.db, p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.DB, p2pm.UI)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return
@@ -153,7 +153,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	//	cntx := context.Background()
 
 	// Create or get previously created node key
-	keystoreManager := keystore.NewKeyStoreManager(p2pm.db)
+	keystoreManager := keystore.NewKeyStoreManager(p2pm.DB)
 	priv, _, err := keystoreManager.ProvideKey()
 	if err != nil {
 		p2pm.lm.Log("panic", err.Error(), "p2p")
@@ -275,7 +275,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	}
 
 	// When host is stopped close DB connection
-	if err = p2pm.db.Close(); err != nil {
+	if err = p2pm.DB.Close(); err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 	}
 }
@@ -589,7 +589,7 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 
 func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	var accepted bool
-	settingsManager := settings.NewSettingsManager(p2pm.db)
+	settingsManager := settings.NewSettingsManager(p2pm.DB)
 	// Check what the stream proposal is about
 	switch streamDataType {
 	case 0:
@@ -1178,7 +1178,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			}
 
 			// Update workflow job status
-			workflowManager := workflow.NewWorkflowManager(p2pm.db)
+			workflowManager := workflow.NewWorkflowManager(p2pm.DB)
 			if !jobRunResponse.Accepted {
 				msg := fmt.Sprintf("Job Run Request (job run request Id %d) for node Id %s is not accepted with the following reason: %s.\n\n",
 					jobRunResponse.JobId, jobRunResponse.NodeId, jobRunResponse.Message)
@@ -1226,7 +1226,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			}
 
 			// Update workflow job status
-			workflowManager := workflow.NewWorkflowManager(p2pm.db)
+			workflowManager := workflow.NewWorkflowManager(p2pm.DB)
 			err = workflowManager.UpdateWorkflowJobStatus(jobRunStatus.WorkflowId, jobRunStatus.NodeId, jobRunStatus.JobId, jobRunStatus.Status)
 			if err != nil {
 				msg := fmt.Sprintf("Could not update workflow job %d-%s-%d status to %s.\n\n%s",

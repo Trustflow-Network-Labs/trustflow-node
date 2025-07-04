@@ -1,0 +1,35 @@
+export namespace main {
+	
+	export class AddWorkflowJobResponse {
+	    workflow_jobs_ids: number[];
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddWorkflowJobResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workflow_jobs_ids = source["workflow_jobs_ids"];
+	        this.error = source["error"];
+	    }
+	}
+	export class AddWorkflowResponse {
+	    workflow_id: number;
+	    workflow_jobs_ids: number[];
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddWorkflowResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workflow_id = source["workflow_id"];
+	        this.workflow_jobs_ids = source["workflow_jobs_ids"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+

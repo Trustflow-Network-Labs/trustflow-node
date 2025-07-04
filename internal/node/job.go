@@ -32,7 +32,7 @@ type JobManager struct {
 
 func NewJobManager(p2pm *P2PManager) *JobManager {
 	return &JobManager{
-		db:   p2pm.db,
+		db:   p2pm.DB,
 		lm:   utils.NewLogsManager(),
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),

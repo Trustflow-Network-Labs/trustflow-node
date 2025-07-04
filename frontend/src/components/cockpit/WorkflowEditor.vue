@@ -7,9 +7,9 @@
       <component v-for="(serviceCard, serviceCardIndex) in serviceCards" :key="serviceCardIndex"
         :is="serviceCard.type" v-bind="serviceCard.props"
         :ref="`serviceCard${serviceCard.props.serviceCardId}`"
-        @close-service-card="(id) => removeServiceCard(id)" />
+        @close-service-card="async (id) => await removeServiceCard(id)" />
     </div>
-    <WorkflowTools
+    <WorkflowTools ref="workflowTools"
       v-if="workflowEditorEl"
       @snap-to-grid="(snap) => snapToGrid = snap" />
   </main>

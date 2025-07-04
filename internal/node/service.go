@@ -26,7 +26,7 @@ type ServiceManager struct {
 
 func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
-		db:   p2pm.db,
+		db:   p2pm.DB,
 		lm:   utils.NewLogsManager(),
 		dm:   repo.NewDockerManager(p2pm.UI),
 		p2pm: p2pm,

@@ -1,3 +1,5 @@
+import { AddWorkflow, AddWorkflowJob, RemoveWorkflowJob } from '../../../wailsjs/go/main/App'
+
 import { useMainStore } from '../../stores/main.js'
 
 import WorkflowTools from '../../components/cockpit/workflow-editor/WorkflowTools.vue'
@@ -93,7 +95,7 @@ const methods = {
 
         MainStore.setPickedService(null)
 	},
-    addServiceCard(event) {
+    async addServiceCard(event) {
         if(event.target.className.indexOf('grid') == -1)
             return
 
@@ -111,6 +113,8 @@ const methods = {
         let id = this.serviceCards.length
         let serviceCard = {
             id: id,
+            workflowId: this.workflowId,
+            workflowJobId: null,
             type: 'ServiceCard',
             props: {
                 serviceCardId: id,
@@ -122,6 +126,34 @@ const methods = {
             }
         }
 
+        let name = this.$refs['workflowTools'].workflowName
+        let description = this.$refs['workflowTools'].workflowDescription
+
+        if (this.workflowId == null) {
+            // Add workflow
+            let response = await AddWorkflow(name, description, service.node_id, service.id, 0, "")
+            if (response.error != null && response.error != "") {
+                // TODO, print error
+                console.log(response.error)
+                return
+            }
+            console.log(response, typeof response)
+            this.workflowId = response.workflow_id
+            this.workflowJobsIds = response.workflow_jobs_ids
+        }
+        else {
+            // Add workflow job
+            let response = await AddWorkflowJob(this.workflowId, service.node_id, service.id, 0, "")
+            if (response.error != null && response.error != "") {
+                // TODO, print error
+                console.log(response.error)
+                return
+            }
+            this.workflowJobsIds.push(...response.workflow_jobs_ids)
+        }
+
+        serviceCard.workflowId = this.workflowId
+        serviceCard.workflowJobId = this.workflowJobsIds[this.workflowJobsIds.length-1]
         this.serviceCards.push(serviceCard)
     },
     initDraggableServiceCard(serviceCard) {
@@ -160,7 +192,8 @@ const methods = {
         }
         return serviceCardIndex
     },
-    removeServiceCard(id) {
+    async removeServiceCard(id) {
+        // Find service card
         let removeIndex = -1
         for (let i = 0; i < this.serviceCards.length; i++) {
             if (this.serviceCards[i].id == id) {
@@ -170,10 +203,21 @@ const methods = {
             
         }
         if (removeIndex >= 0) {
+            // Remove workflow job
+            let err = await RemoveWorkflowJob(this.serviceCards[removeIndex].workflowJobId)
+            if (err != null && err != "") {
+                // TODO, print error
+                console.log(err)
+                return
+            }
+
+            // Remove draggable object
             if (this.draggableServiceCards[id] != null) {
                 this.draggableServiceCards[id].remove()
                 delete this.draggableServiceCards[id]
             }
+
+            // Remove service card
             this.serviceCards.splice(removeIndex, 1)
         }
     },
@@ -219,6 +263,8 @@ export default {
 			gridSnapTargets: [],
             serviceCards: [],
             draggableServiceCards: {},
+            workflowId: null,
+            workflowJobsIds: [],
        }
     }
 }

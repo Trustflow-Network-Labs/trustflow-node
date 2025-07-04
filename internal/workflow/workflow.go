@@ -228,42 +228,24 @@ func (wm *WorkflowManager) Add(name string, description string, workflowJobBases
 }
 
 // Update a workflow
-func (wm *WorkflowManager) Update(workflowId int64, name string, description string, workflowJobBases []node_types.WorkflowJobBase) ([]int64, error) {
+func (wm *WorkflowManager) Update(workflowId int64, name string, description string) error {
 	wm.lm.Log("debug", fmt.Sprintf("updating workflow %s", name), "workflows")
 
-	var wjids []int64
-
 	// Get workflow
-	workflow, err := wm.Get(workflowId)
+	_, err := wm.Get(workflowId)
 	if err != nil {
 		wm.lm.Log("debug", err.Error(), "workflows")
-		return nil, err
+		return err
 	}
 
 	_, err = wm.db.ExecContext(context.Background(), "update workflows set name = ?, description = ? where id = ?);",
 		name, description, workflowId)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")
-		return nil, err
+		return err
 	}
 
-	for _, workflowJob := range workflow.Jobs {
-		err = wm.RemoveWorkflowJob(workflowJob.Id)
-		if err != nil {
-			wm.lm.Log("error", err.Error(), "workflows")
-			return nil, err
-		}
-	}
-
-	if len(workflowJobBases) > 0 {
-		wjids, err = wm.AddWorkflowJobs(workflowId, workflowJobBases)
-		if err != nil {
-			wm.lm.Log("error", err.Error(), "workflows")
-			return nil, err
-		}
-	}
-
-	return wjids, nil
+	return nil
 }
 
 // Add a workflow job
