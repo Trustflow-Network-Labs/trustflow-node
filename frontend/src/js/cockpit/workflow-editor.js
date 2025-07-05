@@ -1,4 +1,4 @@
-import { AddWorkflow, AddWorkflowJob, RemoveWorkflowJob } from '../../../wailsjs/go/main/App'
+import { AddWorkflow, UpdateWorkflow, AddWorkflowJob, RemoveWorkflowJob } from '../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../stores/main.js'
 
@@ -241,6 +241,52 @@ const methods = {
             // Remove service card
             this.serviceCards.splice(removeIndex, 1)
         }
+    },
+    async updateWorkflow() {
+        let name = this.$refs['workflowTools'].workflowName
+        let description = this.$refs['workflowTools'].workflowDescription
+       if (!this.workflowId) {
+            // Add workflow
+            let response = await AddWorkflow(name, description, "", 0, 0, "")
+            if (response.error != null && response.error != "") {
+                // Print error
+                UseToast.add({
+                    severity: "error",
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-not-added"),
+                    detail: response.error,
+                    closable: true,
+                    life: null,
+                })
+                return
+            }
+            this.workflowId = response.workflow_id
+        }
+        else {
+            // Update workflow
+            let err = await UpdateWorkflow(this.workflowId, name, description)
+            if (err != null && err != "") {
+                // Print error
+                UseToast.add({
+                    severity: "error",
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-not-updated"),
+                    detail: err,
+                    closable: true,
+                    life: null,
+                })
+                return
+            }
+        }
+        // Print confirmation
+        UseToast.add({
+            severity: "info",
+            summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
+            detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-updated"),
+            closable: true,
+            life: 3000,
+        })
+    },
+    async removeWorkflow() {
+
     },
 }
 

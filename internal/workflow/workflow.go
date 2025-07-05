@@ -238,7 +238,7 @@ func (wm *WorkflowManager) Update(workflowId int64, name string, description str
 		return err
 	}
 
-	_, err = wm.db.ExecContext(context.Background(), "update workflows set name = ?, description = ? where id = ?);",
+	_, err = wm.db.ExecContext(context.Background(), "update workflows set name = ?, description = ? where id = ?;",
 		name, description, workflowId)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflows")

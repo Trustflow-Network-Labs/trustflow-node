@@ -41,8 +41,12 @@ export default {
 					},
 					"logic": {
 						"workflow-not-added": "Workflow not added",
+						"workflow-updated": "Workflow updated",
+						"workflow-not-updated": "Workflow not updated",
+						"workflow-not-removed": "Workflow not removed",
 						"workflow-job-not-added": "Workflow job not added",
 						"workflow-job-not-removed": "Workflow job not removed",
+						"success": "Success",
 					}
 				},
 			},

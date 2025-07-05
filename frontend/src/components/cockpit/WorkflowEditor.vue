@@ -11,7 +11,9 @@
     </div>
     <WorkflowTools ref="workflowTools"
       v-if="workflowEditorEl"
-      @snap-to-grid="(snap) => snapToGrid = snap" />
+      @snap-to-grid="(snap) => snapToGrid = snap"
+      @update-workflow="async () => await updateWorkflow()"
+      @remove-workflow="async () => await removeWorkflow()" />
     <Toast position="top-center" />
   </main>
 </template>

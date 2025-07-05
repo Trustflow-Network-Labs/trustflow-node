@@ -76,6 +76,12 @@ const methods = {
             default:
         }
     },
+    update() {
+        this.$emit('update-workflow')
+    },
+    remove() {
+        this.$emit('remove-workflow')
+    },
     async findServices({item}){
         this.serviceOffers.length = 0
         await FindServices(this.searchServicesPhrases, item.id)
