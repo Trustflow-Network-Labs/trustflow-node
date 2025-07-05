@@ -130,6 +130,52 @@ func (a *App) FindServices(searchPhrases string, serviceTypes string) error {
 	return a.sm.LookupRemoteService(searchPhrases, serviceTypes)
 }
 
+// Get service card props
+type ServiceCardGUIProps struct {
+	X     int64  `json:"x"`
+	Y     int64  `json:"y"`
+	Error string `json:"error"`
+}
+
+func (a *App) GetServiceCardGUIProps(workflowJobId int64) ServiceCardGUIProps {
+	var response = ServiceCardGUIProps{}
+
+	// Look for workflow job gui params
+	row := a.p2pm.DB.QueryRowContext(context.Background(), "select x, y from workflow_jobs_gui where workflow_job_id = ?;", workflowJobId)
+
+	err := row.Scan(&response.X, &response.Y)
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return response
+}
+
+// Set service card props
+func (a *App) SetServiceCardGUIProps(workflowJobId int64, x int64, y int64) error {
+	var err error = nil
+
+	// Check do we have properties set already
+	serviceCardGUIProps := a.GetServiceCardGUIProps(workflowJobId)
+	if serviceCardGUIProps.Error != "" {
+		// We don't have props set yet
+		_, err = a.p2pm.DB.ExecContext(context.Background(), "insert into workflow_jobs_gui (workflow_job_id, x, y) values (?, ?, ?);",
+			workflowJobId, x, y)
+		if err != nil {
+			return err
+		}
+	} else {
+		// We have props set before
+		_, err = a.p2pm.DB.ExecContext(context.Background(), "update workflow_jobs_gui set x = ?, y = ? where workflow_job_id = ?;",
+			x, y, workflowJobId)
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
 // Add workflow
 type AddWorkflowResponse struct {
 	WorkflowId int64 `json:"workflow_id"`

@@ -404,7 +404,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS workflows_id_idx ON workflows ("id");
 			return nil, err
 		}
 
-		createOrchestrationsTableSql := `
+		createWorkflowJobsTableSql := `
 CREATE TABLE IF NOT EXISTS workflow_jobs (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"workflow_id" INTEGER NOT NULL,
@@ -417,9 +417,42 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS workflow_jobs_id_idx ON workflow_jobs ("id");
 `
-		_, err = db.ExecContext(context.Background(), createOrchestrationsTableSql)
+		_, err = db.ExecContext(context.Background(), createWorkflowJobsTableSql)
 		if err != nil {
-			message := fmt.Sprintf("Can not create `orchestrations` table. (%s)", err.Error())
+			message := fmt.Sprintf("Can not create `workflow_jobs` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createWorkflowsGUITableSql := `
+CREATE TABLE IF NOT EXISTS workflows_gui (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"workflow_id" INTEGER NOT NULL,
+	"snap_to_grid" INTEGER CHECK( "snap_to_grid" IN (0, 1) ) NOT NULL DEFAULT 0,
+	FOREIGN KEY("workflow_id") REFERENCES workflows("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflows_gui_id_idx ON workflows_gui ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowsGUITableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `workflows_gui` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createWorkflowJobsGUITableSql := `
+CREATE TABLE IF NOT EXISTS workflow_jobs_gui (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"workflow_job_id" INTEGER NOT NULL,
+	"x" INTEGER NOT NULL,
+	"y" INTEGER NOT NULL,
+	FOREIGN KEY("workflow_job_id") REFERENCES workflow_jobs("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_jobs_gui_id_idx ON workflow_jobs_gui ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowJobsGUITableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `workflow_jobs_gui` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}

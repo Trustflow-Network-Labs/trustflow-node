@@ -30,6 +30,22 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class ServiceCardGUIProps {
+	    x: number;
+	    y: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceCardGUIProps(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.error = source["error"];
+	    }
+	}
 
 }
 

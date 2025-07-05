@@ -18,6 +18,10 @@ export function FindServices(arg1, arg2) {
   return window['go']['main']['App']['FindServices'](arg1, arg2);
 }
 
+export function GetServiceCardGUIProps(arg1) {
+  return window['go']['main']['App']['GetServiceCardGUIProps'](arg1);
+}
+
 export function IsHostRunning() {
   return window['go']['main']['App']['IsHostRunning']();
 }
@@ -32,6 +36,10 @@ export function RemoveWorkflow(arg1) {
 
 export function RemoveWorkflowJob(arg1) {
   return window['go']['main']['App']['RemoveWorkflowJob'](arg1);
+}
+
+export function SetServiceCardGUIProps(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetServiceCardGUIProps'](arg1, arg2, arg3);
 }
 
 export function SetUserConfirmation(arg1) {

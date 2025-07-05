@@ -3,7 +3,8 @@ import {
     UpdateWorkflow,
     RemoveWorkflow,
     AddWorkflowJob,
-    RemoveWorkflowJob
+    RemoveWorkflowJob,
+    SetServiceCardGUIProps,
 } from '../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../stores/main.js'
@@ -179,6 +180,19 @@ const methods = {
         serviceCard.workflowId = this.workflowId
         serviceCard.workflowJobId = this.workflowJobsIds[this.workflowJobsIds.length-1]
         this.serviceCards.push(serviceCard)
+
+        // Update service card props in DB
+        let err = await SetServiceCardGUIProps(serviceCard.workflowJobId, x, y)
+        if (err != null && err != "") {
+            // Print error
+            UseToast.add({
+                severity: "error",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-service-card-coords-not-saved"),
+                detail: err,
+                closable: true,
+                life: null,
+            })
+        }
     },
     initDraggableServiceCard(serviceCard) {
         const serviceCardRef = `serviceCard${serviceCard.id}`
@@ -197,11 +211,28 @@ const methods = {
         }
 
         let serviceCardIndex = this.findServiceCardIndex(serviceCard.id)
-        this.draggableServiceCards[serviceCard.id].onDragEnd = (pos) => {
+        this.draggableServiceCards[serviceCard.id].onDragEnd = async (pos) => {
             if (serviceCardIndex >= 0) {
+                let x = pos.left
+                let y = pos.top
+
+                // Update Service Card coordinates
                 That.serviceCards[serviceCardIndex].coords = {
-                    x: pos.left,
-                    y: pos.top,
+                    x: x,
+                    y: y,
+                }
+
+                // Update service card props in DB
+                let err = await SetServiceCardGUIProps(serviceCard.workflowJobId, x, y)
+                if (err != null && err != "") {
+                    // Print error
+                    UseToast.add({
+                        severity: "error",
+                        summary: That.$t("message.cockpit.detail.workflow-editor.logic.workflow-service-card-coords-not-saved"),
+                        detail: err,
+                        closable: true,
+                        life: null,
+                    })
                 }
             }
         }

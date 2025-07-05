@@ -10,6 +10,8 @@ export function CheckAndInstallDependencies():Promise<void>;
 
 export function FindServices(arg1:string,arg2:string):Promise<void>;
 
+export function GetServiceCardGUIProps(arg1:number):Promise<main.ServiceCardGUIProps>;
+
 export function IsHostRunning():Promise<boolean>;
 
 export function NotifyFrontendReady():Promise<void>;
@@ -17,6 +19,8 @@ export function NotifyFrontendReady():Promise<void>;
 export function RemoveWorkflow(arg1:number):Promise<void>;
 
 export function RemoveWorkflowJob(arg1:number):Promise<void>;
+
+export function SetServiceCardGUIProps(arg1:number,arg2:number,arg3:number):Promise<void>;
 
 export function SetUserConfirmation(arg1:boolean):Promise<void>;
 

@@ -55,6 +55,7 @@ export default {
 						"no-active-workflow-to-remove": "There is no active workflow selected for removal",
 						"workflow-remove-confirmation": "Confirmation",
 						"workflow-remove-confirmation-message": "Are you sure you want to delete this workflow?",
+						"workflow-service-card-coords-not-saved": "Failed saving Service Card coordinates",
 					}
 				},
 			},
