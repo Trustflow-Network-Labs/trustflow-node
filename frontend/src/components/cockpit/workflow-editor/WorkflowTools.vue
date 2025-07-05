@@ -26,9 +26,11 @@
         </div>
         <div class="workflow-details-body-section in-line-stretch">
           <div class="workflow-details-body-section-left">
-            <div>Snap to grid</div>
+            <div>{{ $t("message.cockpit.detail.workflow-editor.workflow-details.snap-to-grid") }}</div>
             <div>
-              <ToggleButton v-model="snapToGrid" onLabel="On" offLabel="Off" size="small" />
+              <ToggleButton v-model="snapToGrid"
+                :onLabel="$t('message.cockpit.detail.workflow-editor.workflow-details.on')"
+                :offLabel="$t('message.cockpit.detail.workflow-editor.workflow-details.off')" size="small" />
             </div>
           </div>
           <div class="workflow-details-body-section-right">

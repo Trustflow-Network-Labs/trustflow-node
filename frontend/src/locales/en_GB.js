@@ -18,6 +18,9 @@ export default {
 						"workflow-description": "Workflow description",
 						"save": "Save",
 						"delete": "Delete",
+						"snap-to-grid": "Snap to grid",
+						"on": "On",
+						"off": "Off",
 					},
 					"search-services": {
 						"search-services": "Search services",
@@ -36,6 +39,11 @@ export default {
 						"interface-paths": "Interface paths",
 						"add-to-workflow": "Add to workflow",
 					},
+					"logic": {
+						"workflow-not-added": "Workflow not added",
+						"workflow-job-not-added": "Workflow job not added",
+						"workflow-job-not-removed": "Workflow job not removed",
+					}
 				},
 			},
 		},

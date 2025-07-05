@@ -140,7 +140,7 @@ const methods = {
                 // Print error
                 UseToast.add({
                     severity: "error",
-                    summary: "Workflow not added",
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-not-added"),
                     detail: response.error,
                     closable: true,
                     life: null,
@@ -157,7 +157,7 @@ const methods = {
                 // Print error
                 UseToast.add({
                     severity: "error",
-                    summary: "Workflow job not added",
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-job-not-added"),
                     detail: response.error,
                     closable: true,
                     life: null,
@@ -224,8 +224,8 @@ const methods = {
                 // Print error
                 UseToast.add({
                     severity: "error",
-                    summary: "Workflow job not removed",
-                    detail: response.error,
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-job-not-removed"),
+                    detail: err,
                     closable: true,
                     life: null,
                 })
