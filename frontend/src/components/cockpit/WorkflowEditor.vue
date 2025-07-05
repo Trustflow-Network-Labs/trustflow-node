@@ -12,6 +12,7 @@
     <WorkflowTools ref="workflowTools"
       v-if="workflowEditorEl"
       @snap-to-grid="(snap) => snapToGrid = snap" />
+    <Toast position="top-center" />
   </main>
 </template>
 

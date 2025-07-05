@@ -8,6 +8,7 @@ import './style.css';
 import PrimeVue from 'primevue/config'
 import Aura from '@primeuix/themes/aura'
 import ConfirmationService from 'primevue/confirmationservice'
+import ToastService from 'primevue/toastservice'
 import 'primeicons/primeicons.css'
 
 import Locale_en_GB from './locales/en_GB.js'
@@ -33,5 +34,6 @@ app.use(PrimeVue, {
 app.use(pinia)
 app.use(i18n)
 app.use(ConfirmationService)
+app.use(ToastService)
 
 app.mount('#app')

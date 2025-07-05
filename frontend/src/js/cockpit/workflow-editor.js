@@ -8,9 +8,13 @@ import ServiceCard from '../../components/cockpit/workflow-editor/ServiceCard.vu
 import PlainDraggable from "plain-draggable"
 import LeaderLine from "leader-line-new"
 
-let MainStore, That
+import Toast from 'primevue/toast'
+import { useToast } from 'primevue/usetoast'
+
+let MainStore, UseToast, That
 const setup = function() {
     MainStore = useMainStore()
+    UseToast = useToast()
 }
 
 const created = async function () {
@@ -133,11 +137,16 @@ const methods = {
             // Add workflow
             let response = await AddWorkflow(name, description, service.node_id, service.id, 0, "")
             if (response.error != null && response.error != "") {
-                // TODO, print error
-                console.log(response.error)
+                // Print error
+                UseToast.add({
+                    severity: "error",
+                    summary: "Workflow not added",
+                    detail: response.error,
+                    closable: true,
+                    life: null,
+                })
                 return
             }
-            console.log(response, typeof response)
             this.workflowId = response.workflow_id
             this.workflowJobsIds = response.workflow_jobs_ids
         }
@@ -145,8 +154,14 @@ const methods = {
             // Add workflow job
             let response = await AddWorkflowJob(this.workflowId, service.node_id, service.id, 0, "")
             if (response.error != null && response.error != "") {
-                // TODO, print error
-                console.log(response.error)
+                // Print error
+                UseToast.add({
+                    severity: "error",
+                    summary: "Workflow job not added",
+                    detail: response.error,
+                    closable: true,
+                    life: null,
+                })
                 return
             }
             this.workflowJobsIds.push(...response.workflow_jobs_ids)
@@ -206,8 +221,14 @@ const methods = {
             // Remove workflow job
             let err = await RemoveWorkflowJob(this.serviceCards[removeIndex].workflowJobId)
             if (err != null && err != "") {
-                // TODO, print error
-                console.log(err)
+                // Print error
+                UseToast.add({
+                    severity: "error",
+                    summary: "Workflow job not removed",
+                    detail: response.error,
+                    closable: true,
+                    life: null,
+                })
                 return
             }
 
@@ -235,6 +256,7 @@ export default {
 	components: {
         WorkflowTools,
         ServiceCard,
+        Toast,
     },
 	directives: {},
 	name: 'WorkflowEditor',
