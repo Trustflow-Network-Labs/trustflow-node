@@ -1,5 +1,5 @@
 import { useMainStore } from '../../../stores/main.js'
-import shorten from '../../../mixins/text.js'
+import { textUtils } from '../../../mixins/text.js'
 import copyToClipboard from '../../../mixins/clipboard.js'
 
 let MainStore, That
@@ -43,7 +43,7 @@ export default {
         'service',
     ],
 	mixins: [
-        shorten,
+        textUtils,
         copyToClipboard,
     ],
 	components: {

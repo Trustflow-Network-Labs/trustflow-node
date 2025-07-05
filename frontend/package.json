@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@faker-js/faker": "^9.9.0",
     "@primeuix/themes": "^1.1.1",
     "leader-line-new": "^1.1.9",
     "pinia": "^3.0.3",

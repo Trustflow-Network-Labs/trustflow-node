@@ -9,6 +9,8 @@ import {
 
 import { useMainStore } from '../../stores/main.js'
 
+import { textUtils } from '../../mixins/text.js'
+
 import WorkflowTools from '../../components/cockpit/workflow-editor/WorkflowTools.vue'
 import ServiceCard from '../../components/cockpit/workflow-editor/ServiceCard.vue'
 
@@ -142,6 +144,11 @@ const methods = {
 
         let name = this.$refs['workflowTools'].workflowName
         let description = this.$refs['workflowTools'].workflowDescription
+
+        if (name == "") {
+            name = this.generateRandomName()
+            this.$refs['workflowTools'].workflowName = name
+        }
 
         if (this.workflowId == null) {
             // Add workflow
@@ -285,6 +292,12 @@ const methods = {
     async updateWorkflow() {
         let name = this.$refs['workflowTools'].workflowName
         let description = this.$refs['workflowTools'].workflowDescription
+
+        if (name == "") {
+            name = this.generateRandomName()
+            this.$refs['workflowTools'].workflowName = name
+        }
+
        if (!this.workflowId) {
             // Add workflow
             let response = await AddWorkflow(name, description, "", 0, 0, "")
@@ -392,6 +405,7 @@ export default {
         'panesResized',
     ],
 	mixins: [
+        textUtils,
     ],
 	components: {
         WorkflowTools,
