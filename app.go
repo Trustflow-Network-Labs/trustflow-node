@@ -130,6 +130,52 @@ func (a *App) FindServices(searchPhrases string, serviceTypes string) error {
 	return a.sm.LookupRemoteService(searchPhrases, serviceTypes)
 }
 
+// Get workflow grid props
+// TODO, get/set grid size, service box size, etc
+type WorkflowGUIProps struct {
+	SnapToGrid int64  `json:"snap_to_grid"`
+	Error      string `json:"error"`
+}
+
+func (a *App) GetWorkflowGUIProps(workflowId int64) WorkflowGUIProps {
+	var response = WorkflowGUIProps{}
+
+	// Look for workflow gui params
+	row := a.p2pm.DB.QueryRowContext(context.Background(), "select snap_to_grid from workflows_gui where workflow_id = ?;", workflowId)
+
+	err := row.Scan(&response.SnapToGrid)
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return response
+}
+
+// Set workflow gui props
+func (a *App) SetWorkflowGUIProps(workflowId int64, snapToGrid int64) error {
+	var err error = nil
+
+	// Check do we have properties set already
+	workflowGUIProps := a.GetWorkflowGUIProps(workflowId)
+	if workflowGUIProps.Error != "" {
+		// We don't have props set yet
+		_, err = a.p2pm.DB.ExecContext(context.Background(), "insert into workflows_gui (workflow_id, snap_to_grid) values (?, ?);",
+			workflowId, snapToGrid)
+		if err != nil {
+			return err
+		}
+	} else {
+		// We have props set before
+		_, err = a.p2pm.DB.ExecContext(context.Background(), "update workflows_gui set snap_to_grid = ? where workflow_id = ?;",
+			snapToGrid, workflowId)
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
 // Get service card props
 type ServiceCardGUIProps struct {
 	X     int64  `json:"x"`

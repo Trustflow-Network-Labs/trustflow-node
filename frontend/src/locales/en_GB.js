@@ -56,6 +56,7 @@ export default {
 						"workflow-remove-confirmation": "Confirmation",
 						"workflow-remove-confirmation-message": "Are you sure you want to delete this workflow?",
 						"workflow-service-card-coords-not-saved": "Failed saving Service Card coordinates",
+						"workflow-props-not-saved": "Failed saving Workflow Grid properties (e.g. Snap-ToGrid)",
 					}
 				},
 			},

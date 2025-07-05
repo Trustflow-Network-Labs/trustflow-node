@@ -5,6 +5,7 @@ import {
     AddWorkflowJob,
     RemoveWorkflowJob,
     SetServiceCardGUIProps,
+    SetWorkflowGUIProps,
 } from '../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../stores/main.js'
@@ -53,6 +54,12 @@ const watch = {
         if (this.panesResized == true) {
         }
     },
+    async workflowId() {
+        await this.saveSnapToGridProp()
+    },
+    async snapToGrid() {
+        await this.saveSnapToGridProp()
+    },
     serviceCards: {
         handler(current, before) {
             for (let i = 0; i < this.serviceCards.length; i++) {
@@ -69,7 +76,7 @@ const watch = {
         },
         deep: true,
 		immediate: false,
-    }
+    },
 }
 
 const mounted = function() {
@@ -89,13 +96,29 @@ const methods = {
         workFlowEl.style.setProperty(`--dash-color`, this.dashColor)
         workFlowEl.style.setProperty(`--background`, this.backgroundColor)
 
-        this.initGridSnap(x, y, w, h)
+        this.initGridSnapPoints(x, y, w, h)
     },
-    initGridSnap(x, y, w, h) {
+    initGridSnapPoints(x, y, w, h) {
     	for (let i = 0; i < x; i++) {
             for (let j = 0; j < y; j++) {
                 this.gridSnapTargets.push({x: i * w, y: j * h})
             }
+        }
+    },
+    async saveSnapToGridProp() {
+        if (this.workflowId == null)
+            return
+        const snapToGrid = (this.snapToGrid) ? 1 : 0
+        let err = await SetWorkflowGUIProps(this.workflowId, snapToGrid)
+        if (err != null && err != "") {
+            // Print error
+            UseToast.add({
+                severity: "error",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-props-not-saved"),
+                detail: err,
+                closable: 3000,
+                life: null,
+            })
         }
     },
 	dragEndFunc(event) {

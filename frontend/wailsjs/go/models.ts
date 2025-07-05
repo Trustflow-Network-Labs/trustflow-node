@@ -46,6 +46,20 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class WorkflowGUIProps {
+	    snap_to_grid: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkflowGUIProps(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snap_to_grid = source["snap_to_grid"];
+	        this.error = source["error"];
+	    }
+	}
 
 }
 
