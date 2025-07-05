@@ -170,6 +170,13 @@ func (a *App) UpdateWorkflow(workflowId int64, name string, description string) 
 	return err
 }
 
+// Remove workflow
+func (a *App) RemoveWorkflow(workflowId int64) error {
+	err := a.wm.Remove(workflowId)
+
+	return err
+}
+
 // Add workflow job
 type AddWorkflowJobResponse struct {
 	WorkflowJobsIds []int64 `json:"workflow_jobs_ids"`

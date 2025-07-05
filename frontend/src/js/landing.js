@@ -66,7 +66,7 @@ const watch = {
             }
             Confirm.require({
                 message: this.appConfirm,
-                header: 'Confirmation',
+                header: this.$t("message.landing.logic.remove-confirmation"),
                 icon: 'pi pi-exclamation-triangle',
                 accept: async () => {
                     await SetUserConfirmation(true)

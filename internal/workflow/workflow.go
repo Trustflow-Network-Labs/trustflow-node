@@ -248,6 +248,36 @@ func (wm *WorkflowManager) Update(workflowId int64, name string, description str
 	return nil
 }
 
+// Remove a workflow
+func (wm *WorkflowManager) Remove(workflowId int64) error {
+	// Get workflow
+	workflow, err := wm.Get(workflowId)
+	if err != nil {
+		wm.lm.Log("debug", err.Error(), "workflows")
+		return err
+	}
+
+	for _, workflowJob := range workflow.Jobs {
+		if workflowJob.Status != "IDLE" {
+			err = fmt.Errorf("can not remove workflow id %d because job id %d is in status %s. Only jobs in status 'IDLE' can be deleted",
+				workflowId, workflowJob.Id, workflowJob.Status)
+			wm.lm.Log("debug", err.Error(), "workflows")
+			return err
+		}
+	}
+
+	// Remove workflow
+	wm.lm.Log("debug", fmt.Sprintf("removing workflow %d", workflowId), "workflows")
+
+	_, err = wm.db.ExecContext(context.Background(), "delete from workflows where id = ?;", workflowId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return err
+	}
+
+	return nil
+}
+
 // Add a workflow job
 func (wm *WorkflowManager) AddWorkflowJobs(workflowId int64, workflowJobBases []node_types.WorkflowJobBase) ([]int64, error) {
 	// Check if workflow exists

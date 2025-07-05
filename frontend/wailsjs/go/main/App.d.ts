@@ -14,6 +14,8 @@ export function IsHostRunning():Promise<boolean>;
 
 export function NotifyFrontendReady():Promise<void>;
 
+export function RemoveWorkflow(arg1:number):Promise<void>;
+
 export function RemoveWorkflowJob(arg1:number):Promise<void>;
 
 export function SetUserConfirmation(arg1:boolean):Promise<void>;

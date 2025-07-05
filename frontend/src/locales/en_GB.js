@@ -7,6 +7,9 @@ export default {
 			"start-node-button-text": "Start",
             "start-node-text-helper": "The Trustflow Node will use this port and the next five ports for various communication protocols (TCP, QUIC, WS, etc.).",
 			"console-log": "Console log",
+			"logic": {
+				"remove-confirmation": "Confirmation",
+			}
 		},
 		"cockpit": {
 			"stop-node-button-text": "Stop node",
@@ -43,10 +46,15 @@ export default {
 						"workflow-not-added": "Workflow not added",
 						"workflow-updated": "Workflow updated",
 						"workflow-not-updated": "Workflow not updated",
+						"workflow-removed": "Workflow removed",
 						"workflow-not-removed": "Workflow not removed",
 						"workflow-job-not-added": "Workflow job not added",
 						"workflow-job-not-removed": "Workflow job not removed",
 						"success": "Success",
+						"info": "Info",
+						"no-active-workflow-to-remove": "There is no active workflow selected for removal",
+						"workflow-remove-confirmation": "Confirmation",
+						"workflow-remove-confirmation-message": "Are you sure you want to delete this workflow?",
 					}
 				},
 			},

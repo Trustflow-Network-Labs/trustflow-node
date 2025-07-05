@@ -15,6 +15,7 @@
       @update-workflow="async () => await updateWorkflow()"
       @remove-workflow="async () => await removeWorkflow()" />
     <Toast position="top-center" />
+    <ConfirmDialog />
   </main>
 </template>
 

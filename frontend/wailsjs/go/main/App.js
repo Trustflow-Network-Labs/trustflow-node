@@ -26,6 +26,10 @@ export function NotifyFrontendReady() {
   return window['go']['main']['App']['NotifyFrontendReady']();
 }
 
+export function RemoveWorkflow(arg1) {
+  return window['go']['main']['App']['RemoveWorkflow'](arg1);
+}
+
 export function RemoveWorkflowJob(arg1) {
   return window['go']['main']['App']['RemoveWorkflowJob'](arg1);
 }

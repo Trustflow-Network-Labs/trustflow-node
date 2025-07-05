@@ -1,3 +1,11 @@
+:global(body) {
+    --p-button-primary-background: #fff;
+    --p-button-primary-border-color: #fff;
+    --p-button-primary-hover-background: rgba(205, 81, 36, 1);
+    --p-button-primary-hover-border-color: rgba(205, 81, 36, 1);
+    --p-button-primary-hover-color: #fff;
+}
+
 .common-cockpit-workflow-editor {
     font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",

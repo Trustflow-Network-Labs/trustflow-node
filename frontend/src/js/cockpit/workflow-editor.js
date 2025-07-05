@@ -1,4 +1,10 @@
-import { AddWorkflow, UpdateWorkflow, AddWorkflowJob, RemoveWorkflowJob } from '../../../wailsjs/go/main/App'
+import {
+    AddWorkflow,
+    UpdateWorkflow,
+    RemoveWorkflow,
+    AddWorkflowJob,
+    RemoveWorkflowJob
+} from '../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../stores/main.js'
 
@@ -10,11 +16,14 @@ import LeaderLine from "leader-line-new"
 
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
+import ConfirmDialog from 'primevue/confirmdialog'
+import { useConfirm } from "primevue/useconfirm"
 
-let MainStore, UseToast, That
+let MainStore, UseToast, UseConfirm, That
 const setup = function() {
     MainStore = useMainStore()
     UseToast = useToast()
+    UseConfirm = useConfirm()
 }
 
 const created = async function () {
@@ -286,7 +295,61 @@ const methods = {
         })
     },
     async removeWorkflow() {
+        if (!this.workflowId) {
+            UseToast.add({
+                severity: "info",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.info"),
+                detail: this.$t("message.cockpit.detail.workflow-editor.logic.no-active-workflow-to-remove"),
+                closable: true,
+                life: 3000,
+            })
+            return
+        }
 
+        UseConfirm.require({
+            message: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-remove-confirmation-message"),
+            header: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-remove-confirmation"),
+            icon: 'pi pi-exclamation-triangle',
+            accept: async () => {
+                // Remove workflow
+                let err = await RemoveWorkflow(this.workflowId)
+                if (err != null && err != "") {
+                    // Print error
+                    UseToast.add({
+                        severity: "error",
+                        summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-not-removed"),
+                        detail: err,
+                        closable: true,
+                        life: null,
+                    })
+                    return
+                }
+                // Print confirmation
+                UseToast.add({
+                    severity: "info",
+                    summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
+                    detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-removed"),
+                    closable: true,
+                    life: 3000,
+                })
+                // Reset vars
+                this.workflowId = null
+                this.workflowJobsIds.length = 0
+                this.$refs['workflowTools'].workflowName = ""
+                this.$refs['workflowTools'].workflowDescription = ""
+                this.$refs['workflowTools'].searchServicesPhrases = ""
+                this.$refs['workflowTools'].serviceOffers.length = 0
+                this.serviceCards.length = 0
+                for (const id in this.draggableServiceCards) {
+                    if (Object.prototype.hasOwnProperty.call(this.draggableServiceCards, id)) {
+                        this.draggableServiceCards[id].remove()
+                        delete this.draggableServiceCards[id]
+                    }
+                }
+            },
+            reject: async () => {
+            }
+        })
     },
 }
 
@@ -303,6 +366,7 @@ export default {
         WorkflowTools,
         ServiceCard,
         Toast,
+        ConfirmDialog,
     },
 	directives: {},
 	name: 'WorkflowEditor',
