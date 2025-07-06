@@ -158,7 +158,7 @@ func (wm *WorkflowManager) List(params ...uint32) ([]node_types.Workflow, error)
 	// Load workflows
 	sql := fmt.Sprintf(`select distinct w.id
 		from workflows w
-		inner join workflow_jobs wj
+		left join workflow_jobs wj
 		on wj.workflow_id = w.id
 		order by case wj.status
 			when 'IDLE' then 1
