@@ -81,42 +81,52 @@ export default {
             hostRunning: false,
             menuItems: [
                 {
+                    icon: 'pi pi-gauge',
                     label: 'Dashboard',
                     command: function() {That.emitSelection('dashboard')},
                 },
                 {
+                    icon: 'pi pi-wave-pulse',
                     label: 'Workflows',
                     items: [
                         {
+                            icon: 'pi pi-list',
                             label: 'List workflows',
                             command: function() {That.emitSelection('list-workflows')},
                         },
                         {
+                            icon: 'pi pi-receipt',
                             label: 'Create Workflow',
                             command: function() {That.emitSelection('workflow-editor')},
                         },
                     ]
                 },
                 {
+                    icon: 'pi pi-cog',
                     label: 'Configure node',
                     items: [
                         {
+                            icon: 'pi pi-shield',
                             label: 'Blacklist',
                             command: function() {That.emitSelection('blacklist')},
                         },
                         {
+                            icon: 'pi pi-dollar',
                             label: 'Currencies',
                             command: function() {That.emitSelection('currencies')},
                         },
                         {
+                            icon: 'pi pi-database',
                             label: 'Resources',
                             command: function() {That.emitSelection('resources')},
                         },
                         {
+                            icon: 'pi pi-shopping-cart',
                             label: 'Services',
                             command: function() {That.emitSelection('services')},
                         },
                         {
+                            icon: 'pi pi-sliders-h',
                             label: 'Settings',
                             command: function() {That.emitSelection('settings')},
                         }
