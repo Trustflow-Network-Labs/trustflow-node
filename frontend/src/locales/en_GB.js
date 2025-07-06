@@ -59,6 +59,10 @@ export default {
 						"workflow-props-not-saved": "Failed saving Workflow Grid properties (e.g. Snap-ToGrid)",
 					}
 				},
+				"list-workflows": {
+					"new": "New",
+					"delete": "Delete",
+				}
 			},
 		},
 	}

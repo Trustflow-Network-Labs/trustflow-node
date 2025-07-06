@@ -50,10 +50,6 @@ const computed = {
 }
 
 const watch = {
-    panesResized() {
-        if (this.panesResized == true) {
-        }
-    },
     async workflowId() {
         await this.saveSnapToGridProp()
     },
@@ -425,7 +421,6 @@ const destroyed = function() {
 
 export default {
     props: [
-        'panesResized',
     ],
 	mixins: [
         textUtils,

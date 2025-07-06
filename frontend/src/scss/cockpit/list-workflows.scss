@@ -1,0 +1,138 @@
+.common-cockpit-list-workflows {
+    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+
+    --p-inputtext-background: rgba(240, 240, 240, 1);
+    --p-inputtext-color: rgb(27, 38, 54);
+    --p-inputtext-border-color: rgba(205, 81, 36, .5);
+    --p-inputtext-focus-border-color: rgba(205, 81, 36, .5);
+    --p-inputgroup-addon-border-color: rgba(205, 81, 36, .5);
+    --p-inputgroup-addon-background: rgba(205, 81, 36, 1);
+    --p-inputgroup-addon-color: rgba(240, 240, 240, 1);
+    --p-button-text-secondary-color: rgba(240, 240, 240, 1);
+    --p-button-text-secondary-hover-background: rgb(246, 114, 66);
+
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    overflow: auto;
+
+    padding: 1rem;
+
+    .list-workflows-controls {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        align-content: center;
+        align-items: center;
+
+        width: 100%;
+
+        .list-workflows-controls-search {
+
+        }
+
+        .list-workflows-controls-buttons {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+            align-content: center;
+            align-items: center;
+
+            .input-box {
+                .btn {
+                    min-width: 60px;
+                    height: 30px;
+                    line-height: 30px;
+                    border-radius: 3px;
+                    border: none;
+                    margin: 0 5px 0 0 ;
+                    padding: 0 8px;
+                    cursor: pointer;
+                    background-color: rgb(205, 81, 36);
+                    color: #fff;
+                    font-size: .9rem;
+
+                    i {
+                        vertical-align: text-bottom;
+                    }
+
+                    &.light {
+                        background-color: #fff;
+                        color: rgb(27, 38, 54);
+
+                        &:hover {
+                            background-color: #fff;
+                            color: rgb(205, 81, 36);
+                        }
+                    }
+
+                    &.data {
+                        background-color: rgb(205, 81, 36);
+                        color: #fff;
+                    }
+
+                    &.function {
+                        background-color: #5D9CEC;
+                        color: #fff;
+                    }
+
+                    &.disabled {
+                        background-color: #333333;
+                        cursor: not-allowed;
+                    }
+
+                    &:hover {
+                        background-color: rgb(246, 114, 66);
+
+                        &.disabled {
+                            background-color: #333333;
+                            cursor: not-allowed;
+                        }
+
+                        &.data {
+                            background-color: rgb(246, 114, 66);
+                        }
+
+                        &.function {
+                            background-color: #3d71b6;
+                            color: #fff;
+                        }
+                    }
+                }
+
+                .input {
+                    color: #000;
+                    border: none;
+                    border-radius: 3px;
+                    outline: none;
+                    height: 30px;
+                    line-height: 30px;
+                    padding: 0 10px;
+                    background-color: rgba(240, 240, 240, 1);
+                    -webkit-font-smoothing: antialiased;
+
+                    &:hover {
+                        border: none;
+                        background-color: rgba(255, 255, 255, 1);
+                    }
+
+                    &:focus {
+                        border: none;
+                        background-color: rgba(255, 255, 255, 1);
+                    }
+                }
+            }
+        }
+    }
+
+    @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
+    }
+}
+
+.common-cockpit-list-workflows-default {
+	@extend .common-cockpit-list-workflows !optional;
+}

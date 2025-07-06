@@ -16,6 +16,8 @@ export function GetWorkflowGUIProps(arg1:number):Promise<main.WorkflowGUIProps>;
 
 export function IsHostRunning():Promise<boolean>;
 
+export function ListWorkflows(arg1:number,arg2:number):Promise<main.ListWorkflowsResponse>;
+
 export function NotifyFrontendReady():Promise<void>;
 
 export function RemoveWorkflow(arg1:number):Promise<void>;

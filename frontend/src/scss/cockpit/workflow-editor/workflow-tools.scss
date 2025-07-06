@@ -6,6 +6,7 @@
     --p-inputtext-background: rgba(240, 240, 240, 1);
     --p-inputtext-color: rgb(27, 38, 54);
     --p-inputtext-border-color: rgba(205, 81, 36, .5);
+    --p-inputtext-focus-border-color: rgba(205, 81, 36, .5);
     --p-inputgroup-addon-border-color: rgba(205, 81, 36, .5);
     --p-inputgroup-addon-background: rgba(205, 81, 36, 1);
     --p-inputgroup-addon-color: rgba(240, 240, 240, 1);
@@ -183,6 +184,10 @@
                         color: #fff;
                         font-size: .9rem;
 
+                        i {
+                            vertical-align: text-bottom;
+                        }
+
                         &.light {
                             background-color: #fff;
                             color: rgb(27, 38, 54);
@@ -249,7 +254,6 @@
                         }
                     }
                 }
-    
             }
 
             .separator {

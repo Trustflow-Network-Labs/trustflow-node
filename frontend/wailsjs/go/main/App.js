@@ -30,6 +30,10 @@ export function IsHostRunning() {
   return window['go']['main']['App']['IsHostRunning']();
 }
 
+export function ListWorkflows(arg1, arg2) {
+  return window['go']['main']['App']['ListWorkflows'](arg1, arg2);
+}
+
 export function NotifyFrontendReady() {
   return window['go']['main']['App']['NotifyFrontendReady']();
 }

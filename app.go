@@ -222,6 +222,31 @@ func (a *App) SetServiceCardGUIProps(workflowJobId int64, x int64, y int64) erro
 	return err
 }
 
+// List workflows
+type ListWorkflowsResponse struct {
+	Workflows []node_types.Workflow `json:"workflows"`
+	Error     string                `json:"error"`
+}
+
+func (a *App) ListWorkflows(offset, limit uint32) ListWorkflowsResponse {
+	var response ListWorkflowsResponse
+
+	var params []uint32 = []uint32{
+		offset,
+		limit,
+	}
+
+	workflows, err := a.wm.List(params...)
+	if err != nil {
+		response.Error = err.Error()
+		return response
+	}
+
+	response.Workflows = workflows
+
+	return response
+}
+
 // Add workflow
 type AddWorkflowResponse struct {
 	WorkflowId int64 `json:"workflow_id"`
@@ -230,6 +255,8 @@ type AddWorkflowResponse struct {
 
 func (a *App) AddWorkflow(name string, description string, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) AddWorkflowResponse {
 	var workflowJobBases []node_types.WorkflowJobBase
+	var response AddWorkflowResponse
+
 	if nodeId != "" && serviceId > 0 {
 		workflowJobBase := node_types.WorkflowJobBase{
 			NodeId:             nodeId,
@@ -241,15 +268,15 @@ func (a *App) AddWorkflow(name string, description string, nodeId string, servic
 	}
 
 	workflowId, workflowJobsIds, err := a.wm.Add(name, description, workflowJobBases)
-	response := AddWorkflowResponse{
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	response = AddWorkflowResponse{
 		WorkflowId: workflowId,
 		AddWorkflowJobResponse: AddWorkflowJobResponse{
 			WorkflowJobsIds: workflowJobsIds,
 		},
-	}
-
-	if err != nil {
-		response.Error = err.Error()
 	}
 
 	return response
@@ -257,16 +284,12 @@ func (a *App) AddWorkflow(name string, description string, nodeId string, servic
 
 // Update workflow
 func (a *App) UpdateWorkflow(workflowId int64, name string, description string) error {
-	err := a.wm.Update(workflowId, name, description)
-
-	return err
+	return a.wm.Update(workflowId, name, description)
 }
 
 // Remove workflow
 func (a *App) RemoveWorkflow(workflowId int64) error {
-	err := a.wm.Remove(workflowId)
-
-	return err
+	return a.wm.Remove(workflowId)
 }
 
 // Add workflow job
@@ -276,6 +299,8 @@ type AddWorkflowJobResponse struct {
 }
 
 func (a *App) AddWorkflowJob(workflowId int64, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) AddWorkflowJobResponse {
+	var response AddWorkflowJobResponse
+
 	workflowJobBase := node_types.WorkflowJobBase{
 		NodeId:             nodeId,
 		ServiceId:          serviceId,
@@ -284,12 +309,12 @@ func (a *App) AddWorkflowJob(workflowId int64, nodeId string, serviceId int64, j
 	}
 
 	workflowJobsIds, err := a.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJobBase{workflowJobBase})
-	response := AddWorkflowJobResponse{
-		WorkflowJobsIds: workflowJobsIds,
-	}
-
 	if err != nil {
 		response.Error = err.Error()
+	}
+
+	response = AddWorkflowJobResponse{
+		WorkflowJobsIds: workflowJobsIds,
 	}
 
 	return response
@@ -297,7 +322,5 @@ func (a *App) AddWorkflowJob(workflowId int64, nodeId string, serviceId int64, j
 
 // Remove workflow job
 func (a *App) RemoveWorkflowJob(workflowJobId int64) error {
-	err := a.wm.RemoveWorkflowJob(workflowJobId)
-
-	return err
+	return a.wm.RemoveWorkflowJob(workflowJobId)
 }

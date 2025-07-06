@@ -87,8 +87,14 @@ export default {
                 {
                     label: 'Workflows',
                     items: [
-                        { label: 'List workflows', command: function() {That.emitSelection('list-workflows')} },
-                        { label: 'Create Workflow', command: function() {That.emitSelection('workflow-editor')} },
+                        {
+                            label: 'List workflows',
+                            command: function() {That.emitSelection('list-workflows')},
+                        },
+                        {
+                            label: 'Create Workflow',
+                            command: function() {That.emitSelection('workflow-editor')},
+                        },
                     ]
                 },
                 {

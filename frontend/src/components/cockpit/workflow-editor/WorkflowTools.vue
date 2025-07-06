@@ -36,11 +36,11 @@
           <div class="workflow-details-body-section-right">
             <div id="input" class="input-box">
               <button :class="['btn', 'light']"
-                @click="remove">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.delete") }}</button>
+                @click="remove"><i class="pi pi-times-circle"></i> {{ $t("message.cockpit.detail.workflow-editor.workflow-details.delete") }}</button>
             </div>
             <div id="input" class="input-box">
               <button :class="['btn']"
-                @click="update">{{ $t("message.cockpit.detail.workflow-editor.workflow-details.save") }}</button>
+                @click="update"><i class="pi pi-save"></i> {{ $t("message.cockpit.detail.workflow-editor.workflow-details.save") }}</button>
             </div>
           </div>
         </div>
