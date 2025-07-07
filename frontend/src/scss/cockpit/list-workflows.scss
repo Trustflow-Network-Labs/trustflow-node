@@ -13,6 +13,15 @@
     --p-button-text-secondary-color: rgba(240, 240, 240, 1);
     --p-button-text-secondary-hover-background: rgb(246, 114, 66);
 
+    --tf-in-design-icon-background-color: #4060c3;
+    --tf-running-icon-background-color: rgba(205, 81, 36, 1);
+    --tf-completed-icon-background-color: rgba(86, 164, 82, 1);
+    --tf-errored-icon-background-color: rgba(155, 45, 44, 1);
+    --tf-in-design-icon-color: #fff;
+    --tf-running-icon-color: #fff;
+    --tf-completed-icon-color: #fff;
+    --tf-errored-icon-color: #fff;
+
     position: relative;
     width: 100%;
     height: 100vh;
@@ -29,7 +38,7 @@
         align-items: center;
 
         width: 100%;
-        padding-bottom: 1rem;
+        padding-bottom: 1.5rem;
         border-bottom: 2px solid rgb(49, 64, 92);
 
         .list-workflows-controls-search {
@@ -130,6 +139,90 @@
             }
         }
     }
+
+    .list-workflows-filters {
+        padding: 1rem 0;
+
+        .list-workflows-filters-title {
+            text-align: left;
+            font-size: 1.5rem;
+            padding-top: .5rem;
+
+            i {
+                vertical-align: center;
+            }
+
+        }
+        .list-workflows-filters-list {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            align-content: center;
+            align-items: center;
+
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+
+            .list-workflows-filters-box {
+                width: 10rem;
+                min-width: 10rem;
+                height: 5rem;
+                background-color: rgb(38, 49, 65);
+                border-radius: 4px;
+                cursor: pointer;
+
+                margin: 1rem;
+                padding: .5rem;
+
+                &:first-child {
+                    margin-left: 0;
+                }
+
+                display: flex;
+                flex-direction: column;
+                flex-wrap: nowrap;
+                justify-content: center;
+                align-content: center;
+                align-items: center;
+
+                .list-workflows-filters-box-content {
+                    width: 100%;
+
+                    display: flex;
+                    flex-direction: row;
+                    flex-wrap: nowrap;
+                    justify-content: flex-start;
+                    align-content: center;
+                    align-items: center;
+
+                    .list-workflows-filters-box-content-icon {
+                        padding: 0 .25rem;
+                    }
+
+                    .list-workflows-filters-box-content-details {
+                        padding-left: 1rem;
+                        font-size: .85rem;
+                    }
+                }
+            }
+        }
+    }
+
+    .list-workflows {
+        padding: 0;
+
+        .list-workflows-title {
+            text-align: left;
+            font-size: 1.5rem;
+
+            i {
+                vertical-align: center;
+            }
+        }
+    }
+
 
     @media (max-aspect-ratio: 13/9) and (orientation: portrait), (max-width: 800px) {
     }

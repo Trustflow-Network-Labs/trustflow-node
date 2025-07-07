@@ -3,7 +3,7 @@
     <div class="list-workflows-controls">
       <div class="list-workflows-controls-search">
         <InputGroup>
-            <InputText placeholder="Search workflows" />
+            <InputText :placeholder="$t('message.cockpit.detail.list-workflows.search-workflows')" />
             <InputGroupAddon>
                 <Button icon="pi pi-search" severity="secondary" variant="text" @click="" />
             </InputGroupAddon>
@@ -21,7 +21,67 @@
       </div>
     </div>
     <div class="list-workflows-filters">
-      <div class="list-workflows-filters-box">
+      <div class="list-workflows-filters-title">
+        <i class="pi pi-filter"></i> {{ $t("message.cockpit.detail.list-workflows.filter-workflows-by-status") }}
+      </div>
+      <div class="list-workflows-filters-list">
+        <div class="list-workflows-filters-box">
+          <div class="list-workflows-filters-box-content">
+            <div class="list-workflows-filters-box-content-icon">
+              <OverlayBadge :value="inDesign" severity="contrast" size="small">
+                  <Avatar icon="pi pi-objects-column" size="large"
+                     style="background-color: var(--tf-in-design-icon-background-color); color: var(--tf-in-design-icon-color)" />
+              </OverlayBadge>
+            </div>
+            <div class="list-workflows-filters-box-content-details">
+              {{ $t("message.cockpit.detail.list-workflows.in-design") }}
+            </div>
+          </div>
+        </div>
+        <div class="list-workflows-filters-box">
+          <div class="list-workflows-filters-box-content">
+            <div class="list-workflows-filters-box-content-icon">
+              <OverlayBadge :value="running" severity="contrast" size="small">
+                  <Avatar icon="pi pi-play" size="large"
+                     style="background-color: var(--tf-running-icon-background-color); color: var(--tf-running-icon-color)" />
+              </OverlayBadge>
+            </div>
+            <div class="list-workflows-filters-box-content-details">
+              {{ $t("message.cockpit.detail.list-workflows.running") }}
+            </div>
+          </div>
+        </div>
+        <div class="list-workflows-filters-box">
+          <div class="list-workflows-filters-box-content">
+            <div class="list-workflows-filters-box-content-icon">
+              <OverlayBadge :value="completed" severity="contrast" size="small">
+                  <Avatar icon="pi pi-play" size="large"
+                     style="background-color: var(--tf-completed-icon-background-color); color: var(--tf-completed-icon--color)" />
+              </OverlayBadge>
+            </div>
+            <div class="list-workflows-filters-box-content-details">
+              {{ $t("message.cockpit.detail.list-workflows.completed") }}
+            </div>
+          </div>
+        </div>
+        <div class="list-workflows-filters-box">
+          <div class="list-workflows-filters-box-content">
+            <div class="list-workflows-filters-box-content-icon">
+              <OverlayBadge :value="errored" severity="contrast" size="small">
+                  <Avatar icon="pi pi-play" size="large"
+                     style="background-color: var(--tf-errored-icon-background-color); color: var(--tf-errored-icon-color)" />
+              </OverlayBadge>
+            </div>
+            <div class="list-workflows-filters-box-content-details">
+              {{ $t("message.cockpit.detail.list-workflows.errored") }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="list-workflows">
+      <div class="list-workflows-title">
+        <i class="pi pi-list"></i> {{ $t("message.cockpit.detail.list-workflows.workflows-list") }}
       </div>
     </div>
     <Toast position="top-center" />

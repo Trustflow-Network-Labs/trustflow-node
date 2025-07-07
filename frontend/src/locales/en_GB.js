@@ -60,8 +60,15 @@ export default {
 					}
 				},
 				"list-workflows": {
+					"search-workflows": "Search workflows",
 					"new": "New",
 					"delete": "Delete",
+					"filter-workflows-by-status": "Filter workflows by status",
+					"workflows-list": "Workflows",
+					"in-design": "In design",
+					"running": "Running",
+					"completed": "Completed",
+					"errored": "Errored",
 				}
 			},
 		},

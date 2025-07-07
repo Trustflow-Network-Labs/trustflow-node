@@ -12,6 +12,9 @@ import InputText from 'primevue/inputtext'
 import InputGroup from 'primevue/inputgroup'
 import InputGroupAddon from 'primevue/inputgroupaddon'
 import Button from 'primevue/button'
+import Badge from 'primevue/badge'
+import OverlayBadge from 'primevue/overlaybadge'
+import Avatar from 'primevue/avatar'
 
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
@@ -74,6 +77,9 @@ export default {
         InputGroup,
         InputGroupAddon,
         Button,
+        Badge,
+        OverlayBadge,
+        Avatar,
     },
 	directives: {},
 	name: 'ListWorkflows',
@@ -86,6 +92,10 @@ export default {
     destroyed: destroyed,
     data() {
         return {
+            inDesign: 0,
+            running: 0,
+            completed: 0,
+            errored: 0,
        }
     }
 }
