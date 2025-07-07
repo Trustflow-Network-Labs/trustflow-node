@@ -1,4 +1,6 @@
 .common-cockpit-workflow-editor-service-card {
+    --tf-function-color: #4060c3;
+
     position: absolute;
     width: 160px !important;
     height: 200px !important;
@@ -64,7 +66,7 @@
             }
 
             &.function {
-                background-color: #5D9CEC;
+                background-color: var(--tf-function-color);
             }
         }
     }

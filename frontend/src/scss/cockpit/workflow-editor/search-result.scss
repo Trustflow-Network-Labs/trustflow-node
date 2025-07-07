@@ -3,6 +3,8 @@
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
 
+    --tf-function-color: #4060c3;
+
     background-color: rgb(204, 204, 204);
     border-radius: 4px;
     
@@ -40,7 +42,7 @@
         }
 
         &.function {
-            border: 17px solid #5D9CEC;
+            border: 17px solid var(--tf-function-color);
         }
     }
 
@@ -182,7 +184,7 @@
                     }
 
                     &.function {
-                        background-color: #5D9CEC;
+                        background-color: var(--tf-function-color);
                         color: #fff;
                     }
 
