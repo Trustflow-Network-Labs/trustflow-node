@@ -185,6 +185,14 @@ const methods = {
             }
             this.workflowId = response.workflow_id
             this.workflowJobsIds = response.workflow_jobs_ids
+            // Print confirmation
+            UseToast.add({
+                severity: "info",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
+                detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-added"),
+                closable: true,
+                life: 3000,
+            })
         }
         else {
             // Add workflow job
@@ -332,6 +340,14 @@ const methods = {
                 return
             }
             this.workflowId = response.workflow_id
+            // Print confirmation
+            UseToast.add({
+                severity: "info",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
+                detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-added"),
+                closable: true,
+                life: 3000,
+            })
         }
         else {
             // Update workflow
@@ -347,15 +363,15 @@ const methods = {
                 })
                 return
             }
+            // Print confirmation
+            UseToast.add({
+                severity: "info",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
+                detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-updated"),
+                closable: true,
+                life: 3000,
+            })
         }
-        // Print confirmation
-        UseToast.add({
-            severity: "info",
-            summary: this.$t("message.cockpit.detail.workflow-editor.logic.success"),
-            detail: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-updated"),
-            closable: true,
-            life: 3000,
-        })
     },
     async removeWorkflow() {
         if (!this.workflowId) {

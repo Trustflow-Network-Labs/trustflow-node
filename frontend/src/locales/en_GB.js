@@ -43,7 +43,8 @@ export default {
 						"add-to-workflow": "Add to workflow",
 					},
 					"logic": {
-						"workflow-not-added": "Workflow not added",
+						"workflow-added": "Workflow created",
+						"workflow-not-added": "Workflow not created",
 						"workflow-updated": "Workflow updated",
 						"workflow-not-updated": "Workflow not updated",
 						"workflow-removed": "Workflow removed",

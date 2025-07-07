@@ -55,7 +55,7 @@
           <div class="list-workflows-filters-box-content">
             <div class="list-workflows-filters-box-content-icon">
               <OverlayBadge :value="completed" severity="contrast" size="small">
-                  <Avatar icon="pi pi-play" size="large"
+                  <Avatar icon="pi pi-verified" size="large"
                      style="background-color: var(--tf-completed-icon-background-color); color: var(--tf-completed-icon--color)" />
               </OverlayBadge>
             </div>
@@ -68,7 +68,7 @@
           <div class="list-workflows-filters-box-content">
             <div class="list-workflows-filters-box-content-icon">
               <OverlayBadge :value="errored" severity="contrast" size="small">
-                  <Avatar icon="pi pi-play" size="large"
+                  <Avatar icon="pi pi-exclamation-circle" size="large"
                      style="background-color: var(--tf-errored-icon-background-color); color: var(--tf-errored-icon-color)" />
               </OverlayBadge>
             </div>

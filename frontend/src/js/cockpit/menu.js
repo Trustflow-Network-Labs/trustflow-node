@@ -70,7 +70,7 @@ const computed = {
                 class: ((this.selectedMenuKey == 'configure-node') ? 'active-menu-item' : ''),
                 items: [
                     {
-                        icon: 'pi pi-shield',
+                        icon: 'pi pi-lock',
                         label: 'Blacklist',
                         key: 'blacklist',
                         command: function() {That.emitSelection('blacklist')},
