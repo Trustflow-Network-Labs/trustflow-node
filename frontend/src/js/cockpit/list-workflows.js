@@ -53,6 +53,9 @@ const mounted = async function() {
 }
 
 const methods = {
+    navigate(menuKey) {
+        MainStore.setSelectedMenuKey(menuKey)
+    }
 }
 
 const destroyed = function() {

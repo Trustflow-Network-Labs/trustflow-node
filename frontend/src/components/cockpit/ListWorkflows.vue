@@ -16,7 +16,7 @@
         </div>
         <div id="input" class="input-box">
           <button :class="['btn']"
-            @click=""><i class="pi pi-plus-circle"></i> {{ $t("message.cockpit.detail.list-workflows.new") }}</button>
+            @click="navigate('workflow-editor')"><i class="pi pi-plus-circle"></i> {{ $t("message.cockpit.detail.list-workflows.new") }}</button>
         </div>
       </div>
     </div>
