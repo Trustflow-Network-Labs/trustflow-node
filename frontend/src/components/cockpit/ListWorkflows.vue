@@ -20,6 +20,10 @@
         </div>
       </div>
     </div>
+    <div class="list-workflows-filters">
+      <div class="list-workflows-filters-box">
+      </div>
+    </div>
     <Toast position="top-center" />
     <ConfirmDialog />
   </main>

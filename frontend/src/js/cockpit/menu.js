@@ -27,6 +27,87 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
+    selectedMenuKey() {
+        return MainStore.getSelectedMenuKey
+    },
+    menuItems() {
+        return [
+            {
+                icon: 'pi pi-gauge',
+                label: 'Dashboard',
+                key: 'dashboard',
+                command: function() {That.emitSelection('dashboard')},
+                class: ((this.selectedMenuKey == 'dashboard') ? 'active-menu-item' : ''),
+            },
+            {
+                icon: 'pi pi-wave-pulse',
+                label: 'Workflows',
+                key: 'workflows',
+                command: function() {That.emitSelection('workflows')},
+                class: ((this.selectedMenuKey == 'workflows') ? 'active-menu-item' : ''),
+                items: [
+                    {
+                        icon: 'pi pi-list',
+                        label: 'List workflows',
+                        key: 'list-workflows',
+                        command: function() {That.emitSelection('list-workflows')},
+                        class: ((this.selectedMenuKey == 'list-workflows') ? 'active-menu-item' : ''),
+                    },
+                    {
+                        icon: 'pi pi-receipt',
+                        label: 'Create Workflow',
+                        key: 'workflow-editor',
+                        command: function() {That.emitSelection('workflow-editor')},
+                        class: ((this.selectedMenuKey == 'workflow-editor') ? 'active-menu-item' : ''),
+                    },
+                ]
+            },
+            {
+                icon: 'pi pi-cog',
+                label: 'Configure node',
+                key: 'configure-node',
+                command: function() {That.emitSelection('configure-node')},
+                class: ((this.selectedMenuKey == 'configure-node') ? 'active-menu-item' : ''),
+                items: [
+                    {
+                        icon: 'pi pi-shield',
+                        label: 'Blacklist',
+                        key: 'blacklist',
+                        command: function() {That.emitSelection('blacklist')},
+                        class: ((this.selectedMenuKey == 'blacklist') ? 'active-menu-item' : ''),
+                    },
+                    {
+                        icon: 'pi pi-dollar',
+                        label: 'Currencies',
+                        key: 'currencies',
+                        command: function() {That.emitSelection('currencies')},
+                        class: ((this.selectedMenuKey == 'currencies') ? 'active-menu-item' : ''),
+                    },
+                    {
+                        icon: 'pi pi-database',
+                        label: 'Resources',
+                        key: 'resources',
+                        command: function() {That.emitSelection('resources')},
+                        class: ((this.selectedMenuKey == 'resources') ? 'active-menu-item' : ''),
+                    },
+                    {
+                        icon: 'pi pi-shopping-cart',
+                        label: 'Services',
+                        key: 'services',
+                        command: function() {That.emitSelection('services')},
+                        class: ((this.selectedMenuKey == 'services') ? 'active-menu-item' : ''),
+                    },
+                    {
+                        icon: 'pi pi-sliders-h',
+                        label: 'Settings',
+                        key: 'settings',
+                        command: function() {That.emitSelection('settings')},
+                        class: ((this.selectedMenuKey == 'settings') ? 'active-menu-item' : ''),
+                    }
+                ]
+            }
+        ]
+    }
 }
 
 const watch = {
@@ -41,6 +122,13 @@ const mounted = async function() {
 const methods = {
     emitSelection(menuKey) {
         MainStore.setSelectedMenuKey(menuKey)
+        this.toggleExpandedMenuItems()
+    },
+    toggleExpandedMenuItems() {
+        if (this.expandedMenuKeys[this.selectedMenuKey] == undefined)
+            this.expandedMenuKeys[this.selectedMenuKey] = true
+        else
+            this.expandedMenuKeys[this.selectedMenuKey] = !this.expandedMenuKeys[this.selectedMenuKey]
     },
     async isHostRunning() {
         return await IsHostRunning()
@@ -79,61 +167,8 @@ export default {
     data() {
         return {
             hostRunning: false,
-            menuItems: [
-                {
-                    icon: 'pi pi-gauge',
-                    label: 'Dashboard',
-                    command: function() {That.emitSelection('dashboard')},
-                },
-                {
-                    icon: 'pi pi-wave-pulse',
-                    label: 'Workflows',
-                    items: [
-                        {
-                            icon: 'pi pi-list',
-                            label: 'List workflows',
-                            command: function() {That.emitSelection('list-workflows')},
-                        },
-                        {
-                            icon: 'pi pi-receipt',
-                            label: 'Create Workflow',
-                            command: function() {That.emitSelection('workflow-editor')},
-                        },
-                    ]
-                },
-                {
-                    icon: 'pi pi-cog',
-                    label: 'Configure node',
-                    items: [
-                        {
-                            icon: 'pi pi-shield',
-                            label: 'Blacklist',
-                            command: function() {That.emitSelection('blacklist')},
-                        },
-                        {
-                            icon: 'pi pi-dollar',
-                            label: 'Currencies',
-                            command: function() {That.emitSelection('currencies')},
-                        },
-                        {
-                            icon: 'pi pi-database',
-                            label: 'Resources',
-                            command: function() {That.emitSelection('resources')},
-                        },
-                        {
-                            icon: 'pi pi-shopping-cart',
-                            label: 'Services',
-                            command: function() {That.emitSelection('services')},
-                        },
-                        {
-                            icon: 'pi pi-sliders-h',
-                            label: 'Settings',
-                            command: function() {That.emitSelection('settings')},
-                        }
-                    ]
-                }
-            ],
             errorText: "",
+            expandedMenuKeys: {},
         }
     }
 }
