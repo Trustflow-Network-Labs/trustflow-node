@@ -97,11 +97,81 @@ export namespace main {
 
 export namespace node_types {
 	
+	export class ServiceInterfacePeer {
+	    peer_service_id: number;
+	    peer_node_id: string;
+	    peer_path: string;
+	    peer_mount_function: string;
+	    peer_duty: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceInterfacePeer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.peer_service_id = source["peer_service_id"];
+	        this.peer_node_id = source["peer_node_id"];
+	        this.peer_path = source["peer_path"];
+	        this.peer_mount_function = source["peer_mount_function"];
+	        this.peer_duty = source["peer_duty"];
+	    }
+	}
+	export class ServiceInterface {
+	    interface_id: number;
+	    workflow_job_id: number;
+	    service_id: number;
+	    service_interface_peers: ServiceInterfacePeer[];
+	    interface_type: string;
+	    description: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceInterface(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.interface_id = source["interface_id"];
+	        this.workflow_job_id = source["workflow_job_id"];
+	        this.service_id = source["service_id"];
+	        this.service_interface_peers = this.convertValues(source["service_interface_peers"], ServiceInterfacePeer);
+	        this.interface_type = source["interface_type"];
+	        this.description = source["description"];
+	        this.path = source["path"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class WorkflowJobBase {
+	    id: number;
+	    workflow_id: number;
 	    node_id: string;
 	    service_id: number;
+	    service_name: string;
+	    service_description: string;
+	    service_type: string;
 	    job_id: number;
 	    expected_job_outputs: string;
+	    status: string;
+	    service_interfaces: ServiceInterface[];
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkflowJobBase(source);
@@ -109,17 +179,43 @@ export namespace node_types {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.workflow_id = source["workflow_id"];
 	        this.node_id = source["node_id"];
 	        this.service_id = source["service_id"];
+	        this.service_name = source["service_name"];
+	        this.service_description = source["service_description"];
+	        this.service_type = source["service_type"];
 	        this.job_id = source["job_id"];
 	        this.expected_job_outputs = source["expected_job_outputs"];
+	        this.status = source["status"];
+	        this.service_interfaces = this.convertValues(source["service_interfaces"], ServiceInterface);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class WorkflowJob {
-	    id: number;
-	    workflow_id: number;
 	    workflow_job_base: WorkflowJobBase;
-	    status: string;
+	    entrypoint: string[];
+	    commands: string[];
+	    // Go type: time
+	    last_seen: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkflowJob(source);
@@ -127,10 +223,10 @@ export namespace node_types {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.workflow_id = source["workflow_id"];
 	        this.workflow_job_base = this.convertValues(source["workflow_job_base"], WorkflowJobBase);
-	        this.status = source["status"];
+	        this.entrypoint = source["entrypoint"];
+	        this.commands = source["commands"];
+	        this.last_seen = this.convertValues(source["last_seen"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

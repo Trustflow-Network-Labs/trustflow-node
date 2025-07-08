@@ -10,6 +10,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+const timeLayout = time.RFC3339
+
 // Declare key type
 type Key struct {
 	Id         int64  `json:"id"`
@@ -259,18 +261,86 @@ type Workflow struct {
 
 // Declare workflow job base struct
 type WorkflowJobBase struct {
-	NodeId             string `json:"node_id"`
-	ServiceId          int64  `json:"service_id"`
-	JobId              int64  `json:"job_id"`
-	ExpectedJobOutputs string `json:"expected_job_outputs"`
+	Id                 int64              `json:"id"`
+	WorkflowId         int64              `json:"workflow_id"`
+	NodeId             string             `json:"node_id"`
+	ServiceId          int64              `json:"service_id"`
+	ServiceName        string             `json:"service_name"`
+	ServiceDescription string             `json:"service_description"`
+	ServiceType        string             `json:"service_type"`
+	JobId              int64              `json:"job_id"`
+	ExpectedJobOutputs string             `json:"expected_job_outputs"`
+	Status             string             `json:"status"`
+	ServiceInterfaces  []ServiceInterface `json:"service_interfaces"`
+}
+
+// Declare service interface base struct
+type ServiceInterface struct {
+	InterfaceId           int64                  `json:"interface_id"`
+	WorkflowJobId         int64                  `json:"workflow_job_id"`
+	ServiceId             int64                  `json:"service_id"`
+	ServiceInterfacePeers []ServiceInterfacePeer `json:"service_interface_peers"`
+	Interface
+}
+
+// Declare service interface peer struct
+type ServiceInterfacePeer struct {
+	PeerServiceId     int64  `json:"peer_service_id"`
+	PeerNodeId        string `json:"peer_node_id"`
+	PeerPath          string `json:"peer_path"`
+	PeerMountFunction string `json:"peer_mount_function"`
+	PeerDuty          int64  `json:"peer_duty"`
 }
 
 // Declare workflow job struct
 type WorkflowJob struct {
-	Id              int64           `json:"id"`
-	WorkflowId      int64           `json:"workflow_id"`
 	WorkflowJobBase WorkflowJobBase `json:"workflow_job_base"`
-	Status          string          `json:"status"`
+	Entrypoint      []string        `json:"entrypoint"`
+	Commands        []string        `json:"commands"`
+	LastSeen        time.Time       `json:"last_seen"`
+}
+
+// Declare workflow job sql struct
+type WorkflowJobSql struct {
+	WorkflowJobBase WorkflowJobBase `json:"workflow_job_base"`
+	Entrypoint      string          `json:"entrypoint"`
+	Commands        string          `json:"commands"`
+	LastSeen        string          `json:"last_seen"`
+}
+
+func (wjs *WorkflowJobSql) ToWorkflowJob() WorkflowJob {
+	var lastSeen time.Time
+
+	entrypoint, _ := shlex.Split(wjs.Entrypoint)
+	commands, _ := shlex.Split(wjs.Commands)
+
+	if wjs.LastSeen != "" {
+		lastSeen, _ = time.Parse(timeLayout, wjs.LastSeen)
+	}
+
+	return WorkflowJob{
+		WorkflowJobBase: wjs.WorkflowJobBase,
+		Entrypoint:      entrypoint,
+		Commands:        commands,
+		LastSeen:        lastSeen,
+	}
+}
+
+func (wj *WorkflowJob) ToWorkflowJobSql() WorkflowJobSql {
+	var lastSeen string
+
+	entrypoint := utils.ShlexJoin(wj.Entrypoint)
+	commands := utils.ShlexJoin(wj.Commands)
+
+	if !wj.LastSeen.IsZero() {
+		lastSeen = wj.LastSeen.Format(timeLayout)
+	}
+	return WorkflowJobSql{
+		WorkflowJobBase: wj.WorkflowJobBase,
+		Entrypoint:      entrypoint,
+		Commands:        commands,
+		LastSeen:        lastSeen,
+	}
 }
 
 // Declare job base struct
@@ -284,7 +354,7 @@ type JobBase struct {
 	Status                    string `json:"status"`
 }
 
-// Declare service request interface
+// Declare job interface peer
 type JobInterfacePeer struct {
 	PeerJobId         int64  `json:"peer_job_id"`
 	PeerNodeId        string `json:"peer_node_id"`
@@ -320,8 +390,6 @@ type JobSql struct {
 	Started    string `json:"started"`
 	Ended      string `json:"ended"`
 }
-
-const timeLayout = time.RFC3339
 
 func (js *JobSql) ToJob() Job {
 	var started, ended time.Time

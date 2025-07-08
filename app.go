@@ -253,21 +253,47 @@ type AddWorkflowResponse struct {
 	AddWorkflowJobResponse
 }
 
-func (a *App) AddWorkflow(name string, description string, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) AddWorkflowResponse {
-	var workflowJobBases []node_types.WorkflowJobBase
+func (a *App) AddWorkflow(
+	name, description, nodeId string,
+	serviceId int64,
+	serviceName, serviceDescription, serviceType string,
+	entrypoint, commands []string,
+	lastSeen string, jobId int64, expectedJobOutputs string,
+) AddWorkflowResponse {
+	const timeLayout = time.RFC3339
+	var workflowJobs []node_types.WorkflowJob
 	var response AddWorkflowResponse
 
 	if nodeId != "" && serviceId > 0 {
 		workflowJobBase := node_types.WorkflowJobBase{
 			NodeId:             nodeId,
 			ServiceId:          serviceId,
+			ServiceName:        serviceName,
+			ServiceDescription: serviceDescription,
+			ServiceType:        serviceType,
 			JobId:              jobId,
 			ExpectedJobOutputs: expectedJobOutputs,
 		}
-		workflowJobBases = append(workflowJobBases, workflowJobBase)
+
+		workflowJob := node_types.WorkflowJob{
+			WorkflowJobBase: workflowJobBase,
+			Entrypoint:      entrypoint,
+			Commands:        commands,
+		}
+
+		if lastSeen != "" {
+			ls, err := time.Parse(timeLayout, lastSeen)
+			if err != nil {
+				response.Error = err.Error()
+			} else {
+				workflowJob.LastSeen = ls
+			}
+		}
+
+		workflowJobs = append(workflowJobs, workflowJob)
 	}
 
-	workflowId, workflowJobsIds, err := a.wm.Add(name, description, workflowJobBases)
+	workflowId, workflowJobsIds, err := a.wm.Add(name, description, workflowJobs)
 	if err != nil {
 		response.Error = err.Error()
 	}
@@ -298,17 +324,43 @@ type AddWorkflowJobResponse struct {
 	Error           string  `json:"error"`
 }
 
-func (a *App) AddWorkflowJob(workflowId int64, nodeId string, serviceId int64, jobId int64, expectedJobOutputs string) AddWorkflowJobResponse {
+func (a *App) AddWorkflowJob(
+	workflowId int64,
+	nodeId string,
+	serviceId int64,
+	serviceName, serviceDescription, serviceType string,
+	entrypoint, commands []string,
+	lastSeen string, jobId int64, expectedJobOutputs string,
+) AddWorkflowJobResponse {
+	const timeLayout = time.RFC3339
 	var response AddWorkflowJobResponse
 
 	workflowJobBase := node_types.WorkflowJobBase{
 		NodeId:             nodeId,
 		ServiceId:          serviceId,
+		ServiceName:        serviceName,
+		ServiceDescription: serviceDescription,
+		ServiceType:        serviceType,
 		JobId:              jobId,
 		ExpectedJobOutputs: expectedJobOutputs,
 	}
 
-	workflowJobsIds, err := a.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJobBase{workflowJobBase})
+	workflowJob := node_types.WorkflowJob{
+		WorkflowJobBase: workflowJobBase,
+		Entrypoint:      entrypoint,
+		Commands:        commands,
+	}
+
+	if lastSeen != "" {
+		ls, err := time.Parse(timeLayout, lastSeen)
+		if err != nil {
+			response.Error = err.Error()
+		} else {
+			workflowJob.LastSeen = ls
+		}
+	}
+
+	workflowJobsIds, err := a.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJob{workflowJob})
 	if err != nil {
 		response.Error = err.Error()
 	}

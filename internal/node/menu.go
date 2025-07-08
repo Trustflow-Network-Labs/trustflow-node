@@ -389,13 +389,18 @@ func (mm *MenuManager) requestService() error {
 
 		// Add workflow and a workflow job
 		// Create workflow jobs
-		workflowJob := node_types.WorkflowJobBase{
+		workflowJobBase := node_types.WorkflowJobBase{
 			NodeId:             peer.ID.String(),
 			ServiceId:          serviceId,
 			JobId:              0,
 			ExpectedJobOutputs: "",
 		}
-		workflowId, _, err = mm.wm.Add(wfnResult, wfdResult, []node_types.WorkflowJobBase{workflowJob})
+
+		workflowJob := node_types.WorkflowJob{
+			WorkflowJobBase: workflowJobBase,
+		}
+
+		workflowId, _, err = mm.wm.Add(wfnResult, wfdResult, []node_types.WorkflowJob{workflowJob})
 		if err != nil {
 			fmt.Printf("Adding new workflow failed: %s\n", err.Error())
 			return err
@@ -403,13 +408,18 @@ func (mm *MenuManager) requestService() error {
 	}
 
 	// Create workflow jobs
-	workflowJob := node_types.WorkflowJobBase{
+	workflowJobBase := node_types.WorkflowJobBase{
 		NodeId:             peer.ID.String(),
 		ServiceId:          serviceId,
 		JobId:              0,
 		ExpectedJobOutputs: "",
 	}
-	_, err = mm.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJobBase{workflowJob})
+
+	workflowJob := node_types.WorkflowJob{
+		WorkflowJobBase: workflowJobBase,
+	}
+
+	_, err = mm.wm.AddWorkflowJobs(workflowId, []node_types.WorkflowJob{workflowJob})
 	if err != nil {
 		fmt.Printf("Adding new workflow job failed: %s\n", err.Error())
 		return err
@@ -822,7 +832,7 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 		table.Append(row)
 
 		for i, job := range workflow.Jobs {
-			row = []string{"", fmt.Sprintf("%d.%d Job ID:", workflow.Id, i+1), fmt.Sprintf("%d-%s-%d", workflow.Id, job.WorkflowJobBase.NodeId, job.WorkflowJobBase.JobId), job.Status}
+			row = []string{"", fmt.Sprintf("%d.%d Job ID:", workflow.Id, i+1), fmt.Sprintf("%d-%s-%d", workflow.Id, job.WorkflowJobBase.NodeId, job.WorkflowJobBase.JobId), job.WorkflowJobBase.Status}
 			table.Append(row)
 		}
 	}

@@ -169,9 +169,16 @@ const methods = {
             this.$refs['workflowTools'].workflowName = name
         }
 
+        if (service.entrypoint == null)
+            service.entrypoint = []
+        if (service.commands == null)
+            service.commands = []
+
         if (this.workflowId == null) {
             // Add workflow
-            let response = await AddWorkflow(name, description, service.node_id, service.id, 0, "")
+            let response = await AddWorkflow(
+                name, description, service.node_id, service.id, service.name, service.description,
+                service.type, service.entrypoint, service.commands, service.last_seen, 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
@@ -196,7 +203,9 @@ const methods = {
         }
         else {
             // Add workflow job
-            let response = await AddWorkflowJob(this.workflowId, service.node_id, service.id, 0, "")
+            let response = await AddWorkflowJob(this.workflowId, service.node_id, service.id,
+                service.name, service.description, service.type, service.entrypoint, service.commands,
+                service.last_seen, 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
@@ -327,7 +336,7 @@ const methods = {
 
        if (!this.workflowId) {
             // Add workflow
-            let response = await AddWorkflow(name, description, "", 0, 0, "")
+            let response = await AddWorkflow(name, description, "", 0, "", "", "", [], [], "", 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
