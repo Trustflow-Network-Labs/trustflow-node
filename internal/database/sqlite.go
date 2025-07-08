@@ -410,6 +410,12 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
 	"workflow_id" INTEGER NOT NULL,
 	"node_id" TEXT NOT NULL,
 	"service_id" INTEGER NOT NULL,
+	"service_name" VARCHAR(255) NOT NULL,
+	"service_description" TEXT DEFAULT '',
+	"service_type" VARCHAR(10) CHECK( "service_type" IN ('DATA', 'DOCKER EXECUTION ENVIRONMENT', 'STANDALONE EXECUTABLE') ) NOT NULL DEFAULT 'DATA',
+	"entrypoint" TEXT DEFAULT '',
+	"commands" TEXT DEFAULT '',
+	"last_seen" TEXT DEFAULT '',
 	"job_id" INTEGER NOT NULL,
 	"expected_job_outputs" TEXT NOT NULL,
 	"status" VARCHAR(10) CHECK( "status" IN ('IDLE', 'READY', 'RUNNING', 'CANCELLED', 'ERRORED', 'COMPLETED') ) NOT NULL DEFAULT 'IDLE',
@@ -420,6 +426,64 @@ CREATE UNIQUE INDEX IF NOT EXISTS workflow_jobs_id_idx ON workflow_jobs ("id");
 		_, err = db.ExecContext(context.Background(), createWorkflowJobsTableSql)
 		if err != nil {
 			message := fmt.Sprintf("Can not create `workflow_jobs` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createWorkflowJobInterfacesTable := `
+CREATE TABLE IF NOT EXISTS workflow_job_interfaces (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"workflow_job_id" INTEGER NOT NULL,
+	"interface_type" VARCHAR(10) CHECK( "interface_type" IN ('STDIN', 'STDOUT', 'MOUNT') ) NOT NULL DEFAULT 'MOUNT',
+	"path" TEXT DEFAULT '',
+	FOREIGN KEY("workflow_job_id") REFERENCES workflow_jobs("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_job_interfaces_id_idx ON workflow_job_interfaces ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowJobInterfacesTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `workflow_job_interfaces` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createWorkflowJobInterfacePeersTable := `
+CREATE TABLE IF NOT EXISTS workflow_job_interface_peers (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"workflow_job_interface_id" INTEGER NOT NULL,
+	"peer_node_id" TEXT NOT NULL,
+	"peer_service_id" INTEGER NOT NULL,
+	"peer_mount_function" TEXT DEFAULT '',
+	"path" TEXT DEFAULT '',
+	FOREIGN KEY("workflow_job_interface_id") REFERENCES workflow_job_interfaces("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_job_interface_peers_id_idx ON workflow_job_interface_peers ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowJobInterfacePeersTable)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `workflow_job_interface_peers` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
+		createWorkflowJobPricingModelTableSql := `
+CREATE TABLE IF NOT EXISTS workflow_job_pricing_model (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+	"workflow_job_id" INTEGER NOT NULL,
+	"resource_group" VARCHAR(255) NOT NULL,
+	"resource" VARCHAR(255) NOT NULL,
+	"resource_unit" VARCHAR(255) NOT NULL,
+	"description" TEXT DEFAULT NULL,
+	"price" DOUBLE PRECISION DEFAULT 0.0,
+	"currency_name" VARCHAR(255) NOT NULL,
+	"currency_symbol" VARCHAR(255) NOT NULL,
+	FOREIGN KEY("workflow_job_id") REFERENCES workflow_jobs("id") ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_job_pricing_model_id_idx ON workflow_job_pricing_model ("id");
+`
+		_, err = db.ExecContext(context.Background(), createWorkflowJobPricingModelTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `workflow_job_pricing_model` table. (%s)", err.Error())
 			logsManager.Log("error", message, "database")
 			return nil, err
 		}
