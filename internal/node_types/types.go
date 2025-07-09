@@ -261,17 +261,18 @@ type Workflow struct {
 
 // Declare workflow job base struct
 type WorkflowJobBase struct {
-	Id                 int64              `json:"id"`
-	WorkflowId         int64              `json:"workflow_id"`
-	NodeId             string             `json:"node_id"`
-	ServiceId          int64              `json:"service_id"`
-	ServiceName        string             `json:"service_name"`
-	ServiceDescription string             `json:"service_description"`
-	ServiceType        string             `json:"service_type"`
-	JobId              int64              `json:"job_id"`
-	ExpectedJobOutputs string             `json:"expected_job_outputs"`
-	Status             string             `json:"status"`
-	ServiceInterfaces  []ServiceInterface `json:"service_interfaces"`
+	Id                 int64                         `json:"id"`
+	WorkflowId         int64                         `json:"workflow_id"`
+	NodeId             string                        `json:"node_id"`
+	ServiceId          int64                         `json:"service_id"`
+	ServiceName        string                        `json:"service_name"`
+	ServiceDescription string                        `json:"service_description"`
+	ServiceType        string                        `json:"service_type"`
+	JobId              int64                         `json:"job_id"`
+	ExpectedJobOutputs string                        `json:"expected_job_outputs"`
+	Status             string                        `json:"status"`
+	ServiceInterfaces  []ServiceInterface            `json:"service_interfaces"`
+	ServicePriceModel  []ServiceResourcesWithPricing `json:"service_price_model"`
 }
 
 // Declare service interface base struct
