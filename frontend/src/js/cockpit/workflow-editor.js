@@ -2,6 +2,7 @@ import {
     AddWorkflow,
     UpdateWorkflow,
     RemoveWorkflow,
+    GetWorkflowJob,
     AddWorkflowJob,
     RemoveWorkflowJob,
     SetServiceCardGUIProps,
@@ -150,6 +151,7 @@ const methods = {
             id: id,
             workflowId: this.workflowId,
             workflowJobId: null,
+            workflowJob: null,
             type: 'ServiceCard',
             props: {
                 serviceCardId: id,
@@ -227,7 +229,23 @@ const methods = {
 
         serviceCard.workflowId = this.workflowId
         serviceCard.workflowJobId = this.workflowJobsIds[this.workflowJobsIds.length-1]
+
+        // Get newly added workflow job with ids
+        let response = await GetWorkflowJob(serviceCard.workflowJobId)
+        if (response.error != null && response.error != "") {
+            // Print error
+            UseToast.add({
+                severity: "error",
+                summary: this.$t("message.cockpit.detail.workflow-editor.logic.workflow-job-not-loaded"),
+                detail: response.error,
+                closable: true,
+                life: null,
+            })
+        }
+        serviceCard.workflowJob = response.workflow_job
+
         this.serviceCards.push(serviceCard)
+        console.log(this.serviceCards)
 
         // Update service card props in DB
         let err = await SetServiceCardGUIProps(serviceCard.workflowJobId, x, y)

@@ -340,6 +340,24 @@ func (a *App) RemoveWorkflow(workflowId int64) error {
 	return a.wm.Remove(workflowId)
 }
 
+// Get workflow job
+type GetWorkflowJobResponse struct {
+	WorkflowJob node_types.WorkflowJob `json:"workflow_job"`
+	Error       string                 `json:"error"`
+}
+
+func (a *App) GetWorkflowJob(workflowJobId int64) GetWorkflowJobResponse {
+	var response GetWorkflowJobResponse
+	workflowJob, err := a.wm.GetWorkflowJob(workflowJobId)
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	response.WorkflowJob = workflowJob
+
+	return response
+}
+
 // Add workflow job
 type AddWorkflowJobResponse struct {
 	WorkflowJobsIds []int64 `json:"workflow_jobs_ids"`

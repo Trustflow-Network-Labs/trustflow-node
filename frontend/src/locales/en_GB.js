@@ -49,6 +49,7 @@ export default {
 						"workflow-not-updated": "Workflow not updated",
 						"workflow-removed": "Workflow removed",
 						"workflow-not-removed": "Workflow not removed",
+						"workflow-job-not-loaded": "Can not retrieve Workflow job",
 						"workflow-job-not-added": "Workflow job not added",
 						"workflow-job-not-removed": "Workflow job not removed",
 						"success": "Success",

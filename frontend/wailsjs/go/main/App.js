@@ -10,6 +10,10 @@ export function AddWorkflowJob(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, a
   return window['go']['main']['App']['AddWorkflowJob'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
 }
 
+export function AddWorkflowJobInterfacePeer(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['AddWorkflowJobInterfacePeer'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function CheckAndInstallDependencies() {
   return window['go']['main']['App']['CheckAndInstallDependencies']();
 }
@@ -24,6 +28,10 @@ export function GetServiceCardGUIProps(arg1) {
 
 export function GetWorkflowGUIProps(arg1) {
   return window['go']['main']['App']['GetWorkflowGUIProps'](arg1);
+}
+
+export function GetWorkflowJob(arg1) {
+  return window['go']['main']['App']['GetWorkflowJob'](arg1);
 }
 
 export function IsHostRunning() {
@@ -44,6 +52,10 @@ export function RemoveWorkflow(arg1) {
 
 export function RemoveWorkflowJob(arg1) {
   return window['go']['main']['App']['RemoveWorkflowJob'](arg1);
+}
+
+export function RemoveWorkflowJobInterfacePeer(arg1, arg2) {
+  return window['go']['main']['App']['RemoveWorkflowJobInterfacePeer'](arg1, arg2);
 }
 
 export function SetServiceCardGUIProps(arg1, arg2, arg3) {
