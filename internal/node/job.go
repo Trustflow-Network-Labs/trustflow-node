@@ -315,7 +315,7 @@ func (jm *JobManager) AcknowledgeReceipt(jobId int64, interfaceId int64, peer pe
 	return nil
 }
 
-// Update job intterface peer duty flag
+// Update job interface peer duty flag
 func (jm *JobManager) updateJobInterfacePeerDuty(interfaceId int64, peerNodeId string, peerJobId int64, duty bool) error {
 	// Update job interface peer duty
 	done := int64(0)

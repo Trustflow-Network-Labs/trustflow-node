@@ -367,11 +367,25 @@ func (wm *WorkflowManager) AddWorkflowJobs(workflowId int64, workflowJobs []node
 			wm.lm.Log("debug", fmt.Sprintf("add workflow job %s interface for workflow job id %d, workflow id %d",
 				serviceInterface.InterfaceType, workflowJob.WorkflowJobBase.Id, workflowId), "workflows")
 
-			_, err := wm.db.ExecContext(context.Background(), "insert into workflow_job_interfaces (workflow_job_id, interface_type, path) values (?, ?, ?);",
+			wjiresult, err := wm.db.ExecContext(context.Background(), "insert into workflow_job_interfaces (workflow_job_id, interface_type, path) values (?, ?, ?);",
 				workflowJob.WorkflowJobBase.Id, serviceInterface.InterfaceType, serviceInterface.Path)
 			if err != nil {
 				wm.lm.Log("error", err.Error(), "workflows")
 				return nil, err
+			}
+			wjiid, err := wjiresult.LastInsertId()
+			if err != nil {
+				wm.lm.Log("error", err.Error(), "workflows")
+				return nil, err
+			}
+
+			for _, peer := range serviceInterface.ServiceInterfacePeers {
+				_, err := wm.db.ExecContext(context.Background(), "insert into workflow_job_interface_peers (workflow_job_interface_id, peer_node_id, peer_service_id, peer_mount_function, path) values (?, ?, ?, ?, ?);",
+					wjiid, peer.PeerNodeId, peer.PeerServiceId, peer.PeerMountFunction, peer.PeerPath)
+				if err != nil {
+					wm.lm.Log("error", err.Error(), "workflows")
+					return nil, err
+				}
 			}
 		}
 	}
@@ -433,6 +447,28 @@ func (wm *WorkflowManager) GetWorkflowJob(id int64) (node_types.WorkflowJob, err
 		workflowJob.WorkflowJobBase.ServiceInterfaces = append(workflowJob.WorkflowJobBase.ServiceInterfaces, serviceInterface)
 	}
 	rows.Close()
+
+	// Load service interfaces peers
+	for i, serviceInterface := range workflowJob.WorkflowJobBase.ServiceInterfaces {
+		rows, err := wm.db.QueryContext(context.Background(), "select peer_node_id, peer_service_id, peer_mount_function, path from workflow_job_interface_peers where workflow_job_interface_id = ?;",
+			serviceInterface.InterfaceId)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflow")
+			return workflowJob, err
+		}
+		for rows.Next() {
+			var serviceInterfacePeer node_types.ServiceInterfacePeer
+			err := rows.Scan(&serviceInterfacePeer.PeerNodeId, &serviceInterfacePeer.PeerServiceId,
+				&serviceInterfacePeer.PeerMountFunction, &serviceInterfacePeer.PeerPath)
+			if err != nil {
+				wm.lm.Log("error", err.Error(), "workflow")
+				return workflowJob, err
+			}
+
+			workflowJob.WorkflowJobBase.ServiceInterfaces[i].ServiceInterfacePeers = append(workflowJob.WorkflowJobBase.ServiceInterfaces[i].ServiceInterfacePeers, serviceInterfacePeer)
+		}
+		rows.Close()
+	}
 
 	// Load a workflow job price model
 	rows, err = wm.db.QueryContext(context.Background(), "select resource_group, resource, resource_unit, description, price, currency_name, currency_symbol from workflow_job_pricing_model where workflow_job_id = ?;",
