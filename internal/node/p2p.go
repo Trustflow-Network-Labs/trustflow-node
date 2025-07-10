@@ -860,7 +860,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 				}
 				// Add/Update Service Offers Cache
 				p2pm.sc.PruneExpired(time.Hour)
-				p2pm.sc.AddOrUpdate(service)
+				service = p2pm.sc.AddOrUpdate(service)
 				// If we are in interactive mode print Service Offer to CLI
 				uiType, err := ui.DetectUIType(p2pm.UI)
 				if err != nil {

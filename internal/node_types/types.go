@@ -232,12 +232,13 @@ func NewServiceOffersCache() *ServiceOffersCache {
 	}
 }
 
-func (sc *ServiceOffersCache) AddOrUpdate(serviceOffer ServiceOffer) {
+func (sc *ServiceOffersCache) AddOrUpdate(serviceOffer ServiceOffer) ServiceOffer {
 	sc.Lock()
 	defer sc.Unlock()
 	key := fmt.Sprintf("%s-%d", serviceOffer.NodeId, serviceOffer.Id)
 	serviceOffer.LastSeen = time.Now()
 	sc.ServiceOffers[key] = serviceOffer
+	return serviceOffer
 }
 
 func (sc *ServiceOffersCache) PruneExpired(ttl time.Duration) {
