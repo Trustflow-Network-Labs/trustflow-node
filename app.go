@@ -403,9 +403,7 @@ func (a *App) AddWorkflowJob(
 		response.Error = err.Error()
 	}
 
-	response = AddWorkflowJobResponse{
-		WorkflowJobsIds: workflowJobsIds,
-	}
+	response.WorkflowJobsIds = workflowJobsIds
 
 	return response
 }
@@ -413,4 +411,26 @@ func (a *App) AddWorkflowJob(
 // Remove workflow job
 func (a *App) RemoveWorkflowJob(workflowJobId int64) error {
 	return a.wm.RemoveWorkflowJob(workflowJobId)
+}
+
+// Add workflow job interface peer
+type AddWorkflowJobInterfacePeerResponse struct {
+	WorkflowJobInterfacePeerId int64  `json:"workflow_job_interface_peer_id"`
+	Error                      string `json:"error"`
+}
+
+func (a *App) AddWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterfaceId int64, peerNodeId string, peerServiceId int64, peerMountFunction string, path string) AddWorkflowJobInterfacePeerResponse {
+	var response AddWorkflowJobInterfacePeerResponse
+	id, err := a.wm.AddWorkflowJobInterfacePeer(workflowJobId, workflowJobInterfaceId, peerNodeId, peerServiceId, peerMountFunction, path)
+	if err != nil {
+		response.Error = err.Error()
+	}
+	response.WorkflowJobInterfacePeerId = id
+
+	return response
+}
+
+// Remove workflow job interface peer
+func (a *App) RemoveWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterfacePeerId int64) error {
+	return a.wm.RemoveWorkflowJobInterfacePeer(workflowJobId, workflowJobInterfacePeerId)
 }
