@@ -466,6 +466,7 @@ func (wm *WorkflowManager) GetWorkflowJob(id int64) (node_types.WorkflowJob, err
 			wm.lm.Log("error", err.Error(), "workflow")
 			return workflowJob, err
 		}
+		serviceInterface.ServiceId = workflowJob.WorkflowJobBase.ServiceId
 
 		workflowJob.WorkflowJobBase.ServiceInterfaces = append(workflowJob.WorkflowJobBase.ServiceInterfaces, serviceInterface)
 	}
