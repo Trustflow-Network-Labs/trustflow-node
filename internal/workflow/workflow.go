@@ -125,6 +125,50 @@ func (wm *WorkflowManager) Get(id int64) (node_types.Workflow, error) {
 		}
 	}
 
+	// Load workflow jobs interfaces
+	for i, workflowJob := range workflowJobs {
+		rows, err := wm.db.QueryContext(context.Background(), "select id, workflow_job_id, interface_type, path from workflow_job_interfaces where workflow_job_id = ?;", workflowJob.WorkflowJobBase.Id)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflow")
+			return workflow, err
+		}
+		defer rows.Close()
+
+		var serviceInterfaces []node_types.ServiceInterface
+		for rows.Next() {
+			var serviceInterface node_types.ServiceInterface
+			if err := rows.Scan(&serviceInterface.InterfaceId, &serviceInterface.WorkflowJobId,
+				&serviceInterface.InterfaceType, &serviceInterface.Path); err == nil {
+				serviceInterface.ServiceId = workflowJob.WorkflowJobBase.ServiceId
+				serviceInterfaces = append(serviceInterfaces, serviceInterface)
+			}
+		}
+
+		workflowJobs[i].WorkflowJobBase.ServiceInterfaces = serviceInterfaces
+	}
+
+	// Load workflow jobs price models
+	for i, workflowJob := range workflowJobs {
+		rows, err := wm.db.QueryContext(context.Background(), "select resource_group, resource, resource_unit, description, price, currency_name, currency_symbol from workflow_job_pricing_model where workflow_job_id = ?;", workflowJob.WorkflowJobBase.Id)
+		if err != nil {
+			wm.lm.Log("error", err.Error(), "workflow")
+			return workflow, err
+		}
+		defer rows.Close()
+
+		var priceModels []node_types.ServiceResourcesWithPricing
+		for rows.Next() {
+			var priceModel node_types.ServiceResourcesWithPricing
+			if err := rows.Scan(&priceModel.ResourceGroup, &priceModel.ResourceName,
+				&priceModel.ResourceUnit, &priceModel.ResourceDescription,
+				&priceModel.Price, &priceModel.CurrencyName, &priceModel.CurrencySymbol); err == nil {
+				priceModels = append(priceModels, priceModel)
+			}
+		}
+
+		workflowJobs[i].WorkflowJobBase.ServicePriceModel = priceModels
+	}
+
 	workflow.Jobs = workflowJobs
 
 	return workflow, nil

@@ -253,11 +253,19 @@ type AddWorkflowResponse struct {
 	AddWorkflowJobResponse
 }
 
+type ServiceInterface struct {
+	Description   string `json:"description"`
+	InterfaceType string `json:"interface_type"`
+	Path          string `json:"path"`
+}
+
 func (a *App) AddWorkflow(
 	name, description, nodeId string,
 	serviceId int64,
 	serviceName, serviceDescription, serviceType string,
 	entrypoint, commands []string,
+	serviceInterfaces []ServiceInterface,
+	servicePriceModel []node_types.ServiceResourcesWithPricing,
 	lastSeen string, jobId int64, expectedJobOutputs string,
 ) AddWorkflowResponse {
 	const timeLayout = time.RFC3339
@@ -265,6 +273,18 @@ func (a *App) AddWorkflow(
 	var response AddWorkflowResponse
 
 	if nodeId != "" && serviceId > 0 {
+		var servIntfaces []node_types.ServiceInterface
+		for _, serviceInterface := range serviceInterfaces {
+			servIntface := node_types.ServiceInterface{
+				Interface: node_types.Interface{
+					InterfaceType: serviceInterface.InterfaceType,
+					Description:   serviceInterface.Description,
+					Path:          serviceInterface.Path,
+				},
+			}
+			servIntfaces = append(servIntfaces, servIntface)
+		}
+
 		workflowJobBase := node_types.WorkflowJobBase{
 			NodeId:             nodeId,
 			ServiceId:          serviceId,
@@ -273,6 +293,8 @@ func (a *App) AddWorkflow(
 			ServiceType:        serviceType,
 			JobId:              jobId,
 			ExpectedJobOutputs: expectedJobOutputs,
+			ServiceInterfaces:  servIntfaces,
+			ServicePriceModel:  servicePriceModel,
 		}
 
 		workflowJob := node_types.WorkflowJob{
@@ -330,10 +352,24 @@ func (a *App) AddWorkflowJob(
 	serviceId int64,
 	serviceName, serviceDescription, serviceType string,
 	entrypoint, commands []string,
+	serviceInterfaces []ServiceInterface,
+	servicePriceModel []node_types.ServiceResourcesWithPricing,
 	lastSeen string, jobId int64, expectedJobOutputs string,
 ) AddWorkflowJobResponse {
 	const timeLayout = time.RFC3339
 	var response AddWorkflowJobResponse
+
+	var servIntfaces []node_types.ServiceInterface
+	for _, serviceInterface := range serviceInterfaces {
+		servIntface := node_types.ServiceInterface{
+			Interface: node_types.Interface{
+				InterfaceType: serviceInterface.InterfaceType,
+				Description:   serviceInterface.Description,
+				Path:          serviceInterface.Path,
+			},
+		}
+		servIntfaces = append(servIntfaces, servIntface)
+	}
 
 	workflowJobBase := node_types.WorkflowJobBase{
 		NodeId:             nodeId,
@@ -343,6 +379,8 @@ func (a *App) AddWorkflowJob(
 		ServiceType:        serviceType,
 		JobId:              jobId,
 		ExpectedJobOutputs: expectedJobOutputs,
+		ServiceInterfaces:  servIntfaces,
+		ServicePriceModel:  servicePriceModel,
 	}
 
 	workflowJob := node_types.WorkflowJob{

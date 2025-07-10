@@ -173,12 +173,17 @@ const methods = {
             service.entrypoint = []
         if (service.commands == null)
             service.commands = []
+        if (service.interfaces == null)
+            service.interfaces = []
+        if (service.service_price_model == null)
+            service.service_price_model = []
 
         if (this.workflowId == null) {
             // Add workflow
             let response = await AddWorkflow(
                 name, description, service.node_id, service.id, service.name, service.description,
-                service.type, service.entrypoint, service.commands, service.last_seen, 0, "")
+                service.type, service.entrypoint, service.commands, service.interfaces,
+                service.service_price_model, service.last_seen, 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
@@ -205,7 +210,7 @@ const methods = {
             // Add workflow job
             let response = await AddWorkflowJob(this.workflowId, service.node_id, service.id,
                 service.name, service.description, service.type, service.entrypoint, service.commands,
-                service.last_seen, 0, "")
+                service.interfaces, service.service_price_model, service.last_seen, 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
@@ -336,7 +341,7 @@ const methods = {
 
        if (!this.workflowId) {
             // Add workflow
-            let response = await AddWorkflow(name, description, "", 0, "", "", "", [], [], "", 0, "")
+            let response = await AddWorkflow(name, description, "", 0, "", "", "", [], [], [], [], "", 0, "")
             if (response.error != null && response.error != "") {
                 // Print error
                 UseToast.add({
