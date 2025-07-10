@@ -369,6 +369,68 @@ func (wm *WorkflowManager) AddWorkflowJobs(workflowId int64, workflowJobs []node
 	return ids, nil
 }
 
+// Add workflow job interface peer
+func (wm *WorkflowManager) AddWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterfaceId int64, peerNodeId string, peerServiceId int64, peerMountFunction string, path string) (int64, error) {
+	// Get workflow job
+	workflowJob, err := wm.GetWorkflowJob(workflowJobId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return 0, err
+	}
+
+	if workflowJob.WorkflowJobBase.Status != "IDLE" {
+		err = fmt.Errorf("can not alter workflow job id %d in status %s",
+			workflowJobId, workflowJob.WorkflowJobBase.Status)
+		wm.lm.Log("error", err.Error(), "workflows")
+		return 0, err
+	}
+
+	// Add peer
+	result, err := wm.db.ExecContext(context.Background(), "insert into workflow_job_interface_peers (workflow_job_interface_id, peer_node_id, peer_service_id, peer_mount_function, path) values (?, ?, ?, ?, ?);",
+		workflowJobInterfaceId, peerNodeId, peerServiceId, peerMountFunction, path)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return 0, err
+	}
+
+	return id, nil
+}
+
+// Remove a workflow job interface peer
+func (wm *WorkflowManager) RemoveWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterfacePeerId int64) error {
+	// Get workflow job
+	workflowJob, err := wm.GetWorkflowJob(workflowJobId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return err
+	}
+
+	if workflowJob.WorkflowJobBase.Status != "IDLE" {
+		err = fmt.Errorf("can not alter workflow job id %d in status %s",
+			workflowJobId, workflowJob.WorkflowJobBase.Status)
+		wm.lm.Log("error", err.Error(), "workflows")
+		return err
+	}
+
+	// Remove workflow job interface peer
+	wm.lm.Log("debug", fmt.Sprintf("removing workflow job interface peer id %d from workflow job id %d",
+		workflowJobInterfacePeerId, workflowJobId), "workflows")
+
+	_, err = wm.db.ExecContext(context.Background(), "delete from workflow_job_interface_peers where id = ?;", workflowJobInterfacePeerId)
+	if err != nil {
+		wm.lm.Log("error", err.Error(), "workflows")
+		return err
+	}
+
+	return nil
+}
+
 // Get workflow job
 func (wm *WorkflowManager) GetWorkflowJob(id int64) (node_types.WorkflowJob, error) {
 	var workflowJob node_types.WorkflowJob
