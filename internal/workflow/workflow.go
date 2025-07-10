@@ -105,7 +105,7 @@ func (wm *WorkflowManager) Get(id int64) (node_types.Workflow, error) {
 	}
 
 	// Load workflow jobs
-	rows, err := wm.db.QueryContext(context.Background(), "select id, workflow_id, node_id, service_id, service_name, service_description, service_type, entrypoint, commands, last_seen, job_id, status from workflow_jobs where workflow_id = ?;", id)
+	rows, err := wm.db.QueryContext(context.Background(), "select id from workflow_jobs where workflow_id = ?;", id)
 	if err != nil {
 		wm.lm.Log("error", err.Error(), "workflow")
 		return workflow, err
@@ -113,60 +113,21 @@ func (wm *WorkflowManager) Get(id int64) (node_types.Workflow, error) {
 	defer rows.Close()
 
 	var workflowJobs []node_types.WorkflowJob
+	var workflowJobsIds []int64
 	for rows.Next() {
-		var workflowJobSql node_types.WorkflowJobSql
-		if err := rows.Scan(&workflowJobSql.WorkflowJobBase.Id, &workflowJobSql.WorkflowJobBase.WorkflowId, &workflowJobSql.WorkflowJobBase.NodeId,
-			&workflowJobSql.WorkflowJobBase.ServiceId, &workflowJobSql.WorkflowJobBase.ServiceName, &workflowJobSql.WorkflowJobBase.ServiceDescription,
-			&workflowJobSql.WorkflowJobBase.ServiceType, &workflowJobSql.Entrypoint, &workflowJobSql.Commands,
-			&workflowJobSql.LastSeen, &workflowJobSql.WorkflowJobBase.JobId, &workflowJobSql.WorkflowJobBase.Status); err == nil {
-
-			workflowJob := workflowJobSql.ToWorkflowJob()
-			workflowJobs = append(workflowJobs, workflowJob)
+		var workflowJobId int64
+		if err := rows.Scan(&workflowJobId); err == nil {
+			workflowJobsIds = append(workflowJobsIds, workflowJobId)
 		}
 	}
 
-	// Load workflow jobs interfaces
-	for i, workflowJob := range workflowJobs {
-		rows, err := wm.db.QueryContext(context.Background(), "select id, workflow_job_id, interface_type, path from workflow_job_interfaces where workflow_job_id = ?;", workflowJob.WorkflowJobBase.Id)
+	for _, worflowJobId := range workflowJobsIds {
+		workflowJob, err := wm.GetWorkflowJob(worflowJobId)
 		if err != nil {
 			wm.lm.Log("error", err.Error(), "workflow")
 			return workflow, err
 		}
-		defer rows.Close()
-
-		var serviceInterfaces []node_types.ServiceInterface
-		for rows.Next() {
-			var serviceInterface node_types.ServiceInterface
-			if err := rows.Scan(&serviceInterface.InterfaceId, &serviceInterface.WorkflowJobId,
-				&serviceInterface.InterfaceType, &serviceInterface.Path); err == nil {
-				serviceInterface.ServiceId = workflowJob.WorkflowJobBase.ServiceId
-				serviceInterfaces = append(serviceInterfaces, serviceInterface)
-			}
-		}
-
-		workflowJobs[i].WorkflowJobBase.ServiceInterfaces = serviceInterfaces
-	}
-
-	// Load workflow jobs price models
-	for i, workflowJob := range workflowJobs {
-		rows, err := wm.db.QueryContext(context.Background(), "select resource_group, resource, resource_unit, description, price, currency_name, currency_symbol from workflow_job_pricing_model where workflow_job_id = ?;", workflowJob.WorkflowJobBase.Id)
-		if err != nil {
-			wm.lm.Log("error", err.Error(), "workflow")
-			return workflow, err
-		}
-		defer rows.Close()
-
-		var priceModels []node_types.ServiceResourcesWithPricing
-		for rows.Next() {
-			var priceModel node_types.ServiceResourcesWithPricing
-			if err := rows.Scan(&priceModel.ResourceGroup, &priceModel.ResourceName,
-				&priceModel.ResourceUnit, &priceModel.ResourceDescription,
-				&priceModel.Price, &priceModel.CurrencyName, &priceModel.CurrencySymbol); err == nil {
-				priceModels = append(priceModels, priceModel)
-			}
-		}
-
-		workflowJobs[i].WorkflowJobBase.ServicePriceModel = priceModels
+		workflowJobs = append(workflowJobs, workflowJob)
 	}
 
 	workflow.Jobs = workflowJobs
