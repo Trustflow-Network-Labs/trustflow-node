@@ -5,13 +5,13 @@
         <i class="pi pi-times-circle"
           @click="closeServiceCard"></i>
       </div>
-      <div class="service-name">{{ service.name }}</div>
-      <div :class="['service-type', {'data': service.type == 'DATA', 'function': service.type == 'DOCKER EXECUTION ENVIRONMENT' || service.type == 'STANDALONE EXECUTABLE'}]">
+      <div class="service-name">{{ workflowJob.workflow_job_base.service_name }}</div>
+      <div :class="['service-type', {'data': workflowJob.workflow_job_base.service_type == 'DATA', 'function': workflowJob.workflow_job_base.service_type == 'DOCKER EXECUTION ENVIRONMENT' || workflowJob.workflow_job_base.service_type == 'STANDALONE EXECUTABLE'}]">
         <i class="pi pi-file"
-          v-if="service.type == 'DATA'" />
+          v-if="workflowJob.workflow_job_base.service_type == 'DATA'" />
         <i class="pi pi-server"
-          v-if="service.type == 'DOCKER EXECUTION ENVIRONMENT' || service.type == 'STANDALONE EXECUTABLE'" />
-        {{ service.type }}
+          v-if="workflowJob.workflow_job_base.service_type == 'DOCKER EXECUTION ENVIRONMENT' || workflowJob.workflow_job_base.service_type == 'STANDALONE EXECUTABLE'" />
+        {{ workflowJob.workflow_job_base.service_type }}
       </div>
     </div>
     <div class="card-rip"></div>

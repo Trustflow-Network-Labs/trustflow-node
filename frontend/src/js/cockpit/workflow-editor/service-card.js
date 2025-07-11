@@ -45,6 +45,7 @@ export default {
     props: [
         'serviceCardId',
         'service',
+        'workflowJob',
     ],
 	mixins: [
         textUtils,

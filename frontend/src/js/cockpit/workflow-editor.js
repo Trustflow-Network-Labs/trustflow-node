@@ -151,11 +151,11 @@ const methods = {
             id: id,
             workflowId: this.workflowId,
             workflowJobId: null,
-            workflowJob: null,
             type: 'ServiceCard',
             props: {
                 serviceCardId: id,
                 service: service,
+                workflowJob: null,
             },
             coords: {
                 x: x,
@@ -242,10 +242,9 @@ const methods = {
                 life: null,
             })
         }
-        serviceCard.workflowJob = response.workflow_job
+        serviceCard.props.workflowJob = response.workflow_job
 
         this.serviceCards.push(serviceCard)
-        console.log(this.serviceCards)
 
         // Update service card props in DB
         let err = await SetServiceCardGUIProps(serviceCard.workflowJobId, x, y)
