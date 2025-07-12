@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/adgsm/trustflow-node/internal/ui"
@@ -211,6 +213,15 @@ func (dm *DependencyManager) initLinuxDependencies() error {
 		return err
 	}
 
+	// Add user to docker group
+	err := dm.addUserToDockerGroupLinux()
+	if err != nil {
+		dm.UI.Print(fmt.Sprintf("⚠️ Failed to add user to docker group: %s", err.Error()))
+		dm.UI.Print("Please run the following command manually to grant Docker access:")
+		dm.UI.Print("sudo usermod -aG docker $USER")
+		return err
+	}
+
 	// Docker API client version
 	maxApiVersion := dm.patchDockerAPIVersion()
 
@@ -227,6 +238,58 @@ func (dm *DependencyManager) isDockerRunningLinux() bool {
 	cmd := exec.Command("sh", "-c", "systemctl is-active docker")
 	output, err := cmd.Output()
 	return err == nil && strings.TrimSpace(strings.ToLower(string(output))) == "active"
+}
+
+func (dm *DependencyManager) isUserInDockerGroupLinux() error {
+	currentUser, err := user.Current()
+	if err != nil {
+		return err
+	}
+
+	// Run `id -Gn <username>` to get group names
+	out, err := exec.Command("id", "-Gn", currentUser.Username).Output()
+	if err != nil {
+		return err
+	}
+
+	groups := strings.Fields(string(out))
+	inDockerGroup := slices.Contains(groups, "docker")
+
+	if inDockerGroup {
+		return nil
+	} else {
+		return fmt.Errorf("⚠️ User `%s` is NOT in the 'docker' group", currentUser.Username)
+	}
+}
+
+func (dm *DependencyManager) addUserToDockerGroupLinux() error {
+	err := dm.isUserInDockerGroupLinux()
+	if err == nil {
+		return nil
+	} else {
+		dm.UI.Print(err.Error())
+	}
+
+	currentUser, err := user.Current()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command("sudo", "usermod", "-aG", "docker", currentUser.Username)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	dm.UI.Print("✅ User successfully added to docker group.")
+	dm.UI.Print("⚠️  To apply the changes, you need to log out and log back in.")
+	dm.UI.Print("Alternatively, you can run:")
+	dm.UI.Print("  source ~/.bashrc")
+
+	return nil
 }
 
 func (dm *DependencyManager) installDarwinDependencies(missing []string) error {
