@@ -37,7 +37,7 @@ export function SetUserConfirmation(arg1:boolean):Promise<void>;
 
 export function SetWorkflowGUIProps(arg1:number,arg2:number):Promise<void>;
 
-export function StartNode(arg1:number):Promise<void>;
+export function StartNode(arg1:number,arg2:boolean,arg3:boolean):Promise<void>;
 
 export function StopNode():Promise<void>;
 

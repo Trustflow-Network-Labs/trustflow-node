@@ -1,6 +1,7 @@
 import {IsHostRunning, StartNode, SetUserConfirmation} from '../../wailsjs/go/main/App'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from "primevue/useconfirm"
+import ToggleButton from 'primevue/togglebutton'
 import { useMainStore } from '../stores/main.js'
 
 let Confirm, MainStore
@@ -78,7 +79,15 @@ const watch = {
         },
         deep: true,
         immediate: true,
-    }
+    },
+    public() {
+        if (!this.public)
+            this.relay = false
+    },
+    relay() {
+        if (this.relay)
+            this.public = true
+    },
 }
 
 const mounted = async function() {}
@@ -90,7 +99,7 @@ const methods = {
     async startNode() {
         // Start node and don't wait
         // for complete initialization
-        StartNode(this.port)
+        StartNode(this.port, this.public, this.relay)
 
         // Use interval and max retries
         // to check is node started
@@ -118,6 +127,7 @@ export default {
 	mixins: [],
 	components: {
         ConfirmDialog,
+        ToggleButton,
     },
 	directives: {},
 	name: 'Landing',
@@ -133,6 +143,8 @@ export default {
         return {
             hostRunning: false,
             port: 30609,
+            public: false,
+            relay: false,
             confirm: null,
         }
     }

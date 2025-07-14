@@ -70,8 +70,8 @@ export function SetWorkflowGUIProps(arg1, arg2) {
   return window['go']['main']['App']['SetWorkflowGUIProps'](arg1, arg2);
 }
 
-export function StartNode(arg1) {
-  return window['go']['main']['App']['StartNode'](arg1);
+export function StartNode(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartNode'](arg1, arg2, arg3);
 }
 
 export function StopNode() {

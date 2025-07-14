@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,11 +29,11 @@ import (
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/libp2p/go-libp2p/core/routing"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
@@ -47,6 +46,10 @@ import (
 
 type P2PManager struct {
 	daemon             bool
+	public             bool
+	relay              bool
+	bootstrapAddrs     []string
+	relayAddrs         []string
 	topicNames         []string
 	completeTopicNames []string
 	topicsSubscribed   map[string]*pubsub.Topic
@@ -72,7 +75,25 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 	}
 
 	p2pm := &P2PManager{
-		daemon:             false,
+		daemon: false,
+		public: false,
+		relay:  false,
+		bootstrapAddrs: []string{
+			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+		},
+		relayAddrs: []string{
+			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+		},
 		topicNames:         []string{"lookup.service"},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
@@ -106,8 +127,10 @@ func (p2pm *P2PManager) IsHostRunning() bool {
 }
 
 // Start p2p node
-func (p2pm *P2PManager) Start(port uint16, daemon bool) {
+func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool) {
 	p2pm.daemon = daemon
+	p2pm.public = public
+	p2pm.relay = relay
 
 	if p2pm.ctx == nil {
 		p2pm.ctx = context.Background()
@@ -150,8 +173,6 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	// Read streaming protocol
 	p2pm.protocolID = protocol.ID(config["protocol_id"])
 
-	//	cntx := context.Background()
-
 	// Create or get previously created node key
 	keystoreManager := keystore.NewKeyStoreManager(p2pm.DB)
 	priv, _, err := keystoreManager.ProvideKey()
@@ -160,44 +181,24 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	hst, err := libp2p.New(
-		// Use the keypair we generated
-		libp2p.Identity(priv),
-		// Multiple listen addresses
-		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
-			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
-			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
-			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
-			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
-			"/p2p-circuit",
-		),
-		// support TLS connections
-		libp2p.Security(libp2ptls.ID, libp2ptls.New),
-		// support noise connections
-		libp2p.Security(noise.ID, noise.New),
-		// support any other default transports (TCP)
-		libp2p.DefaultTransports,
-		// Attempt to open ports using uPNP for NATed hosts.
-		libp2p.NATPortMap(),
-		// Let this host use the DHT to find other hosts
-		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
-			p2pm.h = hst
-			p2pm.idht, err = p2pm.initDHT()
-			return p2pm.idht, err
-		}),
-		// If you want to help other peers to figure out if they are behind
-		// NATs, you can launch the server-side of AutoNAT too (AutoRelay
-		// already runs the client)
-		//
-		// This service is highly rate-limited and should not cause any
-		// performance issues.
-		libp2p.EnableNATService(),
-		libp2p.ConnectionGater(blacklistManager.Gater),
-		libp2p.DefaultMuxers,
-		libp2p.EnableRelay(),
-	)
+	// Get botstrap & relay hosts addr info
+	var bootstrapAddrsInfo []peer.AddrInfo
+	var relayAddrsInfo []peer.AddrInfo
+	for _, relayAddr := range p2pm.relayAddrs {
+		relayAddrInfo := p2pm.makeRelayPeerInfo(relayAddr)
+		relayAddrsInfo = append(relayAddrsInfo, relayAddrInfo)
+	}
+	for _, bootstrapAddr := range p2pm.bootstrapAddrs {
+		bootstrapAddrInfo := p2pm.makeRelayPeerInfo(bootstrapAddr)
+		bootstrapAddrsInfo = append(bootstrapAddrsInfo, bootstrapAddrInfo)
+	}
+
+	var hst host.Host
+	if p2pm.public {
+		hst, err = p2pm.createPublicHost(priv, port, blacklistManager)
+	} else {
+		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, relayAddrsInfo)
+	}
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -205,11 +206,9 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	// Set up identify service
 	_, err = identify.NewIDService(hst)
-
-	// Start relay v2 as a relay server (no reservation limit control here)
-	_, err = relayv2.New(hst)
 	if err != nil {
-		log.Fatalf("failed to start relay v2: %v", err)
+		p2pm.lm.Log("error", err.Error(), "p2p")
+		p2pm.UI.Print(err.Error())
 	}
 
 	message := fmt.Sprintf("Your Peer ID: %s", hst.ID())
@@ -222,6 +221,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 		p2pm.UI.Print(message)
 	}
 
+	// Connect bootstrap nodes
+	p2pm.connectNodes(bootstrapAddrsInfo)
+
+	// Connect relay nodes
+	p2pm.connectNodes(relayAddrsInfo)
+
 	// Setup a stream handler.
 	// This gets called every time a peer connects and opens a stream to this node.
 	p2pm.h.SetStreamHandler(p2pm.protocolID, func(s network.Stream) {
@@ -233,7 +238,12 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 
 	peerChannel := make(chan []peer.AddrInfo)
 
-	ps, err := pubsub.NewGossipSub(p2pm.ctx, hst)
+	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
+	ps, err := pubsub.NewGossipSub(p2pm.ctx, p2pm.h,
+		pubsub.WithPeerExchange(true),
+		pubsub.WithFloodPublish(true),
+		pubsub.WithDiscovery(routingDiscovery),
+	)
 	if err != nil {
 		p2pm.lm.Log("panic", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
@@ -277,6 +287,169 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool) {
 	// When host is stopped close DB connection
 	if err = p2pm.DB.Close(); err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
+	}
+}
+
+func (p2pm *P2PManager) createPublicHost(
+	priv crypto.PrivKey,
+	port uint16,
+	blacklistManager *blacklist_node.BlacklistNodeManager,
+) (host.Host, error) {
+	message := "Creating public p2p host"
+	p2pm.lm.Log("info", message, "p2p")
+	p2pm.UI.Print(message)
+
+	hst, err := libp2p.New(
+		// Use the keypair we generated
+		libp2p.Identity(priv),
+		// Listening addresses
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
+			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
+			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
+			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
+			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
+			"/p2p-circuit",
+		),
+		// support TLS connections
+		libp2p.Security(libp2ptls.ID, libp2ptls.New),
+		// support noise connections
+		libp2p.Security(noise.ID, noise.New),
+		// support default transports
+		libp2p.DefaultTransports,
+		// support default muxers
+		libp2p.DefaultMuxers,
+		// let this host use the DHT to find other hosts
+		//		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
+		//			var err error = nil
+		//			p2pm.h = hst
+		//			p2pm.idht, err = p2pm.initDHT("server")
+		//			return p2pm.idht, err
+		//		}),
+		// attempt to open ports using uPNP for NATed hosts.
+		libp2p.EnableNATService(),
+		libp2p.NATPortMap(),
+		// control which nodes we allow to connect
+		libp2p.ConnectionGater(blacklistManager.Gater),
+		// use static relays for more reliable relay selection
+		libp2p.EnableRelay(),
+		libp2p.EnableHolePunching(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	p2pm.h = hst
+	p2pm.idht, err = p2pm.initDHT("server")
+	if err != nil {
+		p2pm.h.Close()
+		return nil, err
+	}
+
+	if p2pm.relay {
+		message := "Starting relay server"
+		p2pm.lm.Log("info", message, "p2p")
+		p2pm.UI.Print(message)
+
+		// Start relay v2 as a relay server
+		_, err = relayv2.New(hst)
+		if err != nil {
+			return nil, err
+		}
+		/* TODO
+		// Start relay service with resource limits
+		_, err = relayv2.New(hst,
+			relayv2.WithResources(relayv2.Resources{
+				Limit: &relayv2.RelayLimit{
+					Duration: 2 * time.Minute,
+					Data:     1024 * 1024, // 1MB
+				},
+				ReservationTTL: 30 * time.Second,
+				MaxReservations: 1024,
+				MaxCircuits:     16,
+				BufferSize:      2048,
+			}),
+		)
+		if err != nil {
+			hst.Close()
+			return nil, err
+		}
+		*/
+	}
+
+	return hst, nil
+}
+
+func (p2pm *P2PManager) createPrivateHost(
+	priv crypto.PrivKey,
+	port uint16,
+	blacklistManager *blacklist_node.BlacklistNodeManager,
+	relayAddrsInfo []peer.AddrInfo,
+) (host.Host, error) {
+	message := "Creating private p2p host (behind NAT)"
+	p2pm.lm.Log("info", message, "p2p")
+	p2pm.UI.Print(message)
+
+	hst, err := libp2p.New(
+		// Use the keypair we generated
+		libp2p.Identity(priv),
+		// Listening addresses
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
+			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
+			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
+			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
+			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
+			"/p2p-circuit",
+		),
+		// support TLS connections
+		libp2p.Security(libp2ptls.ID, libp2ptls.New),
+		// support noise connections
+		libp2p.Security(noise.ID, noise.New),
+		// support default transports
+		libp2p.DefaultTransports,
+		// support default muxers
+		libp2p.DefaultMuxers,
+		// let this host use the DHT to find other hosts
+		//		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
+		//			var err error = nil
+		//			p2pm.h = hst
+		//			p2pm.idht, err = p2pm.initDHT("client")
+		//			return p2pm.idht, err
+		//		}),
+		// enable NAT port mapping (UPnP/NAT-PMP)
+		libp2p.NATPortMap(),
+		// enable NAT service
+		libp2p.EnableNATService(),
+		// enable AutoNAT v2 for automatic reachability detection
+		libp2p.EnableAutoNATv2(),
+		// control which nodes we allow to connect
+		libp2p.ConnectionGater(blacklistManager.Gater),
+		// use static relays for more reliable relay selection
+		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
+		libp2p.EnableRelay(),
+		// enable hole punching for direct connections when possible
+		libp2p.EnableHolePunching(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	p2pm.h = hst
+	p2pm.idht, err = p2pm.initDHT("client")
+	if err != nil {
+		p2pm.h.Close()
+		return nil, err
+	}
+
+	return hst, nil
+}
+
+func (p2pm *P2PManager) connectNodes(addrsInfo []peer.AddrInfo) {
+	for _, addrInfo := range addrsInfo {
+		p2pm.ConnectNode(addrInfo)
 	}
 }
 
@@ -327,8 +500,19 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 	return sub, topic, nil
 }
 
-func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
-	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h)
+func (p2pm *P2PManager) initDHT(mode string) (*dht.IpfsDHT, error) {
+	var dhtMode dht.Option
+
+	switch mode {
+	case "client":
+		dhtMode = dht.Mode(dht.ModeClient)
+	case "server":
+		dhtMode = dht.Mode(dht.ModeServer)
+	default:
+		dhtMode = dht.Mode(dht.ModeAuto)
+	}
+
+	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h, dhtMode)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return nil, errors.New(err.Error())
@@ -343,7 +527,7 @@ func (p2pm *P2PManager) initDHT() (*dht.IpfsDHT, error) {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
 
 		go func() {
-			if err := p2pm.h.Connect(p2pm.ctx, *peerinfo); err != nil {
+			if _, err := p2pm.ConnectNode(*peerinfo); err != nil {
 				p2pm.lm.Log("warn", err.Error(), "p2p")
 			}
 		}()
@@ -414,37 +598,83 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 	return connected, nil
 }
 
-func (p2pm *P2PManager) ConnectNode(peer peer.AddrInfo) (bool, error) {
+func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) (bool, error) {
 
-	connected, err := p2pm.IsNodeConnected(peer)
+	connected, err := p2pm.IsNodeConnected(p)
 	if err != nil {
 		msg := err.Error()
 		p2pm.lm.Log("error", msg, "p2p")
 		return false, err
 	}
 	if connected {
-		msg := fmt.Sprintf("Node %s is already connected", peer.ID.String())
+		msg := fmt.Sprintf("Node %s is already connected", p.ID.String())
 		p2pm.lm.Log("debug", msg, "p2p")
 		return true, nil // skip node but do not panic
 	}
 
-	if peer.ID == p2pm.h.ID() {
-		return true, nil // skip node but do not panic
+	if p.ID == p2pm.h.ID() {
+		return true, fmt.Errorf("can not connect to itself %s == %s", p.ID, p2pm.h.ID())
 	}
 
-	err = p2pm.h.Connect(p2pm.ctx, peer)
+	/*
+		result := make(chan struct {
+			peer peer.AddrInfo
+			err  error
+		}, 1)
+
+		go func(pi peer.AddrInfo) {
+			connCtx, cancel := context.WithTimeout(p2pm.ctx, 15*time.Second)
+			defer cancel()
+
+			p2pm.lm.Log("debug", fmt.Sprintf("Attempting to connect to: %s\n", pi.ID.String()), "p2p")
+			err := p2pm.h.Connect(connCtx, pi)
+
+			result <- struct {
+				peer peer.AddrInfo
+				err  error
+			}{pi, err}
+		}(p)
+
+		select {
+		case res := <-result:
+			if res.err != nil {
+				p2pm.h.Network().ClosePeer(res.peer.ID)
+				p2pm.h.Network().Peerstore().RemovePeer(res.peer.ID)
+				p2pm.h.Peerstore().ClearAddrs(res.peer.ID)
+				p2pm.h.Peerstore().RemovePeer(res.peer.ID)
+				p2pm.lm.Log("debug", fmt.Sprintf("Failed to connect to %s: %v", res.peer.ID.String(), res.err), "p2p")
+				p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", res.peer.ID), "p2p")
+				return false, err
+			} else {
+				p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", res.peer.ID.String()), "p2p")
+				for _, ma := range res.peer.Addrs {
+					p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
+				}
+				return false, nil
+			}
+		case <-time.After(20 * time.Second):
+			return false, fmt.Errorf("timeout waiting for bootstrap connections")
+		}
+	*/
+	connCtx, cancel := context.WithTimeout(p2pm.ctx, 10*time.Second)
+	err = p2pm.h.Connect(connCtx, p)
+	cancel()
+
+	//	err = p2pm.h.Connect(p2pm.ctx, p)
+
 	if err != nil {
-		p2pm.h.Network().ClosePeer(peer.ID)
-		p2pm.h.Network().Peerstore().RemovePeer(peer.ID)
-		p2pm.h.Peerstore().ClearAddrs(peer.ID)
-		p2pm.h.Peerstore().RemovePeer(peer.ID)
-		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", peer.ID), "p2p")
+		p2pm.h.Network().ClosePeer(p.ID)
+		p2pm.h.Network().Peerstore().RemovePeer(p.ID)
+		p2pm.h.Peerstore().ClearAddrs(p.ID)
+		p2pm.h.Peerstore().RemovePeer(p.ID)
+		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
 
 		return false, err
 	}
 
-	p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", peer.ID.String()), "p2p")
-	for _, ma := range peer.Addrs {
+	p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", p.ID.String()), "p2p")
+
+	for _, ma := range p.Addrs {
 		p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
 	}
 
@@ -1842,6 +2072,12 @@ func (p2pm *P2PManager) GeneratePeerAddrInfo(peerId string) (peer.AddrInfo, erro
 	}
 
 	return p, nil
+}
+
+func (p2pm *P2PManager) makeRelayPeerInfo(peerAddrStr string) peer.AddrInfo {
+	maddr, _ := ma.NewMultiaddr(peerAddrStr)
+	peerAddrInfo, _ := peer.AddrInfoFromP2pAddr(maddr)
+	return *peerAddrInfo
 }
 
 func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {

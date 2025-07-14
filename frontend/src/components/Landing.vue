@@ -8,6 +8,25 @@
         </div>
         <div class="section">
           <img id="logo" alt="Trustflow logo" src="../assets/images/logo.png"/>
+          <div class="start-node-text">{{ $t("message.landing.start-node-options-text") }}</div>
+          <div class="start-node-options">
+            <div class="start-node-options-left">
+              <div>{{ $t("message.landing.node-has-public-ip") }}</div>
+              <div>
+                <ToggleButton v-model="public"
+                  :onLabel="$t('message.landing.on')"
+                  :offLabel="$t('message.landing.off')" size="small" />
+              </div>
+            </div>
+            <div class="start-node-options-right">
+              <div>{{ $t("message.landing.act-as-relay") }}</div>
+              <div>
+                <ToggleButton v-model="relay"
+                  :onLabel="$t('message.landing.on')"
+                  :offLabel="$t('message.landing.off')" size="small" />
+              </div>
+            </div>
+          </div>
           <div class="start-node-text">{{ $t("message.landing.start-node-text") }}</div>
           <div id="input" class="input-box">
             <input id="port" v-model="port" autocomplete="off" class="input" type="number" />

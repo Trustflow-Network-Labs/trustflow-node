@@ -112,8 +112,14 @@ func (a *App) IsHostRunning() bool {
 }
 
 // Start P2P node
-func (a *App) StartNode(port uint16) {
-	a.p2pm.Start(port, true)
+func (a *App) StartNode(port uint16, public bool, relay bool) {
+	if !public {
+		relay = false
+	}
+	if relay {
+		public = true
+	}
+	a.p2pm.Start(port, true, public, relay)
 }
 
 // Stop P2P node

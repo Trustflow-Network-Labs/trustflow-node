@@ -1,4 +1,12 @@
 .common-landing {
+    --p-togglebutton-background: #fff;
+    --p-togglebutton-border-color: none;
+    --p-togglebutton-hover-background: rgb(246, 114, 66);
+    --p-togglebutton-hover-color: #fff;
+    --p-togglebutton-checked-background: rgb(246, 114, 66);
+    --p-togglebutton-checked-border-color: none;
+    --p-togglebutton-content-checked-background: rgb(246, 114, 66);
+
     display: flex;
     flex-direction: column;
     flex-wrap: nowrap;
@@ -60,6 +68,58 @@
                     margin: 1rem auto;
                     font-size: 1rem;
                 }
+
+
+                .start-node-options {
+                    display: flex;
+                    flex-direction: row;
+                    flex-wrap: nowrap;
+                    justify-content: center;
+                    align-content: center;
+                    align-items: center;
+
+                    .start-node-options-left {
+                        display: flex;
+                        flex-direction: row;
+                        flex-wrap: nowrap;
+                        justify-content: flex-end;
+                        align-content: center;
+                        align-items: center;
+
+                        margin-right: .5rem;
+
+                        div {
+                            font-size: .75rem;
+                            
+                            &:first-child {
+                                margin-right: .5rem;
+                            }
+                        }
+                    }
+
+                    .start-node-options-right {
+                        display: flex;
+                        flex-direction: row;
+                        flex-wrap: nowrap;
+                        justify-content: flex-start;
+                        align-content: center;
+                        align-items: center;
+
+                        margin-left: .5rem;
+
+                        div {
+                            font-size: .75rem;
+                            
+                            &:last-child {
+                                margin-left: .5rem;
+                            }
+                        }
+                    }
+                }
+
+
+
+
 
                 .start-node-text-helper {
                     margin: 1rem auto;

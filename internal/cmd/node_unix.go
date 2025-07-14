@@ -17,6 +17,8 @@ import (
 
 var port uint16
 var daemon bool = false
+var public bool = false
+var relay bool = false
 var pid int
 var nodeCmd = &cobra.Command{
 	Use:     "start",
@@ -29,7 +31,7 @@ var nodeCmd = &cobra.Command{
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
 		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{})
-		p2pManager.Start(port, daemon)
+		p2pManager.Start(port, daemon, public, relay)
 	},
 }
 
@@ -43,7 +45,15 @@ var nodeDaemonCmd = &cobra.Command{
 		logsManager := utils.NewLogsManager()
 
 		// Start the process in background
-		command := exec.Command(os.Args[0], "start", "-d=true")
+		if !public {
+			relay = false
+		}
+		if relay {
+			public = true
+		}
+		pub := fmt.Sprintf("-b=%t", public)
+		rel := fmt.Sprintf("-r=%t", relay)
+		command := exec.Command(os.Args[0], "start", "-d=true", pub, rel)
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		command.Stdin = nil
@@ -136,8 +146,13 @@ var stopNodeCmd = &cobra.Command{
 func init() {
 	nodeCmd.Flags().Uint16VarP(&port, "port", "p", 30609, "Serve node on specified port [1024-65535]")
 	nodeCmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "Serve node as daemon")
+	nodeCmd.Flags().BoolVarP(&public, "public", "b", false, "Public IP node")
+	nodeCmd.Flags().BoolVarP(&relay, "relay", "r", false, "Serve as relay node")
 	rootCmd.AddCommand(nodeCmd)
 
+	nodeDaemonCmd.Flags().Uint16VarP(&port, "port", "p", 30609, "Serve node on specified port [1024-65535]")
+	nodeDaemonCmd.Flags().BoolVarP(&public, "public", "b", false, "Public IP node")
+	nodeDaemonCmd.Flags().BoolVarP(&relay, "relay", "r", false, "Serve as relay node")
 	rootCmd.AddCommand(nodeDaemonCmd)
 
 	stopNodeCmd.Flags().IntVarP(&pid, "pid", "i", 0, "Stop node running as provided process Id")
