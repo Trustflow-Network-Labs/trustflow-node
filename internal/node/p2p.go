@@ -79,6 +79,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		public: false,
 		relay:  false,
 		bootstrapAddrs: []string{
+			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
@@ -87,6 +88,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 			"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 		},
 		relayAddrs: []string{
+			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
@@ -124,6 +126,17 @@ func (p2pm *P2PManager) IsHostRunning() bool {
 	}
 	// Check if the host is listening on any network addresses
 	return len(p2pm.h.Network().ListenAddresses()) > 0
+}
+
+// WaitForHostReady tries multiple times to check if the host is initialized and running
+func (p2pm *P2PManager) WaitForHostReady(interval time.Duration, maxAttempts int) bool {
+	for range maxAttempts {
+		if p2pm.IsHostRunning() {
+			return true // success
+		}
+		time.Sleep(interval)
+	}
+	return false
 }
 
 // Start p2p node
@@ -195,9 +208,9 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 
 	var hst host.Host
 	if p2pm.public {
-		hst, err = p2pm.createPublicHost(priv, port, blacklistManager)
+		hst, err = p2pm.createPublicHost(priv, port, blacklistManager, bootstrapAddrsInfo, relayAddrsInfo)
 	} else {
-		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, relayAddrsInfo)
+		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, bootstrapAddrsInfo, relayAddrsInfo)
 	}
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
@@ -222,10 +235,10 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	}
 
 	// Connect bootstrap nodes
-	p2pm.connectNodes(bootstrapAddrsInfo)
+	//p2pm.connectNodes(bootstrapAddrsInfo)
 
 	// Connect relay nodes
-	p2pm.connectNodes(relayAddrsInfo)
+	//	p2pm.connectNodes(relayAddrsInfo)
 
 	// Setup a stream handler.
 	// This gets called every time a peer connects and opens a stream to this node.
@@ -235,8 +248,6 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.lm.Log("info", message, "p2p")
 		go p2pm.streamProposalResponse(s)
 	})
-
-	peerChannel := make(chan []peer.AddrInfo)
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
 	ps, err := pubsub.NewGossipSub(p2pm.ctx, p2pm.h,
@@ -249,6 +260,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		panic(fmt.Sprintf("%v", err))
 	}
 
+	peerChannel := make(chan []peer.AddrInfo)
 	go p2pm.discoverPeers(peerChannel)
 
 	p2pm.subscriptions = p2pm.subscriptions[:0]
@@ -294,6 +306,8 @@ func (p2pm *P2PManager) createPublicHost(
 	priv crypto.PrivKey,
 	port uint16,
 	blacklistManager *blacklist_node.BlacklistNodeManager,
+	bootstrapAddrInfo []peer.AddrInfo,
+	relayAddrsInfo []peer.AddrInfo,
 ) (host.Host, error) {
 	message := "Creating public p2p host"
 	p2pm.lm.Log("info", message, "p2p")
@@ -335,13 +349,20 @@ func (p2pm *P2PManager) createPublicHost(
 		// use static relays for more reliable relay selection
 		libp2p.EnableRelay(),
 		libp2p.EnableHolePunching(),
+
+		// use static relays for more reliable relay selection
+		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
+		// enable AutoNAT v2 for automatic reachability detection
+		libp2p.EnableAutoNATv2(),
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	p2pm.h = hst
-	p2pm.idht, err = p2pm.initDHT("server")
+
+	// let this host use the DHT to find other hosts
+	//p2pm.idht, err = p2pm.initDHT("server")
+	p2pm.idht, err = p2pm.initDHT("", bootstrapAddrInfo)
 	if err != nil {
 		p2pm.h.Close()
 		return nil, err
@@ -353,11 +374,13 @@ func (p2pm *P2PManager) createPublicHost(
 		p2pm.UI.Print(message)
 
 		// Start relay v2 as a relay server
-		_, err = relayv2.New(hst)
-		if err != nil {
-			return nil, err
-		}
-		/* TODO
+		/*
+			_, err = relayv2.New(hst)
+			if err != nil {
+				return nil, err
+			}
+		*/
+
 		// Start relay service with resource limits
 		_, err = relayv2.New(hst,
 			relayv2.WithResources(relayv2.Resources{
@@ -365,7 +388,7 @@ func (p2pm *P2PManager) createPublicHost(
 					Duration: 2 * time.Minute,
 					Data:     1024 * 1024, // 1MB
 				},
-				ReservationTTL: 30 * time.Second,
+				ReservationTTL:  30 * time.Second,
 				MaxReservations: 1024,
 				MaxCircuits:     16,
 				BufferSize:      2048,
@@ -375,7 +398,6 @@ func (p2pm *P2PManager) createPublicHost(
 			hst.Close()
 			return nil, err
 		}
-		*/
 	}
 
 	return hst, nil
@@ -385,6 +407,7 @@ func (p2pm *P2PManager) createPrivateHost(
 	priv crypto.PrivKey,
 	port uint16,
 	blacklistManager *blacklist_node.BlacklistNodeManager,
+	bootstrapAddrInfo []peer.AddrInfo,
 	relayAddrsInfo []peer.AddrInfo,
 ) (host.Host, error) {
 	message := "Creating private p2p host (behind NAT)"
@@ -436,9 +459,11 @@ func (p2pm *P2PManager) createPrivateHost(
 	if err != nil {
 		return nil, err
 	}
-
 	p2pm.h = hst
-	p2pm.idht, err = p2pm.initDHT("client")
+
+	// let this host use the DHT to find other hosts
+	//p2pm.idht, err = p2pm.initDHT("client")
+	p2pm.idht, err = p2pm.initDHT("", bootstrapAddrInfo)
 	if err != nil {
 		p2pm.h.Close()
 		return nil, err
@@ -449,7 +474,9 @@ func (p2pm *P2PManager) createPrivateHost(
 
 func (p2pm *P2PManager) connectNodes(addrsInfo []peer.AddrInfo) {
 	for _, addrInfo := range addrsInfo {
-		p2pm.ConnectNode(addrInfo)
+		if _, err := p2pm.ConnectNode(addrInfo); err != nil {
+			p2pm.UI.Print(err.Error())
+		}
 	}
 }
 
@@ -500,7 +527,7 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 	return sub, topic, nil
 }
 
-func (p2pm *P2PManager) initDHT(mode string) (*dht.IpfsDHT, error) {
+func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.AddrInfo) (*dht.IpfsDHT, error) {
 	var dhtMode dht.Option
 
 	switch mode {
@@ -529,9 +556,13 @@ func (p2pm *P2PManager) initDHT(mode string) (*dht.IpfsDHT, error) {
 		go func() {
 			if _, err := p2pm.ConnectNode(*peerinfo); err != nil {
 				p2pm.lm.Log("warn", err.Error(), "p2p")
+				p2pm.UI.Print(err.Error())
 			}
 		}()
 	}
+	go func() {
+		p2pm.connectNodes(additionalBootstrapPeers)
+	}()
 
 	return kademliaDHT, nil
 }
@@ -555,11 +586,13 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 			var discoveredPeers []peer.AddrInfo
 
 			for peer := range peerChan {
-				if peer.ID != "" {
-					discoveredPeers = append(discoveredPeers, peer)
+				if peer.ID == "" || peer.ID == p2pm.h.ID() {
+					continue
 				}
 
-				running := p2pm.IsHostRunning()
+				discoveredPeers = append(discoveredPeers, peer)
+
+				running := p2pm.WaitForHostReady(500*time.Millisecond, 10)
 				if !running {
 					break
 				}
@@ -581,7 +614,8 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 }
 
 func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
-	running := p2pm.IsHostRunning()
+	// Try every 500ms, up to 10 times (i.e. 5 seconds total)
+	running := p2pm.WaitForHostReady(500*time.Millisecond, 10)
 	if !running {
 		err := fmt.Errorf("host is not running")
 		p2pm.lm.Log("error", err.Error(), "p2p")
@@ -663,16 +697,18 @@ func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) (bool, error) {
 	//	err = p2pm.h.Connect(p2pm.ctx, p)
 
 	if err != nil {
-		p2pm.h.Network().ClosePeer(p.ID)
-		p2pm.h.Network().Peerstore().RemovePeer(p.ID)
-		p2pm.h.Peerstore().ClearAddrs(p.ID)
-		p2pm.h.Peerstore().RemovePeer(p.ID)
-		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
+		//		p2pm.h.Network().ClosePeer(p.ID)
+		//		p2pm.h.Network().Peerstore().RemovePeer(p.ID)
+		//		p2pm.h.Peerstore().ClearAddrs(p.ID)
+		//		p2pm.h.Peerstore().RemovePeer(p.ID)
+		//		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
+		//		p2pm.UI.Print(fmt.Sprintf("Removed peer %s from a peer store", p.ID))
 
 		return false, err
 	}
 
 	p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", p.ID.String()), "p2p")
+	p2pm.UI.Print(fmt.Sprintf("Connected to: %s", p.ID.String()))
 
 	for _, ma := range p.Addrs {
 		p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
