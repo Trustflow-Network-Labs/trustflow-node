@@ -17,11 +17,11 @@ type CurrencyManager struct {
 	pm *price.PriceManager
 }
 
-func NewCurrencyManager(db *sql.DB) *CurrencyManager {
+func NewCurrencyManager(db *sql.DB, lm *utils.LogsManager) *CurrencyManager {
 	return &CurrencyManager{
 		db: db,
-		lm: utils.NewLogsManager(),
-		pm: price.NewPriceManager(db),
+		lm: lm,
+		pm: price.NewPriceManager(db, lm),
 	}
 }
 

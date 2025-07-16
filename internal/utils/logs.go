@@ -6,19 +6,68 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
 
 type LogsManager struct {
-	dir string
+	dir         string
+	logFileName string
+	logger      *log.Logger
+	file        *os.File
+	mutex       sync.RWMutex
 }
 
 func NewLogsManager() *LogsManager {
-	paths := GetAppPaths("")
-	return &LogsManager{
-		dir: paths.LogDir,
+	// read configs
+	configManager := NewConfigManager("")
+	config, err := configManager.ReadConfigs()
+	if err != nil {
+		panic(err)
 	}
+
+	paths := GetAppPaths("")
+	lm := &LogsManager{
+		dir:         paths.LogDir,
+		logFileName: config["logfile"],
+		logger:      log.New(),
+	}
+
+	// Initialize the log file and logger
+	if err := lm.initLogger(); err != nil {
+		panic(err)
+	}
+
+	return lm
+}
+
+func (lm *LogsManager) initLogger() error {
+	// Make sure we have os specific path separator
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		lm.logFileName = filepath.ToSlash(lm.logFileName)
+	case "windows":
+		lm.logFileName = filepath.FromSlash(lm.logFileName)
+	default:
+		return fmt.Errorf("unsupported OS type `%s`", runtime.GOOS)
+	}
+
+	// open log file once
+	path := filepath.Join(lm.dir, lm.logFileName)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+
+	lm.file = file
+
+	// Configure logger once
+	lm.logger.SetLevel(log.TraceLevel)
+	lm.logger.SetOutput(file)
+	lm.logger.SetFormatter(&log.JSONFormatter{})
+
+	return nil
 }
 
 func (lm *LogsManager) fileInfo(skip int) string {
@@ -36,84 +85,58 @@ func (lm *LogsManager) fileInfo(skip int) string {
 }
 
 func (lm *LogsManager) Log(level string, message string, category string) {
-	// read configs
-	configManager := NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		panic(err)
-	}
+	// Use read lock for thread-safe access
+	lm.mutex.RLock()
+	defer lm.mutex.RUnlock()
 
-	// Make sure we have os specific path separator since we are adding this path to host's path
-	logFileName := config["logfile"]
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		logFileName = filepath.ToSlash(logFileName)
-	case "windows":
-		logFileName = filepath.FromSlash(logFileName)
-	default:
-		err := fmt.Errorf("unsupported OS type `%s`", runtime.GOOS)
-		panic(err)
-	}
+	// Create log entry with fields
+	entry := lm.logger.WithFields(log.Fields{
+		"category": category,
+		"file":     lm.fileInfo(2),
+	})
 
-	// open log file
-	path := filepath.Join(lm.dir, logFileName)
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
-	defer file.Close()
-
-	// Set level
-	log.SetLevel(log.TraceLevel)
-
-	// set log output to log file
-	log.SetOutput(file)
-
-	// set formatter
-	log.SetFormatter(&log.JSONFormatter{})
-
-	// log message into a log file
+	// Log message based on level
 	switch level {
 	case "trace":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Trace(message)
+		entry.Trace(message)
 	case "debug":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Debug(message)
+		entry.Debug(message)
 	case "info":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Info(message)
+		entry.Info(message)
 	case "warn":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Warn(message)
+		entry.Warn(message)
 	case "error":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Error(message)
+		entry.Error(message)
 	case "fatal":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Fatal(message)
+		entry.Fatal(message)
 	case "panic":
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Panic(message)
+		entry.Panic(message)
 	default:
-		log.WithFields(log.Fields{
-			"category": category,
-			"file":     lm.fileInfo(2),
-		}).Info(message)
+		entry.Info(message)
 	}
+}
+
+// Close closes the log file - call this when shutting down
+func (lm *LogsManager) Close() error {
+	lm.mutex.Lock()
+	defer lm.mutex.Unlock()
+
+	if lm.file != nil {
+		return lm.file.Close()
+	}
+	return nil
+}
+
+// Rotate allows for log rotation - useful for log management
+func (lm *LogsManager) Rotate() error {
+	lm.mutex.Lock()
+	defer lm.mutex.Unlock()
+
+	// Close current file
+	if lm.file != nil {
+		lm.file.Close()
+	}
+
+	// Reinitialize with new file
+	return lm.initLogger()
 }

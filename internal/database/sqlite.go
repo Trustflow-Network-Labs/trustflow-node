@@ -27,6 +27,7 @@ func NewSQLiteManager() *SQLiteManager {
 // Create connection
 func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
 	logsManager := utils.NewLogsManager()
+	defer logsManager.Close()
 
 	// Read configs
 	configManager := utils.NewConfigManager("")

@@ -16,10 +16,10 @@ type WorkflowManager struct {
 	lm *utils.LogsManager
 }
 
-func NewWorkflowManager(db *sql.DB) *WorkflowManager {
+func NewWorkflowManager(db *sql.DB, lm *utils.LogsManager) *WorkflowManager {
 	return &WorkflowManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 

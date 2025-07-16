@@ -48,9 +48,9 @@ type DockerManager struct {
 	UI ui.UI
 }
 
-func NewDockerManager(ui ui.UI) *DockerManager {
+func NewDockerManager(ui ui.UI, lm *utils.LogsManager) *DockerManager {
 	return &DockerManager{
-		lm: utils.NewLogsManager(),
+		lm: lm,
 		UI: ui,
 	}
 }

@@ -23,7 +23,7 @@ type BlacklistNodeManager struct {
 	UI            ui.UI
 }
 
-func NewBlacklistNodeManager(db *sql.DB, ui ui.UI) (*BlacklistNodeManager, error) {
+func NewBlacklistNodeManager(db *sql.DB, ui ui.UI, lm *utils.LogsManager) (*BlacklistNodeManager, error) {
 	gater, err := conngater.NewBasicConnectionGater(nil)
 	if err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func NewBlacklistNodeManager(db *sql.DB, ui ui.UI) (*BlacklistNodeManager, error
 	blnm := &BlacklistNodeManager{
 		shortenedKeys: map[string]string{},
 		db:            db,
-		lm:            utils.NewLogsManager(),
+		lm:            lm,
 		tm:            utils.NewTextManager(),
 		Gater:         gater,
 		UI:            ui,

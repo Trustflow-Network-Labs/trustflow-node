@@ -14,10 +14,10 @@ type ResourceUtilizationManager struct {
 	lm *utils.LogsManager
 }
 
-func NewResourceUtilizationManager(db *sql.DB) *ResourceUtilizationManager {
+func NewResourceUtilizationManager(db *sql.DB, lm *utils.LogsManager) *ResourceUtilizationManager {
 	return &ResourceUtilizationManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 

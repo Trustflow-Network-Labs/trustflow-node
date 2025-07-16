@@ -27,8 +27,8 @@ type ServiceManager struct {
 func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		db:   p2pm.DB,
-		lm:   utils.NewLogsManager(),
-		dm:   repo.NewDockerManager(p2pm.UI),
+		lm:   p2pm.Lm,
+		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm),
 		p2pm: p2pm,
 	}
 }
@@ -530,7 +530,7 @@ func (sm *ServiceManager) Remove(id int64) error {
 	}
 
 	// Delete prices defined for this service (if any)
-	priceManager := price.NewPriceManager(sm.db)
+	priceManager := price.NewPriceManager(sm.db, sm.lm)
 	err = priceManager.RemoveForService(id)
 	if err != nil {
 		sm.lm.Log("error", err.Error(), "services")
@@ -698,7 +698,7 @@ func (sm *ServiceManager) SetInactive(id int64) error {
 	}
 
 	// Check if there are existing prices defined using this service
-	priceManager := price.NewPriceManager(sm.db)
+	priceManager := price.NewPriceManager(sm.db, sm.lm)
 	prices, err := priceManager.GetPricesByServiceId(id)
 	if err != nil {
 		msg := err.Error()

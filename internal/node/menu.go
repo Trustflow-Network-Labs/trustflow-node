@@ -38,17 +38,24 @@ type MenuManager struct {
 
 func NewMenuManager(p2pm *P2PManager) *MenuManager {
 	return &MenuManager{
-		lm:   utils.NewLogsManager(),
+		lm:   p2pm.Lm,
 		p2pm: p2pm,
 		sm:   NewServiceManager(p2pm),
 		vm:   utils.NewValidatorManager(),
 		tm:   utils.NewTextManager(),
-		pm:   price.NewPriceManager(p2pm.DB),
-		rm:   resource.NewResourceManager(p2pm.DB),
-		cm:   currency.NewCurrencyManager(p2pm.DB),
-		wm:   workflow.NewWorkflowManager(p2pm.DB),
+		pm:   price.NewPriceManager(p2pm.DB, p2pm.Lm),
+		rm:   resource.NewResourceManager(p2pm.DB, p2pm.Lm),
+		cm:   currency.NewCurrencyManager(p2pm.DB, p2pm.Lm),
+		wm:   workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm),
 		jm:   NewJobManager(p2pm),
 	}
+}
+
+func (mm *MenuManager) Close() error {
+	if mm.lm != nil {
+		return mm.lm.Close()
+	}
+	return nil
 }
 
 // Clears the terminal based on the operating system.
@@ -962,12 +969,13 @@ func (mm *MenuManager) blacklist() {
 	}
 }
 func (mm *MenuManager) listBlacklistNodes() error {
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI, mm.p2pm.Lm)
 	if err != nil {
 		fmt.Println(err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
 		return err
 	}
+
 	err = mm.printBlacklist(blacklistManager)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
@@ -991,12 +999,13 @@ func (mm *MenuManager) addBlacklistNode() error {
 	}
 
 	// Add node to a blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI, mm.p2pm.Lm)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
 		return err
 	}
+
 	err = blacklistManager.Add(nidResult, rsResult)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
@@ -1023,12 +1032,13 @@ func (mm *MenuManager) removeNodeFromBlacklist() error {
 	}
 
 	// Remove node from blacklist
-	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI)
+	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(mm.p2pm.DB, mm.p2pm.UI, mm.p2pm.Lm)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
 		mm.lm.Log("error", err.Error(), "menu")
 		return err
 	}
+
 	err = blacklistManager.Remove(nidResult)
 	if err != nil {
 		fmt.Printf("\U00002757 %s\n", err.Error())
@@ -1632,7 +1642,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Run docker & build image(s)
-	dockerManager := repo.NewDockerManager(ui.CLI{})
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm)
 	_, images, errors := dockerManager.Run(repoPath, nil, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
@@ -1716,7 +1726,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Validate docker image
-	dockerManager := repo.NewDockerManager(ui.CLI{})
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm)
 	cmdOut, err := dockerManager.ValidateImage(pediResult)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))

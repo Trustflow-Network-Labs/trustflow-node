@@ -28,6 +28,8 @@ func NewTopicAwareNotifiee(ps *pubsub.PubSub, topic *pubsub.Topic, completeTopic
 
 func (n *TopicAwareNotifiee) Connected(net network.Network, conn network.Conn) {
 	logsManager := NewLogsManager()
+	defer logsManager.Close()
+
 	remotePeer := conn.RemotePeer()
 
 	// Check if the remote peer is subscribed to the same topic
@@ -42,6 +44,8 @@ func (n *TopicAwareNotifiee) Connected(net network.Network, conn network.Conn) {
 
 func (n *TopicAwareNotifiee) Disconnected(net network.Network, conn network.Conn) {
 	logsManager := NewLogsManager()
+	defer logsManager.Close()
+
 	remotePeer := conn.RemotePeer()
 
 	if p, b := n.isPeerInTopic(remotePeer); b {

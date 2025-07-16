@@ -31,6 +31,7 @@ var nodeCmd = &cobra.Command{
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
 		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{})
+		defer p2pManager.Close()
 		p2pManager.Start(port, daemon, public, relay)
 	},
 }
@@ -43,6 +44,7 @@ var nodeDaemonCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		logsManager := utils.NewLogsManager()
+		defer logsManager.Close()
 
 		// Start the process in background
 		if !public {
@@ -112,6 +114,7 @@ var stopNodeCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		logsManager := utils.NewLogsManager()
+		defer logsManager.Close()
 
 		// Create PID Manager instance
 		pm, err := utils.NewPIDManager()

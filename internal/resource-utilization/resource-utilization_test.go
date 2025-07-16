@@ -85,7 +85,7 @@ func TestNewResourceUtilizationManager(t *testing.T) {
 	}
 	defer db.Close()
 
-	rum := NewResourceUtilizationManager(db)
+	rum := NewResourceUtilizationManager(db, nil)
 
 	if rum == nil {
 		t.Error("expected ResourceUtilizationManager, got nil")

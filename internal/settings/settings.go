@@ -17,10 +17,10 @@ type SettingsManager struct {
 	lm *utils.LogsManager
 }
 
-func NewSettingsManager(db *sql.DB) *SettingsManager {
+func NewSettingsManager(db *sql.DB, lm *utils.LogsManager) *SettingsManager {
 	return &SettingsManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 

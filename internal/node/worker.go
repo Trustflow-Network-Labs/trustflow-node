@@ -95,17 +95,17 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 	go func() {
 		defer func() {
 			msg := fmt.Sprintf("Worker %d: Stopping...\n", w.ID)
-			p2pm.lm.Log("info", msg, "worker")
+			p2pm.Lm.Log("info", msg, "worker")
 			w.mu.Lock()
 			w.isRunning = false
 			w.mu.Unlock()
 			close(w.finished)
 			msg = fmt.Sprintf("Worker %d: Stopped completely\n", w.ID)
-			p2pm.lm.Log("info", msg, "worker")
+			p2pm.Lm.Log("info", msg, "worker")
 		}()
 
 		msg := fmt.Sprintf("Worker %d: Working...\n", w.ID)
-		p2pm.lm.Log("info", msg, "worker")
+		p2pm.Lm.Log("info", msg, "worker")
 
 		// Create a done channel to run job and listen for cancellation concurrently
 		errCh := make(chan error, 1)
@@ -125,7 +125,7 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 		select {
 		case <-w.ctx.Done():
 			msg := fmt.Sprintf("Worker %d: Context cancelled\n", w.ID)
-			p2pm.lm.Log("info", msg, "worker")
+			p2pm.Lm.Log("info", msg, "worker")
 
 			// Set job status to COMPLETED
 			jm.UpdateJobStatus(w.ID, "COMPLETED")
@@ -138,7 +138,7 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 		case err := <-errCh:
 			if err != nil {
 				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
-				p2pm.lm.Log("error", msg, "worker")
+				p2pm.Lm.Log("error", msg, "worker")
 
 				if retry < maxRetries-1 {
 					// Set job status to READY

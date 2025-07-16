@@ -15,10 +15,10 @@ type PriceManager struct {
 	lm *utils.LogsManager
 }
 
-func NewPriceManager(db *sql.DB) *PriceManager {
+func NewPriceManager(db *sql.DB, lm *utils.LogsManager) *PriceManager {
 	return &PriceManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 

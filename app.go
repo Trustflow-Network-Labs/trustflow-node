@@ -66,10 +66,11 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	p2pm := node.NewP2PManager(ctx, a.gui)
+	defer p2pm.Close()
 	a.p2pm = *p2pm
 	a.dm = *dependencies.NewDependencyManager(a.gui)
 	a.sm = *node.NewServiceManager(p2pm)
-	a.wm = *workflow.NewWorkflowManager(p2pm.DB)
+	a.wm = *workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm)
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()

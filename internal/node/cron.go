@@ -15,7 +15,7 @@ func NewCronManager(p2pm *P2PManager) *CronManager {
 	return &CronManager{
 		p2pm: p2pm,
 		cfgm: utils.NewConfigManager(""),
-		lm:   utils.NewLogsManager(),
+		lm:   p2pm.Lm,
 	}
 }
 

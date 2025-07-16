@@ -18,10 +18,10 @@ type KeyStoreManager struct {
 	lm *utils.LogsManager
 }
 
-func NewKeyStoreManager(db *sql.DB) *KeyStoreManager {
+func NewKeyStoreManager(db *sql.DB, lm *utils.LogsManager) *KeyStoreManager {
 	return &KeyStoreManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 
@@ -59,7 +59,7 @@ func (ksm *KeyStoreManager) ProvideKey() (crypto.PrivKey, crypto.PubKey, error) 
 	var pub crypto.PubKey
 
 	// Check do we have a node key already
-	settingsManager := settings.NewSettingsManager(ksm.db)
+	settingsManager := settings.NewSettingsManager(ksm.db, ksm.lm)
 	nodeId, err := settingsManager.Read("node_identifier")
 	if err != nil {
 		msg := err.Error()

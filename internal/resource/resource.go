@@ -16,10 +16,10 @@ type ResourceManager struct {
 	lm *utils.LogsManager
 }
 
-func NewResourceManager(db *sql.DB) *ResourceManager {
+func NewResourceManager(db *sql.DB, lm *utils.LogsManager) *ResourceManager {
 	return &ResourceManager{
 		db: db,
-		lm: utils.NewLogsManager(),
+		lm: lm,
 	}
 }
 
@@ -129,7 +129,7 @@ func (rm *ResourceManager) Remove(id int64) error {
 	}
 
 	// Check if there are existing prices defined using this resource
-	priceManager := price.NewPriceManager(rm.db)
+	priceManager := price.NewPriceManager(rm.db, rm.lm)
 	prices, err := priceManager.GetPricesByResourceId(id)
 	if err != nil {
 		msg := err.Error()
@@ -166,7 +166,7 @@ func (rm *ResourceManager) SetInactive(id int64) error {
 	}
 
 	// Check if there are existing prices defined using this resource
-	priceManager := price.NewPriceManager(rm.db)
+	priceManager := price.NewPriceManager(rm.db, rm.lm)
 	prices, err := priceManager.GetPricesByResourceId(id)
 	if err != nil {
 		msg := err.Error()
