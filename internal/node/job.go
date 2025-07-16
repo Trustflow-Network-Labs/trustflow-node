@@ -395,7 +395,7 @@ func (jm *JobManager) RequestJob(
 	Interfaces []node_types.RequestInterface,
 	constr, constrDet string,
 ) error {
-	_, err := jm.p2pm.ConnectNode(peer)
+	err := jm.p2pm.ConnectNodeWithRetry(jm.p2pm.ctx, peer, 3, 5*time.Second)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -429,7 +429,7 @@ func (jm *JobManager) RequestJobCancellation(
 	jobId int64,
 	workflowJobId int64,
 ) error {
-	_, err := jm.p2pm.ConnectNode(peer)
+	err := jm.p2pm.ConnectNodeWithRetry(jm.p2pm.ctx, peer, 3, 5*time.Second)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -453,7 +453,7 @@ func (jm *JobManager) RequestJobCancellation(
 }
 
 func (jm *JobManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId int64) error {
-	_, err := jm.p2pm.ConnectNode(peer)
+	err := jm.p2pm.ConnectNodeWithRetry(jm.p2pm.ctx, peer, 3, 5*time.Second)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -477,7 +477,7 @@ func (jm *JobManager) RequestJobRun(peer peer.AddrInfo, workflowId int64, jobId 
 }
 
 func (jm *JobManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64, status string) error {
-	_, err := jm.p2pm.ConnectNode(peer)
+	err := jm.p2pm.ConnectNodeWithRetry(jm.p2pm.ctx, peer, 3, 5*time.Second)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")
@@ -506,7 +506,7 @@ func (jm *JobManager) SendJobRunStatus(peer peer.AddrInfo, workflowId int64, job
 }
 
 func (jm *JobManager) RequestJobRunStatus(peer peer.AddrInfo, workflowId int64, jobNodeId string, jobId int64) error {
-	_, err := jm.p2pm.ConnectNode(peer)
+	err := jm.p2pm.ConnectNodeWithRetry(jm.p2pm.ctx, peer, 3, 5*time.Second)
 	if err != nil {
 		msg := err.Error()
 		jm.lm.Log("error", msg, "p2p")

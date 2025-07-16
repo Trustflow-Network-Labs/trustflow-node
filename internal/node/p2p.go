@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"slices"
@@ -234,12 +235,6 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.UI.Print(message)
 	}
 
-	// Connect bootstrap nodes
-	//p2pm.connectNodes(bootstrapAddrsInfo)
-
-	// Connect relay nodes
-	//	p2pm.connectNodes(relayAddrsInfo)
-
 	// Setup a stream handler.
 	// This gets called every time a peer connects and opens a stream to this node.
 	p2pm.h.SetStreamHandler(p2pm.protocolID, func(s network.Stream) {
@@ -334,26 +329,18 @@ func (p2pm *P2PManager) createPublicHost(
 		libp2p.DefaultTransports,
 		// support default muxers
 		libp2p.DefaultMuxers,
-		// let this host use the DHT to find other hosts
-		//		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
-		//			var err error = nil
-		//			p2pm.h = hst
-		//			p2pm.idht, err = p2pm.initDHT("server")
-		//			return p2pm.idht, err
-		//		}),
 		// attempt to open ports using uPNP for NATed hosts.
 		libp2p.EnableNATService(),
 		libp2p.NATPortMap(),
 		// control which nodes we allow to connect
 		libp2p.ConnectionGater(blacklistManager.Gater),
 		// use static relays for more reliable relay selection
-		libp2p.EnableRelay(),
-		libp2p.EnableHolePunching(),
-
-		// use static relays for more reliable relay selection
 		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
+		libp2p.EnableRelay(),
 		// enable AutoNAT v2 for automatic reachability detection
 		libp2p.EnableAutoNATv2(),
+		// enable hole punching for direct connections when possible
+		libp2p.EnableHolePunching(),
 	)
 	if err != nil {
 		return nil, err
@@ -435,13 +422,6 @@ func (p2pm *P2PManager) createPrivateHost(
 		libp2p.DefaultTransports,
 		// support default muxers
 		libp2p.DefaultMuxers,
-		// let this host use the DHT to find other hosts
-		//		libp2p.Routing(func(hst host.Host) (routing.PeerRouting, error) {
-		//			var err error = nil
-		//			p2pm.h = hst
-		//			p2pm.idht, err = p2pm.initDHT("client")
-		//			return p2pm.idht, err
-		//		}),
 		// enable NAT port mapping (UPnP/NAT-PMP)
 		libp2p.NATPortMap(),
 		// enable NAT service
@@ -470,14 +450,6 @@ func (p2pm *P2PManager) createPrivateHost(
 	}
 
 	return hst, nil
-}
-
-func (p2pm *P2PManager) connectNodes(addrsInfo []peer.AddrInfo) {
-	for _, addrInfo := range addrsInfo {
-		if _, err := p2pm.ConnectNode(addrInfo); err != nil {
-			p2pm.UI.Print(err.Error())
-		}
-	}
 }
 
 func (p2pm *P2PManager) Stop() error {
@@ -550,67 +522,54 @@ func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.Add
 		return nil, errors.New(err.Error())
 	}
 
+	var bootstrapPeers []peer.AddrInfo
 	for _, peerAddr := range dht.DefaultBootstrapPeers {
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
 
-		go func() {
-			if _, err := p2pm.ConnectNode(*peerinfo); err != nil {
-				p2pm.lm.Log("warn", err.Error(), "p2p")
-				p2pm.UI.Print(err.Error())
-			}
-		}()
+		bootstrapPeers = append(bootstrapPeers, *peerinfo)
 	}
-	go func() {
-		p2pm.connectNodes(additionalBootstrapPeers)
-	}()
+
+	bootstrapPeers = append(bootstrapPeers, additionalBootstrapPeers...)
+	connectedPeers := p2pm.ConnectNodesAsync(bootstrapPeers, 3, 5*time.Second)
+	for _, p := range connectedPeers {
+		p2pm.lm.Log("info", fmt.Sprintf("Connected peer: %s", p.ID.String()), "p2p")
+	}
 
 	return kademliaDHT, nil
 }
 
 func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
+	var discoveredPeers []peer.AddrInfo
+
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
+
+	// Advertise all topics
 	for _, completeTopicName := range p2pm.completeTopicNames {
 		dutil.Advertise(p2pm.ctx, routingDiscovery, completeTopicName)
 	}
 
 	// Look for others who have announced and attempt to connect to them
-	anyConnected := false
-	for !anyConnected {
-		for _, completeTopicName := range p2pm.completeTopicNames {
-			peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
-			if err != nil {
-				p2pm.lm.Log("warn", err.Error(), "p2p")
+	for _, completeTopicName := range p2pm.completeTopicNames {
+		peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
+		if err != nil {
+			p2pm.lm.Log("warn", err.Error(), "p2p")
+			continue
+		}
+
+		for peer := range peerChan {
+			if peer.ID == "" || peer.ID == p2pm.h.ID() {
 				continue
 			}
-
-			var discoveredPeers []peer.AddrInfo
-
-			for peer := range peerChan {
-				if peer.ID == "" || peer.ID == p2pm.h.ID() {
-					continue
-				}
-
-				discoveredPeers = append(discoveredPeers, peer)
-
-				running := p2pm.WaitForHostReady(500*time.Millisecond, 10)
-				if !running {
-					break
-				}
-
-				skip, err := p2pm.ConnectNode(peer)
-				if err != nil {
-					continue
-				}
-				if skip {
-					continue
-				}
-
-				peerChannel <- discoveredPeers
-			}
+			discoveredPeers = append(discoveredPeers, peer)
 		}
 	}
+
+	// Connect to peers asynchronously
+	connectedPeers := p2pm.ConnectNodesAsync(discoveredPeers, 3, 5*time.Second)
+	peerChannel <- connectedPeers
+
 	close(peerChannel)
-	p2pm.lm.Log("debug", "Peer discovery complete", "p2p")
+	p2pm.lm.Log("info", fmt.Sprintf("Connected to %d peers for service discovery", len(connectedPeers)), "p2p")
 }
 
 func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
@@ -632,79 +591,35 @@ func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
 	return connected, nil
 }
 
-func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) (bool, error) {
+func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) error {
 
 	connected, err := p2pm.IsNodeConnected(p)
 	if err != nil {
 		msg := err.Error()
 		p2pm.lm.Log("error", msg, "p2p")
-		return false, err
+		return err
 	}
 	if connected {
-		msg := fmt.Sprintf("Node %s is already connected", p.ID.String())
-		p2pm.lm.Log("debug", msg, "p2p")
-		return true, nil // skip node but do not panic
+		err := fmt.Errorf("node %s is already connected", p.ID.String())
+		p2pm.lm.Log("debug", err.Error(), "p2p")
+		return nil // Consider this as success
 	}
 
 	if p.ID == p2pm.h.ID() {
-		return true, fmt.Errorf("can not connect to itself %s == %s", p.ID, p2pm.h.ID())
+		err := fmt.Errorf("can not connect to itself %s == %s", p.ID, p2pm.h.ID())
+		p2pm.lm.Log("debug", err.Error(), "p2p")
+		return nil // Consider this as success
 	}
 
-	/*
-		result := make(chan struct {
-			peer peer.AddrInfo
-			err  error
-		}, 1)
-
-		go func(pi peer.AddrInfo) {
-			connCtx, cancel := context.WithTimeout(p2pm.ctx, 15*time.Second)
-			defer cancel()
-
-			p2pm.lm.Log("debug", fmt.Sprintf("Attempting to connect to: %s\n", pi.ID.String()), "p2p")
-			err := p2pm.h.Connect(connCtx, pi)
-
-			result <- struct {
-				peer peer.AddrInfo
-				err  error
-			}{pi, err}
-		}(p)
-
-		select {
-		case res := <-result:
-			if res.err != nil {
-				p2pm.h.Network().ClosePeer(res.peer.ID)
-				p2pm.h.Network().Peerstore().RemovePeer(res.peer.ID)
-				p2pm.h.Peerstore().ClearAddrs(res.peer.ID)
-				p2pm.h.Peerstore().RemovePeer(res.peer.ID)
-				p2pm.lm.Log("debug", fmt.Sprintf("Failed to connect to %s: %v", res.peer.ID.String(), res.err), "p2p")
-				p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", res.peer.ID), "p2p")
-				return false, err
-			} else {
-				p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", res.peer.ID.String()), "p2p")
-				for _, ma := range res.peer.Addrs {
-					p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
-				}
-				return false, nil
-			}
-		case <-time.After(20 * time.Second):
-			return false, fmt.Errorf("timeout waiting for bootstrap connections")
-		}
-	*/
 	connCtx, cancel := context.WithTimeout(p2pm.ctx, 10*time.Second)
 	err = p2pm.h.Connect(connCtx, p)
 	cancel()
 
-	//	err = p2pm.h.Connect(p2pm.ctx, p)
-
 	if err != nil {
-		//		p2pm.h.Network().ClosePeer(p.ID)
-		//		p2pm.h.Network().Peerstore().RemovePeer(p.ID)
-		//		p2pm.h.Peerstore().ClearAddrs(p.ID)
-		//		p2pm.h.Peerstore().RemovePeer(p.ID)
-		//		p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
-		//		p2pm.UI.Print(fmt.Sprintf("Removed peer %s from a peer store", p.ID))
+		// This might be usefull when node chabges its ID
+		//		p2pm.PurgeNode(p)
 
-		return false, err
+		return err
 	}
 
 	p2pm.lm.Log("debug", fmt.Sprintf("Connected to: %s", p.ID.String()), "p2p")
@@ -714,11 +629,90 @@ func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) (bool, error) {
 		p2pm.lm.Log("debug", fmt.Sprintf("Connected peer's multiaddr is %s", ma.String()), "p2p")
 	}
 
-	return false, nil
+	return nil
+}
+
+func (p2pm *P2PManager) PurgeNode(p peer.AddrInfo) {
+	p2pm.h.Network().ClosePeer(p.ID)
+	p2pm.h.Network().Peerstore().RemovePeer(p.ID)
+	p2pm.h.Peerstore().ClearAddrs(p.ID)
+	p2pm.h.Peerstore().RemovePeer(p.ID)
+	p2pm.lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
+}
+
+func (p2pm *P2PManager) ConnectNodeWithRetry(ctx context.Context, peer peer.AddrInfo, maxRetries int, baseDelay time.Duration) error {
+	for attempt := range maxRetries {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("missing context / context already done")
+		default:
+		}
+
+		// Wait for host to be ready
+		if !p2pm.WaitForHostReady(500*time.Millisecond, 10) {
+			err := fmt.Errorf("host not ready, abandoning connection attempt")
+			p2pm.lm.Log("warn", err.Error(), "p2p")
+			return err
+		}
+
+		// Attempt connection
+		err := p2pm.ConnectNode(peer)
+		if err != nil {
+			p2pm.lm.Log("warn", fmt.Sprintf("connection attempt %d failed for peer %s: %v", attempt+1, peer.ID, err), "p2p")
+
+			// Exponential backoff
+			if attempt < maxRetries-1 {
+				delay := baseDelay * time.Duration(1<<attempt)
+				select {
+				case <-time.After(delay):
+					continue
+				case <-ctx.Done():
+					return fmt.Errorf("missing context / context already done")
+				}
+			}
+			continue
+		}
+
+		p2pm.lm.Log("debug", fmt.Sprintf("successfully connected to peer %s", peer.ID), "p2p")
+		return nil
+	}
+
+	err := fmt.Errorf("failed to connect to peer %s after %d attempts", peer.ID, maxRetries)
+	p2pm.lm.Log("warn", err.Error(), "p2p")
+	return err
+}
+
+func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int, baseDelay time.Duration) []peer.AddrInfo {
+	var mu sync.Mutex
+	var connectedPeers []peer.AddrInfo
+
+	// Use a worker pool pattern
+	maxWorkers := 20
+
+	var wg sync.WaitGroup
+
+	// Start workers
+	for range maxWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for _, peer := range peers {
+				if err := p2pm.ConnectNodeWithRetry(p2pm.ctx, peer, maxRetries, baseDelay); err == nil {
+					mu.Lock()
+					connectedPeers = append(connectedPeers, peer)
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	return connectedPeers
 }
 
 func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, job *node_types.Job, existingStream network.Stream) error {
-	_, err := p2pm.ConnectNode(receivingPeer)
+	err := p2pm.ConnectNodeWithRetry(p2pm.ctx, receivingPeer, 3, 5*time.Second)
 	if err != nil {
 		p2pm.lm.Log("error", err.Error(), "p2p")
 		return err
