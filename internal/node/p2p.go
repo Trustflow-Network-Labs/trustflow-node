@@ -84,19 +84,19 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			//"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 		},
 		relayAddrs: []string{
-			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
+			//"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
+			//"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
+			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 		},
 		topicNames:         []string{"lookup.service"},
 		completeTopicNames: []string{},
@@ -540,10 +540,7 @@ func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.Add
 	bootstrapPeers = append(bootstrapPeers, additionalBootstrapPeers...)
 
 	go func() {
-		connectedPeers := p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
-		for _, p := range connectedPeers {
-			p2pm.Lm.Log("info", fmt.Sprintf("Connected peer: %s", p.ID.String()), "p2p")
-		}
+		p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
 	}()
 
 	return kademliaDHT, nil
@@ -685,8 +682,6 @@ func (p2pm *P2PManager) ConnectNodeWithRetry(ctx context.Context, peer peer.Addr
 		// Attempt connection
 		err := p2pm.ConnectNode(peer)
 		if err != nil {
-			p2pm.Lm.Log("warn", fmt.Sprintf("connection attempt %d failed for peer %s: %v", attempt+1, peer.ID, err), "p2p")
-
 			// Exponential backoff
 			if attempt < maxRetries-1 {
 				delay := baseDelay * time.Duration(1<<attempt)
@@ -700,7 +695,7 @@ func (p2pm *P2PManager) ConnectNodeWithRetry(ctx context.Context, peer peer.Addr
 			continue
 		}
 
-		p2pm.Lm.Log("debug", fmt.Sprintf("successfully connected to peer %s", peer.ID), "p2p")
+		// Successfully connected
 		return nil
 	}
 
