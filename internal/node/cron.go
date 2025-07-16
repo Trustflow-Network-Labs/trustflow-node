@@ -28,6 +28,16 @@ func (cm *CronManager) JobQueue() (*cron.Cron, error) {
 
 	jm := NewJobManager(cm.p2pm)
 	c := cron.New()
+	err = c.AddFunc(configs["peer_discovery"], cm.p2pm.PeerDiscovery)
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "cron")
+		return nil, err
+	}
+	err = c.AddFunc(configs["connection_health_check"], cm.p2pm.MaintainConnections)
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "cron")
+		return nil, err
+	}
 	err = c.AddFunc(configs["process_job_queue"], jm.ProcessQueue)
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")

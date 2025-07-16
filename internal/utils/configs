@@ -38,5 +38,7 @@ pid_path = ./trustflow.pid
 phrase_min_len = 3
 
 [cron]
+peer_discovery = 0 */1 * * * *
+connection_health_check = 0 */3 * * * *
 process_job_queue = */10 * * * * *
 request_job_status_update = */10 * * * * *

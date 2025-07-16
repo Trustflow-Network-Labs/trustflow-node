@@ -285,7 +285,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	cronManager := NewCronManager(p2pm)
 	c, err := cronManager.JobQueue()
 	if err != nil {
-		p2pm.Lm.Log("panic", err.Error(), "p2p")
+		p2pm.Lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
 	p2pm.crons = append(p2pm.crons, c)
@@ -581,6 +581,23 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 
 	close(peerChannel)
 	p2pm.Lm.Log("info", fmt.Sprintf("Connected to %d peers for service discovery", len(connectedPeers)), "p2p")
+}
+
+// Periodical peer discovery (cron)
+func (p2pm *P2PManager) PeerDiscovery() {
+	peerChannel := make(chan []peer.AddrInfo)
+	p2pm.discoverPeers(peerChannel)
+}
+
+// Monitor connection health and reconnect (cron)
+func (p2pm *P2PManager) MaintainConnections() {
+	for _, peerID := range p2pm.h.Network().Peers() {
+		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
+			// Attempt to reconnect
+			p := p2pm.makeRelayPeerInfo(peerID.String())
+			go p2pm.ConnectNodeWithRetry(p2pm.ctx, p, 3, 2*time.Second)
+		}
+	}
 }
 
 func (p2pm *P2PManager) IsNodeConnected(peer peer.AddrInfo) (bool, error) {
