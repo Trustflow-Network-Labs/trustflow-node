@@ -538,10 +538,13 @@ func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.Add
 	}
 
 	bootstrapPeers = append(bootstrapPeers, additionalBootstrapPeers...)
-	connectedPeers := p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
-	for _, p := range connectedPeers {
-		p2pm.Lm.Log("info", fmt.Sprintf("Connected peer: %s", p.ID.String()), "p2p")
-	}
+
+	go func() {
+		connectedPeers := p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
+		for _, p := range connectedPeers {
+			p2pm.Lm.Log("info", fmt.Sprintf("Connected peer: %s", p.ID.String()), "p2p")
+		}
+	}()
 
 	return kademliaDHT, nil
 }
