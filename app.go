@@ -66,7 +66,6 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	p2pm := node.NewP2PManager(ctx, a.gui)
-	defer p2pm.Close()
 	a.p2pm = *p2pm
 	a.dm = *dependencies.NewDependencyManager(a.gui)
 	a.sm = *node.NewServiceManager(p2pm)
@@ -85,6 +84,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.IsHostRunning() {
 		a.StopNode()
 	}
+	defer a.p2pm.Close()
 }
 
 // Signal that frontend is ready
