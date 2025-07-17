@@ -591,6 +591,9 @@ func (p2pm *P2PManager) MaintainConnections() {
 	for _, peerID := range p2pm.h.Network().Peers() {
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
+			if err := peerID.Validate(); err != nil {
+				continue
+			}
 			p := p2pm.makeRelayPeerInfo(peerID.String())
 			go p2pm.ConnectNodeWithRetry(p2pm.ctx, p, 3, 2*time.Second)
 		}
