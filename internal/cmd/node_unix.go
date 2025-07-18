@@ -30,6 +30,14 @@ var nodeCmd = &cobra.Command{
 		dm := dependencies.NewDependencyManager(ui.CLI{})
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
+		/* TODO, this is just a test of node type functionality
+		ntm := utils.NewNodeTypeManager()
+		nodeType, err := ntm.GetNodeTypeConfig([]uint16{port})
+		if err != nil {
+			fmt.Printf("error:\n%v\n", err)
+		}
+		fmt.Printf("%v\n", nodeType)
+		*/
 		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{})
 		defer p2pManager.Close()
 		p2pManager.Start(port, daemon, public, relay)
