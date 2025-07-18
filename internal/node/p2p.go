@@ -411,25 +411,18 @@ func (p2pm *P2PManager) createPublicHost(
 		p2pm.Lm.Log("info", message, "p2p")
 		p2pm.UI.Print(message)
 
-		// Start relay v2 as a relay server
-		/*
-			_, err = relayv2.New(hst)
-			if err != nil {
-				return nil, err
-			}
-		*/
-
-		// Start relay service with resource limits
+		// TODO, make this configurable
+		// Start relay service with resource limits (this is for high-bandwidth relay servers)
 		_, err = relayv2.New(hst,
 			relayv2.WithResources(relayv2.Resources{
 				Limit: &relayv2.RelayLimit{
-					Duration: 2 * time.Minute,
-					Data:     1024 * 1024, // 1MB
+					Duration: 60 * time.Minute,       // 1 hour
+					Data:     2 * 1024 * 1024 * 1024, // 2GB per circuit
 				},
 				ReservationTTL:  30 * time.Second,
-				MaxReservations: 1024,
-				MaxCircuits:     16,
-				BufferSize:      2048,
+				MaxReservations: 5000,
+				MaxCircuits:     100,
+				BufferSize:      256 * 1024, // 256KB buffer
 			}),
 		)
 		if err != nil {
