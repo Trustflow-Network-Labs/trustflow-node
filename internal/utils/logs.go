@@ -7,7 +7,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
+	yamuxmux "github.com/libp2p/go-libp2p/p2p/muxer/yamux"
+	"github.com/libp2p/go-yamux/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -15,7 +18,7 @@ type LogsManager struct {
 	dir         string
 	logFileName string
 	logger      *log.Logger
-	file        *os.File
+	File        *os.File // allow other packages to use same log output
 	mutex       sync.RWMutex
 }
 
@@ -60,7 +63,7 @@ func (lm *LogsManager) initLogger() error {
 		return err
 	}
 
-	lm.file = file
+	lm.File = file
 
 	// Configure logger once
 	lm.logger.SetLevel(log.TraceLevel)
@@ -121,8 +124,8 @@ func (lm *LogsManager) Close() error {
 	lm.mutex.Lock()
 	defer lm.mutex.Unlock()
 
-	if lm.file != nil {
-		return lm.file.Close()
+	if lm.File != nil {
+		return lm.File.Close()
 	}
 	return nil
 }
@@ -133,10 +136,109 @@ func (lm *LogsManager) Rotate() error {
 	defer lm.mutex.Unlock()
 
 	// Close current file
-	if lm.file != nil {
-		lm.file.Close()
+	if lm.File != nil {
+		lm.File.Close()
 	}
 
 	// Reinitialize with new file
 	return lm.initLogger()
+}
+
+/*
+* YAMUX
+ */
+
+// Write implements io.Writer interface for yamux
+func (lm *LogsManager) Write(p []byte) (n int, err error) {
+	message := strings.TrimSpace(string(p))
+
+	// Skip empty messages
+	if message == "" {
+		return len(p), nil
+	}
+
+	// Determine log level based on message content
+	level := lm.determineLogLevel(message)
+
+	// Clean up the message (remove timestamp and log prefixes from yamux)
+	cleanMessage := lm.cleanYamuxMessage(message)
+
+	// Log using existing logger with "yamux" category
+	lm.Log(level, cleanMessage, "yamux")
+
+	return len(p), nil
+}
+
+// determineLogLevel analyzes the yamux message to determine appropriate log level
+func (lm *LogsManager) determineLogLevel(message string) string {
+	messageLower := strings.ToLower(message)
+
+	// Error conditions
+	if strings.Contains(messageLower, "error") ||
+		strings.Contains(messageLower, "failed") ||
+		strings.Contains(messageLower, "panic") ||
+		strings.Contains(messageLower, "fatal") {
+		return "error"
+	}
+
+	// Warning conditions
+	if strings.Contains(messageLower, "warn") ||
+		strings.Contains(messageLower, "timeout") ||
+		strings.Contains(messageLower, "retry") ||
+		strings.Contains(messageLower, "disconnect") ||
+		strings.Contains(messageLower, "goaway") {
+		return "warning"
+	}
+
+	// Info conditions
+	if strings.Contains(messageLower, "connect") ||
+		strings.Contains(messageLower, "accept") ||
+		strings.Contains(messageLower, "stream") {
+		return "info"
+	}
+
+	// Default to debug for yamux internal messages
+	return "debug"
+}
+
+// cleanYamuxMessage removes yamux prefixes and cleans up the message
+func (lm *LogsManager) cleanYamuxMessage(message string) string {
+	// Remove common yamux prefixes
+	prefixes := []string{
+		"[yamux]",
+		"[YAMUX]",
+		"yamux:",
+		"YAMUX:",
+	}
+
+	cleanMsg := message
+	for _, prefix := range prefixes {
+		cleanMsg = strings.TrimPrefix(cleanMsg, prefix)
+	}
+
+	// Remove timestamp if present (yamux sometimes adds its own)
+	// Pattern: 2023/01/01 12:00:00
+	if len(cleanMsg) > 19 && cleanMsg[4] == '/' && cleanMsg[7] == '/' && cleanMsg[10] == ' ' {
+		if spaceIndex := strings.Index(cleanMsg[11:], " "); spaceIndex != -1 {
+			cleanMsg = cleanMsg[11+spaceIndex+1:]
+		}
+	}
+
+	return strings.TrimSpace(cleanMsg)
+}
+
+// Create a custom yamux configuration with logger
+func (lm *LogsManager) CreateYamuxConfigWithLogger() *yamuxmux.Transport {
+	// Create new config
+	yamuxConfig := &yamux.Config{
+		AcceptBacklog:          256,
+		EnableKeepAlive:        true,
+		KeepAliveInterval:      30 * time.Second,
+		ConnectionWriteTimeout: 10 * time.Second,
+		MaxStreamWindowSize:    16 * 1024 * 1024, // 16MB stream window
+		LogOutput:              lm.File,
+	}
+
+	// Convert yamux.Config to yamuxmux.Transport
+	return (*yamuxmux.Transport)(yamuxConfig)
 }

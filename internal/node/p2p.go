@@ -38,6 +38,7 @@ import (
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	identify "github.com/libp2p/go-libp2p/p2p/protocol/identify"
@@ -351,6 +352,9 @@ func (p2pm *P2PManager) createPublicHost(
 		return nil, err
 	}
 
+	// Configure yamux for large transfers
+	yamuxConfig := p2pm.Lm.CreateYamuxConfigWithLogger()
+
 	hst, err := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
@@ -371,7 +375,8 @@ func (p2pm *P2PManager) createPublicHost(
 		// support default transports
 		libp2p.DefaultTransports,
 		// support default muxers
-		libp2p.DefaultMuxers,
+		//		libp2p.DefaultMuxers,
+		libp2p.Muxer(yamux.ID, yamuxConfig),
 		// connection management
 		libp2p.ConnectionManager(connMgr),
 		libp2p.ResourceManager(resourceManager),
@@ -464,6 +469,9 @@ func (p2pm *P2PManager) createPrivateHost(
 		return nil, err
 	}
 
+	// Configure yamux for large transfers
+	yamuxConfig := p2pm.Lm.CreateYamuxConfigWithLogger()
+
 	hst, err := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
@@ -484,7 +492,8 @@ func (p2pm *P2PManager) createPrivateHost(
 		// support default transports
 		libp2p.DefaultTransports,
 		// support default muxers
-		libp2p.DefaultMuxers,
+		//		libp2p.DefaultMuxers,
+		libp2p.Muxer(yamux.ID, yamuxConfig),
 		// connection management
 		libp2p.ConnectionManager(connMgr),
 		libp2p.ResourceManager(resourceManager),
