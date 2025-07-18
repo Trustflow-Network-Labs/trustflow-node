@@ -84,6 +84,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		public: false,
 		relay:  false,
 		bootstrapAddrs: []string{
+			"/ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
+			"/ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
+			//"/ip4/159.65.253.245/tcp/30613/ws/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
 			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
@@ -93,6 +96,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 		},
 		relayAddrs: []string{
+			"/ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
+			"/ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
+			//"/ip4/159.65.253.245/tcp/30613/ws/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
 			//"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
 			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
 			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
@@ -1163,7 +1169,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			data = append(data, chunk...)
 		}
 
-		message := fmt.Sprintf("Received completed. Data [%d bytes] of type %d received in stream %s from %s ",
+		message := fmt.Sprintf("Receiving completed. Data [%d bytes] of type %d received in stream %s from %s ",
 			len(data), streamData.Type, s.ID(), string(bytes.Trim(streamData.PeerId[:], "\x00")))
 		p2pm.Lm.Log("debug", message, "p2p")
 
