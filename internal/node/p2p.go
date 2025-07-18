@@ -207,19 +207,35 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	var bootstrapAddrsInfo []peer.AddrInfo
 	var relayAddrsInfo []peer.AddrInfo
 	for _, relayAddr := range p2pm.relayAddrs {
-		relayAddrInfo := p2pm.makeRelayPeerInfo(relayAddr)
+		relayAddrInfo, err := p2pm.makeRelayPeerInfo(relayAddr)
+		if err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			continue
+		}
 		relayAddrsInfo = append(relayAddrsInfo, relayAddrInfo)
 	}
 	for _, bootstrapAddr := range p2pm.bootstrapAddrs {
-		bootstrapAddrInfo := p2pm.makeRelayPeerInfo(bootstrapAddr)
+		bootstrapAddrInfo, err := p2pm.makeRelayPeerInfo(bootstrapAddr)
+		if err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			continue
+		}
 		bootstrapAddrsInfo = append(bootstrapAddrsInfo, bootstrapAddrInfo)
 	}
 
+	// Default DHT bootstrap peers + ours
+	var bootstrapPeers []peer.AddrInfo
+	for _, peerAddr := range dht.DefaultBootstrapPeers {
+		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
+		bootstrapPeers = append(bootstrapPeers, *peerinfo)
+	}
+	bootstrapPeers = append(bootstrapPeers, bootstrapAddrsInfo...)
+
 	var hst host.Host
 	if p2pm.public {
-		hst, err = p2pm.createPublicHost(priv, port, blacklistManager, bootstrapAddrsInfo, relayAddrsInfo)
+		hst, err = p2pm.createPublicHost(priv, port, blacklistManager, bootstrapPeers, relayAddrsInfo)
 	} else {
-		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, bootstrapAddrsInfo, relayAddrsInfo)
+		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, bootstrapPeers, relayAddrsInfo)
 	}
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -275,7 +291,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		}
 		p2pm.subscriptions = append(p2pm.subscriptions, sub)
 
-		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, peerChannel)
+		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, bootstrapPeers, peerChannel)
 
 		// Attach the notifiee to the host's network
 		p2pm.h.Network().Notify(notifyManager)
@@ -507,7 +523,7 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 	return sub, topic, nil
 }
 
-func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.AddrInfo) (*dht.IpfsDHT, error) {
+func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*dht.IpfsDHT, error) {
 	var dhtMode dht.Option
 
 	switch mode {
@@ -529,15 +545,6 @@ func (p2pm *P2PManager) initDHT(mode string, additionalBootstrapPeers []peer.Add
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return nil, errors.New(err.Error())
 	}
-
-	var bootstrapPeers []peer.AddrInfo
-	for _, peerAddr := range dht.DefaultBootstrapPeers {
-		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-
-		bootstrapPeers = append(bootstrapPeers, *peerinfo)
-	}
-
-	bootstrapPeers = append(bootstrapPeers, additionalBootstrapPeers...)
 
 	go func() {
 		p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
@@ -589,12 +596,17 @@ func (p2pm *P2PManager) PeerDiscovery() {
 // Monitor connection health and reconnect (cron)
 func (p2pm *P2PManager) MaintainConnections() {
 	for _, peerID := range p2pm.h.Network().Peers() {
+		fmt.Printf("Connected peer: %s\n", peerID)
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
 			if err := peerID.Validate(); err != nil {
 				continue
 			}
-			p := p2pm.makeRelayPeerInfo(peerID.String())
+			p, err := p2pm.makeRelayPeerInfo(peerID.String())
+			if err != nil {
+				p2pm.Lm.Log("error", err.Error(), "p2p")
+				continue
+			}
 			go p2pm.ConnectNodeWithRetry(p2pm.ctx, p, 3, 2*time.Second)
 		}
 	}
@@ -2129,10 +2141,16 @@ func (p2pm *P2PManager) GeneratePeerAddrInfo(peerId string) (peer.AddrInfo, erro
 	return p, nil
 }
 
-func (p2pm *P2PManager) makeRelayPeerInfo(peerAddrStr string) peer.AddrInfo {
-	maddr, _ := ma.NewMultiaddr(peerAddrStr)
-	peerAddrInfo, _ := peer.AddrInfoFromP2pAddr(maddr)
-	return *peerAddrInfo
+func (p2pm *P2PManager) makeRelayPeerInfo(peerAddrStr string) (peer.AddrInfo, error) {
+	maddr, err := ma.NewMultiaddr(peerAddrStr)
+	if err != nil {
+		return peer.AddrInfo{}, err
+	}
+	peerAddrInfo, err := peer.AddrInfoFromP2pAddr(maddr)
+	if err != nil {
+		return peer.AddrInfo{}, err
+	}
+	return *peerAddrInfo, nil
 }
 
 func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {
