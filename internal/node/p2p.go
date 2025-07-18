@@ -352,51 +352,17 @@ func (p2pm *P2PManager) createPublicHost(
 		return nil, err
 	}
 
-	// Configure yamux for large transfers
-	yamuxConfig := p2pm.Lm.CreateYamuxConfigWithLogger()
-
-	hst, err := libp2p.New(
-		// Use the keypair we generated
-		libp2p.Identity(priv),
-		// Listening addresses
-		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
-			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
-			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
-			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
-			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
-			"/p2p-circuit",
-		),
-		// support TLS connections
-		libp2p.Security(libp2ptls.ID, libp2ptls.New),
-		// support noise connections
-		libp2p.Security(noise.ID, noise.New),
-		// support default transports
-		libp2p.DefaultTransports,
-		// support default muxers
-		//		libp2p.DefaultMuxers,
-		libp2p.Muxer(yamux.ID, yamuxConfig),
-		// connection management
-		libp2p.ConnectionManager(connMgr),
-		libp2p.ResourceManager(resourceManager),
-		// attempt to open ports using uPNP for NATed hosts.
-		libp2p.EnableNATService(),
-		libp2p.NATPortMap(),
-		// control which nodes we allow to connect
-		libp2p.ConnectionGater(blacklistManager.Gater),
-		// use static relays for more reliable relay selection
-		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
-		libp2p.EnableRelay(),
-		// enable AutoNAT v2 for automatic reachability detection
-		libp2p.EnableAutoNATv2(),
-		// enable hole punching for direct connections when possible
-		libp2p.EnableHolePunching(),
+	hst, err := p2pm.createHost(
+		priv,
+		port,
+		blacklistManager,
+		resourceManager,
+		connMgr,
+		relayAddrsInfo,
 	)
 	if err != nil {
 		return nil, err
 	}
-	p2pm.h = hst
 
 	// let this host use the DHT to find other hosts
 	//p2pm.idht, err = p2pm.initDHT("server")
@@ -462,6 +428,37 @@ func (p2pm *P2PManager) createPrivateHost(
 		return nil, err
 	}
 
+	hst, err := p2pm.createHost(
+		priv,
+		port,
+		blacklistManager,
+		resourceManager,
+		connMgr,
+		relayAddrsInfo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// let this host use the DHT to find other hosts
+	//p2pm.idht, err = p2pm.initDHT("client")
+	p2pm.idht, err = p2pm.initDHT("", bootstrapAddrInfo)
+	if err != nil {
+		p2pm.h.Close()
+		return nil, err
+	}
+
+	return hst, nil
+}
+
+func (p2pm *P2PManager) createHost(
+	priv crypto.PrivKey,
+	port uint16,
+	blacklistManager *blacklist_node.BlacklistNodeManager,
+	resourceManager network.ResourceManager,
+	connMgr *connmgr.BasicConnMgr,
+	relayAddrsInfo []peer.AddrInfo,
+) (host.Host, error) {
 	// Configure yamux for large transfers
 	yamuxConfig := p2pm.Lm.CreateYamuxConfigWithLogger()
 
@@ -490,17 +487,16 @@ func (p2pm *P2PManager) createPrivateHost(
 		// connection management
 		libp2p.ConnectionManager(connMgr),
 		libp2p.ResourceManager(resourceManager),
-		// enable NAT port mapping (UPnP/NAT-PMP)
-		libp2p.NATPortMap(),
-		// enable NAT service
+		// attempt to open ports using uPNP for NATed hosts.
 		libp2p.EnableNATService(),
-		// enable AutoNAT v2 for automatic reachability detection
-		libp2p.EnableAutoNATv2(),
+		libp2p.NATPortMap(),
 		// control which nodes we allow to connect
 		libp2p.ConnectionGater(blacklistManager.Gater),
 		// use static relays for more reliable relay selection
 		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
 		libp2p.EnableRelay(),
+		// enable AutoNAT v2 for automatic reachability detection
+		libp2p.EnableAutoNATv2(),
 		// enable hole punching for direct connections when possible
 		libp2p.EnableHolePunching(),
 	)
@@ -508,14 +504,6 @@ func (p2pm *P2PManager) createPrivateHost(
 		return nil, err
 	}
 	p2pm.h = hst
-
-	// let this host use the DHT to find other hosts
-	//p2pm.idht, err = p2pm.initDHT("client")
-	p2pm.idht, err = p2pm.initDHT("", bootstrapAddrInfo)
-	if err != nil {
-		p2pm.h.Close()
-		return nil, err
-	}
 
 	return hst, nil
 }
