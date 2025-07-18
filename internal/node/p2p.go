@@ -37,6 +37,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	identify "github.com/libp2p/go-libp2p/p2p/protocol/identify"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
@@ -332,6 +334,23 @@ func (p2pm *P2PManager) createPublicHost(
 	p2pm.Lm.Log("info", message, "p2p")
 	p2pm.UI.Print(message)
 
+	// Create resource manager with higher limits
+	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
+	resourceManager, err := rcmgr.NewResourceManager(limiter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure connection manager for large file transfers
+	connMgr, err := connmgr.NewConnManager(
+		100,                                  // Low water mark - minimum connections to maintain
+		800,                                  // High water mark - maximum connections before pruning
+		connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	hst, err := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
@@ -353,6 +372,9 @@ func (p2pm *P2PManager) createPublicHost(
 		libp2p.DefaultTransports,
 		// support default muxers
 		libp2p.DefaultMuxers,
+		// connection management
+		libp2p.ConnectionManager(connMgr),
+		libp2p.ResourceManager(resourceManager),
 		// attempt to open ports using uPNP for NATed hosts.
 		libp2p.EnableNATService(),
 		libp2p.NATPortMap(),
@@ -425,6 +447,23 @@ func (p2pm *P2PManager) createPrivateHost(
 	p2pm.Lm.Log("info", message, "p2p")
 	p2pm.UI.Print(message)
 
+	// Create resource manager with higher limits
+	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
+	resourceManager, err := rcmgr.NewResourceManager(limiter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure connection manager for large file transfers
+	connMgr, err := connmgr.NewConnManager(
+		50,                                   // Low water mark - minimum connections to maintain
+		400,                                  // High water mark - maximum connections before pruning
+		connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	hst, err := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
@@ -446,6 +485,9 @@ func (p2pm *P2PManager) createPrivateHost(
 		libp2p.DefaultTransports,
 		// support default muxers
 		libp2p.DefaultMuxers,
+		// connection management
+		libp2p.ConnectionManager(connMgr),
+		libp2p.ResourceManager(resourceManager),
 		// enable NAT port mapping (UPnP/NAT-PMP)
 		libp2p.NATPortMap(),
 		// enable NAT service
