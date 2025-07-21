@@ -15,16 +15,14 @@ type TopicAwareNotifiee struct {
 	topic             *pubsub.Topic
 	completeTopicName string
 	bootstrapPeers    []peer.AddrInfo
-	peerChannel       chan []peer.AddrInfo
 }
 
-func NewTopicAwareNotifiee(ps *pubsub.PubSub, topic *pubsub.Topic, completeTopicName string, bootstrapPeers []peer.AddrInfo, peerChannel chan []peer.AddrInfo) *TopicAwareNotifiee {
+func NewTopicAwareNotifiee(ps *pubsub.PubSub, topic *pubsub.Topic, completeTopicName string, bootstrapPeers []peer.AddrInfo) *TopicAwareNotifiee {
 	return &TopicAwareNotifiee{
 		ps:                ps,
 		topic:             topic,
 		completeTopicName: completeTopicName,
 		bootstrapPeers:    bootstrapPeers,
-		peerChannel:       peerChannel,
 	}
 }
 
@@ -71,20 +69,6 @@ func (n *TopicAwareNotifiee) Disconnected(net network.Network, conn network.Conn
 
 // Lightweight subscription check
 func (n *TopicAwareNotifiee) isPeerInTopic(p peer.ID) (peer.ID, bool) {
-	/*
-		select {
-		case <-n.peerChannel:
-			for _, peer := range <-n.peerChannel {
-				fmt.Printf("Found topic peer: %s (%s)\n", peer.ID, p)
-				if peer.ID == p {
-					return p, true
-				}
-			}
-		default:
-
-		}
-		return p, false
-	*/
 	buffer := NewFIFOBuffer(600)
 	buffer.Add(p)
 	peers := n.ps.ListPeers(n.completeTopicName)
@@ -95,9 +79,6 @@ func (n *TopicAwareNotifiee) isPeerInTopic(p peer.ID) (peer.ID, bool) {
 		}
 	}
 	return p, false
-
-	//fmt.Printf("%v <-> %v\n", p, peers)
-	//return p, slices.Contains(peers, p)
 }
 
 func (n *TopicAwareNotifiee) Listen(net network.Network, addr multiaddr.Multiaddr)      {}

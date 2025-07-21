@@ -240,15 +240,50 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	}
 	bootstrapPeers = append(bootstrapPeers, bootstrapAddrsInfo...)
 
+	maxConnections := 400
+
+	// Create resource manager with higher limits
+	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
+	resourceManager, err := rcmgr.NewResourceManager(limiter)
+	if err != nil {
+		p2pm.Lm.Log("panic", err.Error(), "p2p")
+		panic(fmt.Sprintf("%v", err))
+	}
+
 	var hst host.Host
 	if p2pm.public {
-		hst, err = p2pm.createPublicHost(priv, port, blacklistManager, bootstrapPeers, relayAddrsInfo)
+		maxConnections = 800
+		// Configure connection manager for large file transfers
+		connMgr, err := connmgr.NewConnManager(
+			100,                                  // Low water mark - minimum connections to maintain
+			maxConnections,                       // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+		)
+		if err != nil {
+			p2pm.Lm.Log("panic", err.Error(), "p2p")
+			panic(fmt.Sprintf("%v", err))
+		}
+		hst, err = p2pm.createPublicHost(priv, port, resourceManager, connMgr, blacklistManager, bootstrapPeers, relayAddrsInfo)
+		if err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			panic(fmt.Sprintf("%v", err))
+		}
 	} else {
-		hst, err = p2pm.createPrivateHost(priv, port, blacklistManager, bootstrapPeers, relayAddrsInfo)
-	}
-	if err != nil {
-		p2pm.Lm.Log("error", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		// Configure connection manager for large file transfers
+		connMgr, err := connmgr.NewConnManager(
+			100,                                  // Low water mark - minimum connections to maintain
+			maxConnections,                       // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+		)
+		if err != nil {
+			p2pm.Lm.Log("panic", err.Error(), "p2p")
+			panic(fmt.Sprintf("%v", err))
+		}
+		hst, err = p2pm.createPrivateHost(priv, port, resourceManager, connMgr, blacklistManager, bootstrapPeers, relayAddrsInfo)
+		if err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			panic(fmt.Sprintf("%v", err))
+		}
 	}
 
 	// Set up identify service
@@ -288,8 +323,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	peerChannel := make(chan []peer.AddrInfo)
-	go p2pm.discoverPeers(peerChannel)
+	go p2pm.DiscoverPeers()
 
 	p2pm.subscriptions = p2pm.subscriptions[:0]
 	for _, completeTopicName := range p2pm.completeTopicNames {
@@ -300,11 +334,26 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		}
 		p2pm.subscriptions = append(p2pm.subscriptions, sub)
 
-		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, bootstrapPeers, peerChannel)
+		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, bootstrapPeers)
 
 		// Attach the notifiee to the host's network
 		p2pm.h.Network().Notify(notifyManager)
 	}
+
+	tcm, err := utils.NewTopicAwareConnectionManager(p2pm.h, ps, p2pm.idht, maxConnections, p2pm.completeTopicNames)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		panic(fmt.Sprintf("%v", err))
+	}
+	go func() {
+		ticker := time.NewTicker(time.Minute * 1)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			stats := tcm.GetConnectionStats()
+			fmt.Printf("peers stats:\n%v\n", stats)
+		}
+	}()
 
 	// Start crons
 	cronManager := NewCronManager(p2pm)
@@ -333,6 +382,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 func (p2pm *P2PManager) createPublicHost(
 	priv crypto.PrivKey,
 	port uint16,
+	resourceManager network.ResourceManager,
+	connMgr *connmgr.BasicConnMgr,
 	blacklistManager *blacklist_node.BlacklistNodeManager,
 	bootstrapAddrInfo []peer.AddrInfo,
 	relayAddrsInfo []peer.AddrInfo,
@@ -341,29 +392,12 @@ func (p2pm *P2PManager) createPublicHost(
 	p2pm.Lm.Log("info", message, "p2p")
 	p2pm.UI.Print(message)
 
-	// Create resource manager with higher limits
-	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
-	resourceManager, err := rcmgr.NewResourceManager(limiter)
-	if err != nil {
-		return nil, err
-	}
-
-	// Configure connection manager for large file transfers
-	connMgr, err := connmgr.NewConnManager(
-		100,                                  // Low water mark - minimum connections to maintain
-		800,                                  // High water mark - maximum connections before pruning
-		connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	hst, err := p2pm.createHost(
 		priv,
 		port,
-		blacklistManager,
 		resourceManager,
 		connMgr,
+		blacklistManager,
 		relayAddrsInfo,
 	)
 	if err != nil {
@@ -409,6 +443,8 @@ func (p2pm *P2PManager) createPublicHost(
 func (p2pm *P2PManager) createPrivateHost(
 	priv crypto.PrivKey,
 	port uint16,
+	resourceManager network.ResourceManager,
+	connMgr *connmgr.BasicConnMgr,
 	blacklistManager *blacklist_node.BlacklistNodeManager,
 	bootstrapAddrInfo []peer.AddrInfo,
 	relayAddrsInfo []peer.AddrInfo,
@@ -417,29 +453,12 @@ func (p2pm *P2PManager) createPrivateHost(
 	p2pm.Lm.Log("info", message, "p2p")
 	p2pm.UI.Print(message)
 
-	// Create resource manager with higher limits
-	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
-	resourceManager, err := rcmgr.NewResourceManager(limiter)
-	if err != nil {
-		return nil, err
-	}
-
-	// Configure connection manager for large file transfers
-	connMgr, err := connmgr.NewConnManager(
-		50,                                   // Low water mark - minimum connections to maintain
-		400,                                  // High water mark - maximum connections before pruning
-		connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	hst, err := p2pm.createHost(
 		priv,
 		port,
-		blacklistManager,
 		resourceManager,
 		connMgr,
+		blacklistManager,
 		relayAddrsInfo,
 	)
 	if err != nil {
@@ -460,9 +479,9 @@ func (p2pm *P2PManager) createPrivateHost(
 func (p2pm *P2PManager) createHost(
 	priv crypto.PrivKey,
 	port uint16,
-	blacklistManager *blacklist_node.BlacklistNodeManager,
 	resourceManager network.ResourceManager,
 	connMgr *connmgr.BasicConnMgr,
+	blacklistManager *blacklist_node.BlacklistNodeManager,
 	relayAddrsInfo []peer.AddrInfo,
 ) (host.Host, error) {
 	// Configure yamux for large transfers
@@ -591,7 +610,7 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 	return kademliaDHT, nil
 }
 
-func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
+func (p2pm *P2PManager) DiscoverPeers() {
 	var discoveredPeers []peer.AddrInfo
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
@@ -618,23 +637,12 @@ func (p2pm *P2PManager) discoverPeers(peerChannel chan []peer.AddrInfo) {
 	}
 
 	// Connect to peers asynchronously
-	connectedPeers := p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
-	peerChannel <- connectedPeers
-
-	close(peerChannel)
-	p2pm.Lm.Log("info", fmt.Sprintf("Connected to %d peers for service discovery", len(connectedPeers)), "p2p")
-}
-
-// Periodical peer discovery (cron)
-func (p2pm *P2PManager) PeerDiscovery() {
-	peerChannel := make(chan []peer.AddrInfo)
-	p2pm.discoverPeers(peerChannel)
+	p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
 }
 
 // Monitor connection health and reconnect (cron)
 func (p2pm *P2PManager) MaintainConnections() {
 	for _, peerID := range p2pm.h.Network().Peers() {
-		fmt.Printf("Connected peer: %s\n", peerID)
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
 			if err := peerID.Validate(); err != nil {

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	mh "github.com/multiformats/go-multihash"
 )
 
@@ -28,7 +28,6 @@ type PeerStats struct {
 
 // TopicAwareConnectionManager manages connections with topic and routing awareness
 type TopicAwareConnectionManager struct {
-	*connmgr.BasicConnMgr
 	host         host.Host
 	pubsub       *pubsub.PubSub
 	dht          *dht.IpfsDHT
@@ -39,7 +38,6 @@ type TopicAwareConnectionManager struct {
 	routingPeers   map[peer.ID]float64    // Peers useful for routing (with score)
 	lastEvaluation map[peer.ID]time.Time  // Last time we evaluated peer usefulness
 	peerStats      map[peer.ID]*PeerStats // Historical statistics
-	// Remove the problematic topicHandles field since we can use pubsub.ListPeers directly
 
 	mu sync.RWMutex
 
@@ -52,16 +50,10 @@ type TopicAwareConnectionManager struct {
 }
 
 func NewTopicAwareConnectionManager(host host.Host, pubsub *pubsub.PubSub,
-	dht *dht.IpfsDHT, low, high int, gracePeriod time.Duration,
+	dht *dht.IpfsDHT, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
 
-	basicMgr, err := connmgr.NewConnManager(low, high, connmgr.WithGracePeriod(gracePeriod))
-	if err != nil {
-		return nil, err
-	}
-
 	tcm := &TopicAwareConnectionManager{
-		BasicConnMgr:          basicMgr,
 		host:                  host,
 		pubsub:                pubsub,
 		dht:                   dht,
@@ -70,7 +62,7 @@ func NewTopicAwareConnectionManager(host host.Host, pubsub *pubsub.PubSub,
 		routingPeers:          make(map[peer.ID]float64),
 		lastEvaluation:        make(map[peer.ID]time.Time),
 		peerStats:             make(map[peer.ID]*PeerStats),
-		maxConnections:        high,
+		maxConnections:        maxConnections,
 		topicPeerRatio:        0.6, // 60% for topic peers
 		routingPeerRatio:      0.3, // 30% for routing peers
 		evaluationPeriod:      time.Minute * 5,
@@ -88,8 +80,10 @@ func (tcm *TopicAwareConnectionManager) startMonitoring() {
 	go func() {
 		ticker := time.NewTicker(time.Minute * 2)
 		defer ticker.Stop()
-
+		tick := 0
 		for range ticker.C {
+			fmt.Printf("tick %d\n", tick)
+			tick++
 			tcm.updateTopicPeersList()
 			tcm.reevaluateAllPeers()
 		}
@@ -228,59 +222,46 @@ func (tcm *TopicAwareConnectionManager) calculatePeerDistance(peerA, peerB peer.
 	return float64(xorSum) / float64(maxPossible)
 }
 
-// hasSeenPeerInDHTContext checks if peerA appeared in DHT operations related to peerB
+// hasSeenPeerInDHTContext checks if peerA is useful for routing to peerB via DHT
 func (tcm *TopicAwareConnectionManager) hasSeenPeerInDHTContext(peerA, peerB peer.ID) bool {
 	if tcm.dht == nil {
 		return false
 	}
 
-	// Use the DHT as a routing interface to find peers
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
+	// Check if peerA and peerB are in similar DHT key space (closer peers are more likely to help route)
+	// This is a practical heuristic: if peers have similar key distances, one might help route to the other
+	distanceAToUs := tcm.calculatePeerDistance(peerA, tcm.host.ID())
+	distanceBToUs := tcm.calculatePeerDistance(peerB, tcm.host.ID())
+	distanceAtoB := tcm.calculatePeerDistance(peerA, peerB)
 
-	// Try to find peer B through DHT and see if peer A appears in the path
-	closer, err := tcm.dht.FindPeer(ctx, peerB)
-	if err != nil {
-		return false
-	}
-
-	// Check if peerA is among the addresses returned for peerB
-	for _, addr := range closer.Addrs {
-		// This is a simplified check - in practice you'd need more sophisticated analysis
-		_ = addr
-	}
-
-	return false // Simplified implementation
+	// If A is closer to B than we are, A might be useful for routing to B
+	return distanceAtoB < distanceBToUs || distanceAToUs < distanceBToUs
 }
 
-// getCommonNeighbors counts shared connections between two peers
+// getCommonNeighbors estimates shared connections based on network topology
 func (tcm *TopicAwareConnectionManager) getCommonNeighbors(peerA, peerB peer.ID) int {
-	// Since we can't directly access routing table, use connected peers
-	allConns := tcm.host.Network().Conns()
+	// Check if we're actually connected to both peers
+	connectedToA := tcm.host.Network().Connectedness(peerA) == network.Connected
+	connectedToB := tcm.host.Network().Connectedness(peerB) == network.Connected
 
-	connectedToPeerA := make(map[peer.ID]bool)
-	connectedToPeerB := make(map[peer.ID]bool)
-
-	// This is a simplified approach - in reality you'd need to query
-	// the peers about their connections
-	for _, conn := range allConns {
-		remotePeer := conn.RemotePeer()
-		if remotePeer != peerA && remotePeer != peerB {
-			// Assume all our connected peers might be connected to A and B
-			// This is a heuristic - you'd need actual peer discovery
-			connectedToPeerA[remotePeer] = true
-			connectedToPeerB[remotePeer] = true
-		}
+	if !connectedToA && !connectedToB {
+		return 0 // Can't estimate if we're not connected to either
 	}
 
-	common := 0
-	for peer := range connectedToPeerA {
-		if connectedToPeerB[peer] {
-			common++
-		}
+	// Simple heuristic: if peers are close in ID space, they likely share neighbors
+	distance := tcm.calculatePeerDistance(peerA, peerB)
+
+	// Convert distance to estimated common neighbors
+	// Closer peers (lower distance) have more common neighbors
+	if distance < 0.1 {
+		return 5 // Very close peers likely share many neighbors
+	} else if distance < 0.3 {
+		return 3 // Moderately close peers share some neighbors
+	} else if distance < 0.5 {
+		return 1 // Distant peers might share few neighbors
 	}
 
-	return common
+	return 0 // Very distant peers unlikely to share neighbors
 }
 
 // scoreDHTPosition evaluates peer's position in DHT for topic-related queries
