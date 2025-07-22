@@ -1,9 +1,10 @@
-package utils
+package node
 
 import (
 	"fmt"
 	"slices"
 
+	"github.com/adgsm/trustflow-node/internal/utils"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -15,14 +16,25 @@ type TopicAwareNotifiee struct {
 	topic             *pubsub.Topic
 	completeTopicName string
 	bootstrapPeers    []peer.AddrInfo
+	topicAwareConnMgr *TopicAwareConnectionManager
+	lm                *utils.LogsManager
 }
 
-func NewTopicAwareNotifiee(ps *pubsub.PubSub, topic *pubsub.Topic, completeTopicName string, bootstrapPeers []peer.AddrInfo) *TopicAwareNotifiee {
+func NewTopicAwareNotifiee(
+	ps *pubsub.PubSub,
+	topic *pubsub.Topic,
+	completeTopicName string,
+	bootstrapPeers []peer.AddrInfo,
+	tcm *TopicAwareConnectionManager,
+	lm *utils.LogsManager,
+) *TopicAwareNotifiee {
 	return &TopicAwareNotifiee{
+		lm:                lm,
 		ps:                ps,
 		topic:             topic,
 		completeTopicName: completeTopicName,
 		bootstrapPeers:    bootstrapPeers,
+		topicAwareConnMgr: tcm,
 	}
 }
 
@@ -33,43 +45,46 @@ func (n *TopicAwareNotifiee) isPeerInBootstrap(peerID peer.ID, bootstrapPeers []
 }
 
 func (n *TopicAwareNotifiee) Connected(net network.Network, conn network.Conn) {
-	logsManager := NewLogsManager()
-	defer logsManager.Close()
-
 	remotePeer := conn.RemotePeer()
+
+	// Notify connection manager about new peer
+	if n.topicAwareConnMgr != nil {
+		n.topicAwareConnMgr.OnPeerConnected(remotePeer)
+	}
 
 	// Check if the remote peer is subscribed to the same topic
 	if p, b := n.isPeerInTopic(remotePeer); b {
 		msg := fmt.Sprintf("✅ Node %s subscribed to topic '%s' is connected to our node. Check was done for %s\n", p.String(), n.completeTopicName, remotePeer.String())
-		logsManager.Log("debug", msg, "libp2p-events")
+		n.lm.Log("debug", msg, "libp2p-events")
+
+		// Update connection quality for topic peers (they get high priority)
+		if n.topicAwareConnMgr != nil {
+			n.topicAwareConnMgr.UpdatePeerStats(remotePeer, true, 0.9)
+		}
+
 	} else {
-		// TODO, disconnect / disallow connection to some of uneccessary nodes logic
-		// if !n.isPeerInBootstrap(remotePeer, n.bootstrapPeers) {
-		//			msg := fmt.Sprintf("❌ Node %s which is not subscribed to topic '%s' tried connecting to our node. Check was done for %s\n", p.String(), n.completeTopicName, remotePeer.String())
-		//			logsManager.Log("debug", msg, "libp2p-events")
-		//			conn.CloseWithError(network.ConnGated)
-		//} else {
-		//			msg := fmt.Sprintf("✅ Node %s which is not subscribed to topic '%s' is connected to our node. Check was done for %s (most probably bootstrap or whitelisted node)\n", p.String(), n.completeTopicName, remotePeer.String())
-		//			logsManager.Log("debug", msg, "libp2p-events")
-		//}
+		//		msg := fmt.Sprintf("🔗 Connected to potential routing peer: %s", remotePeer.String())
+		//		logsManager.Log("debug", msg, "libp2p-events")
 	}
 }
 
 func (n *TopicAwareNotifiee) Disconnected(net network.Network, conn network.Conn) {
-	logsManager := NewLogsManager()
-	defer logsManager.Close()
-
 	remotePeer := conn.RemotePeer()
+
+	// Notify connection manager about disconnection
+	if n.topicAwareConnMgr != nil {
+		n.topicAwareConnMgr.OnPeerDisconnected(remotePeer)
+	}
 
 	if p, b := n.isPeerInTopic(remotePeer); b {
 		msg := fmt.Sprintf("🔴 Disconnected from node subscribed to topic '%s': %s (check was done for: %s)\n", n.completeTopicName, p.String(), remotePeer.String())
-		logsManager.Log("debug", msg, "libp2p-events")
+		n.lm.Log("debug", msg, "libp2p-events")
 	}
 }
 
 // Lightweight subscription check
 func (n *TopicAwareNotifiee) isPeerInTopic(p peer.ID) (peer.ID, bool) {
-	buffer := NewFIFOBuffer(600)
+	buffer := utils.NewFIFOBuffer(600)
 	buffer.Add(p)
 	peers := n.ps.ListPeers(n.completeTopicName)
 	for _, b := range buffer.Entries() {

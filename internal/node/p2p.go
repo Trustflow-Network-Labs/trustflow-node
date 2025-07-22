@@ -59,6 +59,7 @@ type P2PManager struct {
 	topicsSubscribed   map[string]*pubsub.Topic
 	subscriptions      []*pubsub.Subscription
 	protocolID         protocol.ID
+	ps                 *pubsub.PubSub
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
@@ -113,6 +114,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		subscriptions:      []*pubsub.Subscription{},
 		protocolID:         "",
 		idht:               nil,
+		ps:                 nil,
 		h:                  nil,
 		ctx:                nil,
 		DB:                 db,
@@ -313,7 +315,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	})
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
-	ps, err := pubsub.NewGossipSub(p2pm.ctx, p2pm.h,
+	p2pm.ps, err = pubsub.NewGossipSub(p2pm.ctx, p2pm.h,
 		pubsub.WithPeerExchange(true),
 		pubsub.WithFloodPublish(true),
 		pubsub.WithDiscovery(routingDiscovery),
@@ -323,37 +325,46 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	go p2pm.DiscoverPeers()
+	tcm, err := NewTopicAwareConnectionManager(p2pm, maxConnections, p2pm.completeTopicNames)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		panic(fmt.Sprintf("%v", err))
+	}
+
+	// TODO, display stats and connected nodes (per user request?)
+	go func() {
+		ticker := time.NewTicker(time.Minute * 1)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				stats := tcm.GetConnectionStats()
+				p2pm.Lm.Log("info", fmt.Sprintf("peers stats:\n%v\n", stats), "p2p")
+			case <-p2pm.ctx.Done():
+				p2pm.Lm.Log("info", "Displaying stats stopped", "p2p")
+				return
+			}
+		}
+	}()
 
 	p2pm.subscriptions = p2pm.subscriptions[:0]
 	for _, completeTopicName := range p2pm.completeTopicNames {
-		sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, ps, completeTopicName)
+		sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, p2pm.ps, completeTopicName)
 		if err != nil {
 			p2pm.Lm.Log("panic", err.Error(), "p2p")
 			panic(fmt.Sprintf("%v", err))
 		}
 		p2pm.subscriptions = append(p2pm.subscriptions, sub)
 
-		notifyManager := utils.NewTopicAwareNotifiee(ps, topic, completeTopicName, bootstrapPeers)
+		notifyManager := NewTopicAwareNotifiee(p2pm.ps, topic, completeTopicName, bootstrapPeers, tcm, p2pm.Lm)
 
 		// Attach the notifiee to the host's network
 		p2pm.h.Network().Notify(notifyManager)
 	}
 
-	tcm, err := utils.NewTopicAwareConnectionManager(p2pm.h, ps, p2pm.idht, maxConnections, p2pm.completeTopicNames)
-	if err != nil {
-		p2pm.Lm.Log("error", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
-	}
-	go func() {
-		ticker := time.NewTicker(time.Minute * 1)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			stats := tcm.GetConnectionStats()
-			fmt.Printf("peers stats:\n%v\n", stats)
-		}
-	}()
+	// Start toppics aware peer discovery
+	go p2pm.DiscoverPeers()
 
 	// Start crons
 	cronManager := NewCronManager(p2pm)
@@ -648,7 +659,7 @@ func (p2pm *P2PManager) MaintainConnections() {
 			if err := peerID.Validate(); err != nil {
 				continue
 			}
-			p, err := p2pm.makeRelayPeerInfo(peerID.String())
+			p, err := p2pm.GeneratePeerAddrInfo(peerID.String())
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				continue

@@ -1,4 +1,4 @@
-package utils
+package node
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -28,10 +29,12 @@ type PeerStats struct {
 
 // TopicAwareConnectionManager manages connections with topic and routing awareness
 type TopicAwareConnectionManager struct {
+	ctx          context.Context
 	host         host.Host
 	pubsub       *pubsub.PubSub
 	dht          *dht.IpfsDHT
 	targetTopics []string
+	lm           *utils.LogsManager
 
 	// Connection priorities
 	topicPeers     map[peer.ID]bool       // Peers subscribed to our topics
@@ -49,14 +52,15 @@ type TopicAwareConnectionManager struct {
 	routingScoreThreshold float64
 }
 
-func NewTopicAwareConnectionManager(host host.Host, pubsub *pubsub.PubSub,
-	dht *dht.IpfsDHT, maxConnections int,
+func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
 
 	tcm := &TopicAwareConnectionManager{
-		host:                  host,
-		pubsub:                pubsub,
-		dht:                   dht,
+		ctx:                   p2pm.ctx,
+		host:                  p2pm.h,
+		pubsub:                p2pm.ps,
+		dht:                   p2pm.idht,
+		lm:                    p2pm.Lm,
 		targetTopics:          targetTopics,
 		topicPeers:            make(map[peer.ID]bool),
 		routingPeers:          make(map[peer.ID]float64),
@@ -78,14 +82,21 @@ func NewTopicAwareConnectionManager(host host.Host, pubsub *pubsub.PubSub,
 // startMonitoring begins periodic evaluation of peers
 func (tcm *TopicAwareConnectionManager) startMonitoring() {
 	go func() {
+		tick := 0
 		ticker := time.NewTicker(time.Minute * 2)
 		defer ticker.Stop()
-		tick := 0
-		for range ticker.C {
-			fmt.Printf("tick %d\n", tick)
-			tick++
-			tcm.updateTopicPeersList()
-			tcm.reevaluateAllPeers()
+
+		for {
+			select {
+			case <-ticker.C:
+				tcm.lm.Log("info", fmt.Sprintf("tick %d\n", tick), "p2p")
+				tick++
+				tcm.updateTopicPeersList()
+				tcm.reevaluateAllPeers()
+			case <-tcm.ctx.Done():
+				tcm.lm.Log("info", "Monitoring stopped", "p2p")
+				return
+			}
 		}
 	}()
 }
