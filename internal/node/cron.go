@@ -40,16 +40,6 @@ func (cm *CronManager) JobQueue() (*cron.Cron, error) {
 		cm.lm.Log("error", err.Error(), "cron")
 		return nil, err
 	}
-	err = c.AddFunc(configs["connection_stats"], cm.tcm.GetConnectionStats)
-	if err != nil {
-		cm.lm.Log("error", err.Error(), "cron")
-		return nil, err
-	}
-	err = c.AddFunc(configs["peer_evaluation"], cm.tcm.PeersEvaluation)
-	if err != nil {
-		cm.lm.Log("error", err.Error(), "cron")
-		return nil, err
-	}
 	err = c.AddFunc(configs["process_job_queue"], jm.ProcessQueue)
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")

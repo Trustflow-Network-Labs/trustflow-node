@@ -60,6 +60,13 @@ func (n *TopicAwareNotifiee) Connected(net network.Network, conn network.Conn) {
 		// Update connection quality for topic peers (they get high priority)
 		if n.topicAwareConnMgr != nil {
 			n.topicAwareConnMgr.UpdatePeerStats(remotePeer, true, 0.9)
+			/* TODO, avoid GetConnectionStats re-evaluating peers
+			// use previously completed peers evaluation
+			//			connStats := n.topicAwareConnMgr.GetConnectionStats()
+			//			msg := fmt.Sprintf("Connection stats:\nTotal connections: %d\nTopic peers connected: %d\nRouting peers connected: %d\nOther peers connected: %d\n",
+			//				connStats["total"], connStats["topic_peers"], connStats["routing_peers"], connStats["other_peers"])
+			//			n.lm.Log("debug", msg, "libp2p-events")
+			*/
 		}
 
 	} else {
@@ -74,6 +81,13 @@ func (n *TopicAwareNotifiee) Disconnected(net network.Network, conn network.Conn
 	// Notify connection manager about disconnection
 	if n.topicAwareConnMgr != nil {
 		n.topicAwareConnMgr.OnPeerDisconnected(remotePeer)
+		/* TODO, avoid GetConnectionStats re-evaluating peers
+		// use previously completed peers evaluation
+		//		connStats := n.topicAwareConnMgr.GetConnectionStats()
+		//		msg := fmt.Sprintf("Connection stats:\nTotal connections: %d\nTopic peers connected: %d\nRouting peers connected: %d\nOther peers connected: %d\n",
+		//			connStats["total"], connStats["topic_peers"], connStats["routing_peers"], connStats["other_peers"])
+		//		n.lm.Log("debug", msg, "libp2p-events")
+		*/
 	}
 
 	if p, b := n.isPeerInTopic(remotePeer); b {

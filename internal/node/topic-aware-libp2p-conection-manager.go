@@ -53,6 +53,8 @@ type TopicAwareConnectionManager struct {
 	routingScoreThreshold float64
 
 	evaluationSemaphore chan struct{}
+	evaluationTicker    *time.Ticker
+	stopChan            chan struct{}
 }
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
@@ -75,18 +77,54 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		evaluationPeriod:      time.Minute * 5,
 		routingScoreThreshold: 0.1,
 		evaluationSemaphore:   make(chan struct{}, 3),
+		stopChan:              make(chan struct{}),
 	}
 
-	// Start monitoring
-	//	tcm.startMonitoring()
+	// Start periodic evaluation
+	tcm.startPeriodicEvaluation(3 * time.Minute)
 
 	return tcm, nil
 }
 
+// Ticker-based periodic peer evaluation
+func (tcm *TopicAwareConnectionManager) startPeriodicEvaluation(interval time.Duration) {
+	tcm.evaluationTicker = time.NewTicker(interval)
+
+	go func() {
+		defer tcm.evaluationTicker.Stop()
+
+		for {
+			select {
+			case <-tcm.evaluationTicker.C:
+				tcm.lm.Log("debug", "Starting periodic peer evaluation", "p2p")
+				tcm.peersEvaluation()
+			case <-tcm.stopChan:
+				tcm.lm.Log("debug", "Stopping periodic peer evaluation", "p2p")
+				return
+			case <-tcm.ctx.Done():
+				tcm.lm.Log("debug", "Context cancelled, stopping peer evaluation", "p2p")
+				return
+			}
+		}
+	}()
+}
+
+// Stop periodic peer evaluation
+func (tcm *TopicAwareConnectionManager) StartPeriodicEvaluation() {
+	close(tcm.stopChan)
+}
+
 // Periodic evaluation of peers
-func (tcm *TopicAwareConnectionManager) PeersEvaluation() {
+func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 	tcm.UpdateTopicPeersList(tcm.targetTopics)
 	tcm.reevaluateAllPeers()
+	/* TODO, avoid GetConnectionStats re-evaluating peers
+	// use previously completed peers evaluation
+	connStats := tcm.GetConnectionStats()
+	msg := fmt.Sprintf("Connection stats:\nTotal connections: %d\nTopic peers connected: %d\nRouting peers connected: %d\nOther peers connected: %d\n",
+		connStats["total"], connStats["topic_peers"], connStats["routing_peers"], connStats["other_peers"])
+	tcm.lm.Log("debug", msg, "libp2p-events")
+	*/
 }
 
 // Refresh the list of peers subscribed to our topics
@@ -529,8 +567,7 @@ func (tcm *TopicAwareConnectionManager) GetRoutingPeers() map[peer.ID]float64 {
 }
 
 // Return statistics about current connections
-// func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
-func (tcm *TopicAwareConnectionManager) GetConnectionStats() {
+func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
 	tcm.mu.RLock()
 	defer tcm.mu.RUnlock()
 
@@ -557,5 +594,5 @@ func (tcm *TopicAwareConnectionManager) GetConnectionStats() {
 
 	tcm.lm.Log("info", fmt.Sprintf("peer connection stats %v\n", stats), "p2p")
 
-	// return stats
+	return stats
 }
