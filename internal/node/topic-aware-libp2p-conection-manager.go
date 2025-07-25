@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"sync"
@@ -50,6 +51,8 @@ type TopicAwareConnectionManager struct {
 	routingPeerRatio      float64 // % for routing peers
 	evaluationPeriod      time.Duration
 	routingScoreThreshold float64
+
+	evaluationSemaphore chan struct{}
 }
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
@@ -71,38 +74,23 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		routingPeerRatio:      0.3, // 30% for routing peers
 		evaluationPeriod:      time.Minute * 5,
 		routingScoreThreshold: 0.1,
+		evaluationSemaphore:   make(chan struct{}, 3),
 	}
 
 	// Start monitoring
-	tcm.startMonitoring()
+	//	tcm.startMonitoring()
 
 	return tcm, nil
 }
 
-// startMonitoring begins periodic evaluation of peers
-func (tcm *TopicAwareConnectionManager) startMonitoring() {
-	go func() {
-		tick := 0
-		ticker := time.NewTicker(time.Minute * 2)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				tcm.lm.Log("info", fmt.Sprintf("tick %d\n", tick), "p2p")
-				tick++
-				tcm.updateTopicPeersList()
-				tcm.reevaluateAllPeers()
-			case <-tcm.ctx.Done():
-				tcm.lm.Log("info", "Monitoring stopped", "p2p")
-				return
-			}
-		}
-	}()
+// Periodic evaluation of peers
+func (tcm *TopicAwareConnectionManager) PeersEvaluation() {
+	tcm.UpdateTopicPeersList(tcm.targetTopics)
+	tcm.reevaluateAllPeers()
 }
 
-// updateTopicPeersList refreshes the list of peers subscribed to our topics
-func (tcm *TopicAwareConnectionManager) updateTopicPeersList() {
+// Refresh the list of peers subscribed to our topics
+func (tcm *TopicAwareConnectionManager) UpdateTopicPeersList(targetTopics []string) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
 
@@ -110,7 +98,7 @@ func (tcm *TopicAwareConnectionManager) updateTopicPeersList() {
 	newTopicPeers := make(map[peer.ID]bool)
 
 	// Get current topic subscribers using pubsub.ListPeers directly
-	for _, topicName := range tcm.targetTopics {
+	for _, topicName := range targetTopics {
 		peers := tcm.pubsub.ListPeers(topicName)
 		for _, peerID := range peers {
 			newTopicPeers[peerID] = true
@@ -120,36 +108,46 @@ func (tcm *TopicAwareConnectionManager) updateTopicPeersList() {
 	tcm.topicPeers = newTopicPeers
 }
 
-// classifyPeer determines if a peer is topic-relevant or routing-useful
+// Determines if a peer is topic-relevant or routing-useful
 func (tcm *TopicAwareConnectionManager) classifyPeer(peerID peer.ID) (isTopicPeer bool, routingScore float64) {
 	tcm.mu.RLock()
-	defer tcm.mu.RUnlock()
 
 	// Check if peer is subscribed to our topics
 	if tcm.topicPeers[peerID] {
+		tcm.mu.RUnlock()
 		return true, 1.0 // Topic peers get max routing score too
 	}
 
-	// Calculate routing usefulness score
-	score := tcm.calculateRoutingScore(peerID)
+	// Check if we have a recent cached score
+	score, hasScore := tcm.routingPeers[peerID]
+	lastEval, hasEval := tcm.lastEvaluation[peerID]
+	needsEvaluation := !hasEval || time.Since(lastEval) > tcm.evaluationPeriod
+
+	tcm.mu.RUnlock()
+
+	if needsEvaluation {
+		// Evaluate in the background to avoid blocking
+		go func() {
+			select {
+			case tcm.evaluationSemaphore <- struct{}{}:
+				defer func() { <-tcm.evaluationSemaphore }()
+				tcm.evaluateRoutingUsefulness(peerID)
+			default:
+				// Semaphore full, skip evaluation for now
+			}
+		}()
+
+		// Return cached score or default
+		if hasScore {
+			return false, score
+		}
+		return false, 0.0
+	}
+
 	return false, score
 }
 
-// calculateRoutingScore computes how useful a peer is for routing
-func (tcm *TopicAwareConnectionManager) calculateRoutingScore(peerID peer.ID) float64 {
-	// Check if we need to re-evaluate this peer
-	if lastEval, exists := tcm.lastEvaluation[peerID]; !exists ||
-		time.Since(lastEval) > tcm.evaluationPeriod {
-		tcm.evaluateRoutingUsefulness(peerID)
-	}
-
-	if score, exists := tcm.routingPeers[peerID]; exists {
-		return score
-	}
-	return 0.0
-}
-
-// evaluateRoutingUsefulness calculates comprehensive routing score
+// Calculates comprehensive routing score
 func (tcm *TopicAwareConnectionManager) evaluateRoutingUsefulness(peerID peer.ID) {
 	defer func() {
 		tcm.lastEvaluation[peerID] = time.Now()
@@ -172,19 +170,24 @@ func (tcm *TopicAwareConnectionManager) evaluateRoutingUsefulness(peerID peer.ID
 	tcm.routingPeers[peerID] = math.Min(score, 1.0)
 }
 
-// scoreByTopicPeerConnections evaluates potential to reach topic peers
+// Evaluates potential to reach topic peers
 func (tcm *TopicAwareConnectionManager) scoreByTopicPeerConnections(peerID peer.ID) float64 {
+	// Get snapshot of topic peers without holding lock for long
+	tcm.mu.RLock()
+	topicPeersCopy := make(map[peer.ID]bool)
+	maps.Copy(topicPeersCopy, tcm.topicPeers)
+	tcm.mu.RUnlock()
+
 	potentialReach := 0
-	totalTopicPeers := len(tcm.topicPeers)
+	totalTopicPeers := len(topicPeersCopy)
 
 	if totalTopicPeers == 0 {
 		return 0.0
 	}
 
-	// Check if this peer might help us reach disconnected topic peers
-	for topicPeerID := range tcm.topicPeers {
+	// Check connectivity without holding locks
+	for topicPeerID := range topicPeersCopy {
 		if tcm.host.Network().Connectedness(topicPeerID) != network.Connected {
-			// Use heuristics to determine if this peer might be connected to topic peer
 			if tcm.isPeerLikelyConnectedTo(peerID, topicPeerID) {
 				potentialReach++
 			}
@@ -194,7 +197,7 @@ func (tcm *TopicAwareConnectionManager) scoreByTopicPeerConnections(peerID peer.
 	return float64(potentialReach) / float64(totalTopicPeers) * 0.4
 }
 
-// isPeerLikelyConnectedTo uses heuristics to estimate peer connectivity
+// Uses heuristics to estimate peer connectivity
 func (tcm *TopicAwareConnectionManager) isPeerLikelyConnectedTo(peerA, peerB peer.ID) bool {
 	// Heuristic 1: Check if peers are in similar network regions (using peer ID distance)
 	distanceScore := tcm.calculatePeerDistance(peerA, peerB)
@@ -213,7 +216,7 @@ func (tcm *TopicAwareConnectionManager) isPeerLikelyConnectedTo(peerA, peerB pee
 	return commonNeighbors > 2
 }
 
-// calculatePeerDistance computes XOR distance between peer IDs
+// Computes XOR distance between peer IDs
 func (tcm *TopicAwareConnectionManager) calculatePeerDistance(peerA, peerB peer.ID) float64 {
 	// Convert peer IDs to bytes and calculate XOR distance
 	bytesA := []byte(peerA)
@@ -233,7 +236,7 @@ func (tcm *TopicAwareConnectionManager) calculatePeerDistance(peerA, peerB peer.
 	return float64(xorSum) / float64(maxPossible)
 }
 
-// hasSeenPeerInDHTContext checks if peerA is useful for routing to peerB via DHT
+// Checks if peerA is useful for routing to peerB via DHT
 func (tcm *TopicAwareConnectionManager) hasSeenPeerInDHTContext(peerA, peerB peer.ID) bool {
 	if tcm.dht == nil {
 		return false
@@ -249,7 +252,7 @@ func (tcm *TopicAwareConnectionManager) hasSeenPeerInDHTContext(peerA, peerB pee
 	return distanceAtoB < distanceBToUs || distanceAToUs < distanceBToUs
 }
 
-// getCommonNeighbors estimates shared connections based on network topology
+// Estimates shared connections based on network topology
 func (tcm *TopicAwareConnectionManager) getCommonNeighbors(peerA, peerB peer.ID) int {
 	// Check if we're actually connected to both peers
 	connectedToA := tcm.host.Network().Connectedness(peerA) == network.Connected
@@ -275,7 +278,7 @@ func (tcm *TopicAwareConnectionManager) getCommonNeighbors(peerA, peerB peer.ID)
 	return 0 // Very distant peers unlikely to share neighbors
 }
 
-// scoreDHTPosition evaluates peer's position in DHT for topic-related queries
+// Evaluates peer's position in DHT for topic-related queries
 func (tcm *TopicAwareConnectionManager) scoreDHTPosition(peerID peer.ID) float64 {
 	if tcm.dht == nil {
 		return 0.0
@@ -285,7 +288,7 @@ func (tcm *TopicAwareConnectionManager) scoreDHTPosition(peerID peer.ID) float64
 
 	// Use DHT to find peers close to topic-related keys
 	for _, topic := range tcm.targetTopics {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+		ctx, cancel := context.WithTimeout(tcm.ctx, time.Second*2)
 
 		// Create a CID from the topic string
 		hash, err := mh.Sum([]byte(topic), mh.SHA2_256, -1)
@@ -311,7 +314,7 @@ func (tcm *TopicAwareConnectionManager) scoreDHTPosition(peerID peer.ID) float64
 	return math.Min(score, 0.3)
 }
 
-// scoreHistoricalSuccess evaluates peer based on past performance
+// Evaluates peer based on past performance
 func (tcm *TopicAwareConnectionManager) scoreHistoricalSuccess(peerID peer.ID) float64 {
 	stats, exists := tcm.peerStats[peerID]
 	if !exists || stats.DiscoveryAttempts == 0 {
@@ -327,7 +330,7 @@ func (tcm *TopicAwareConnectionManager) scoreHistoricalSuccess(peerID peer.ID) f
 	return successRate * recencyFactor * 0.3
 }
 
-// scoreConnectionQuality evaluates connection stability and quality
+// Evaluates connection stability and quality
 func (tcm *TopicAwareConnectionManager) scoreConnectionQuality(peerID peer.ID) float64 {
 	stats, exists := tcm.peerStats[peerID]
 	if !exists {
@@ -337,7 +340,7 @@ func (tcm *TopicAwareConnectionManager) scoreConnectionQuality(peerID peer.ID) f
 	return stats.ConnectionQuality * 0.2
 }
 
-// TrimOpenConns implements intelligent connection pruning
+// Connection pruning
 func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
@@ -375,7 +378,7 @@ func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 	// Prune other peers first
 	if len(otherPeers) > 0 && toPrune > 0 {
 		pruneCount := int(math.Min(float64(len(otherPeers)), float64(toPrune)))
-		for i := 0; i < pruneCount; i++ {
+		for i := range pruneCount {
 			otherPeers[i].Close()
 		}
 		toPrune -= pruneCount
@@ -394,13 +397,13 @@ func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 		excess := int(math.Min(float64(toPrune), float64(len(topicPeers)-maxTopicPeers)))
 		// For topic peers, just prune the excess without sophisticated scoring
 		// since they're all equally valuable as topic peers
-		for i := 0; i < excess; i++ {
+		for i := range excess {
 			topicPeers[i].Close()
 		}
 	}
 }
 
-// pruneRoutingPeers removes least useful routing peers
+// Remove least useful routing peers
 func (tcm *TopicAwareConnectionManager) pruneRoutingPeers(routingConns []network.Conn, toPrune int) {
 	// Sort by routing score (ascending - worst first)
 	sort.Slice(routingConns, func(i, j int) bool {
@@ -415,7 +418,7 @@ func (tcm *TopicAwareConnectionManager) pruneRoutingPeers(routingConns []network
 	}
 }
 
-// reevaluateAllPeers periodically re-evaluates all connected peers
+// Periodically re-evaluate all connected peers
 func (tcm *TopicAwareConnectionManager) reevaluateAllPeers() {
 	tcm.mu.Lock()
 	connectedPeers := make([]peer.ID, 0)
@@ -424,13 +427,21 @@ func (tcm *TopicAwareConnectionManager) reevaluateAllPeers() {
 	}
 	tcm.mu.Unlock()
 
-	// Evaluate peers in background
+	// Process peers with controlled concurrency
 	for _, peerID := range connectedPeers {
-		go tcm.evaluateRoutingUsefulness(peerID)
+		go func(id peer.ID) {
+			select {
+			case tcm.evaluationSemaphore <- struct{}{}:
+				defer func() { <-tcm.evaluationSemaphore }()
+				tcm.evaluateRoutingUsefulness(id)
+			default:
+				// Semaphore full, skip this peer for now
+			}
+		}(peerID)
 	}
 }
 
-// OnPeerConnected handles new peer connections
+// Handle new peer connections
 func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 	// Initialize peer stats
 	tcm.mu.Lock()
@@ -444,11 +455,20 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 	// Evaluate peer after allowing time for topic subscription
 	go func() {
 		time.Sleep(time.Second * 5)
-		tcm.evaluateRoutingUsefulness(peerID)
+
+		// Use semaphore with timeout to prevent blocking
+		select {
+		case tcm.evaluationSemaphore <- struct{}{}:
+			defer func() { <-tcm.evaluationSemaphore }()
+			tcm.evaluateRoutingUsefulness(peerID)
+		case <-time.After(time.Second * 10):
+			// Timeout - skip evaluation to prevent blocking
+			tcm.lm.Log("debug", "Peer evaluation timeout for "+peerID.String(), "p2p")
+		}
 	}()
 }
 
-// OnPeerDisconnected handles peer disconnections
+// Handle peer disconnections
 func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
@@ -459,7 +479,7 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	delete(tcm.lastEvaluation, peerID)
 }
 
-// UpdatePeerStats updates historical performance data
+// Update historical performance data
 func (tcm *TopicAwareConnectionManager) UpdatePeerStats(peerID peer.ID, discoverySuccess bool, connectionQuality float64) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
@@ -482,7 +502,7 @@ func (tcm *TopicAwareConnectionManager) UpdatePeerStats(peerID peer.ID, discover
 
 // Additional utility methods for debugging and monitoring
 
-// GetTopicPeers returns the current list of peers subscribed to our topics
+// Return the current list of peers subscribed to our topics
 func (tcm *TopicAwareConnectionManager) GetTopicPeers() []peer.ID {
 	tcm.mu.RLock()
 	defer tcm.mu.RUnlock()
@@ -494,7 +514,7 @@ func (tcm *TopicAwareConnectionManager) GetTopicPeers() []peer.ID {
 	return peers
 }
 
-// GetRoutingPeers returns the current list of useful routing peers
+// Return the current list of useful routing peers
 func (tcm *TopicAwareConnectionManager) GetRoutingPeers() map[peer.ID]float64 {
 	tcm.mu.RLock()
 	defer tcm.mu.RUnlock()
@@ -508,8 +528,9 @@ func (tcm *TopicAwareConnectionManager) GetRoutingPeers() map[peer.ID]float64 {
 	return result
 }
 
-// GetConnectionStats returns statistics about current connections
-func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
+// Return statistics about current connections
+// func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
+func (tcm *TopicAwareConnectionManager) GetConnectionStats() {
 	tcm.mu.RLock()
 	defer tcm.mu.RUnlock()
 
@@ -534,5 +555,7 @@ func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
 		}
 	}
 
-	return stats
+	tcm.lm.Log("info", fmt.Sprintf("peer connection stats %v\n", stats), "p2p")
+
+	// return stats
 }

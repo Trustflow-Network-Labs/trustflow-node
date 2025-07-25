@@ -9,6 +9,7 @@ type CronManager struct {
 	p2pm *P2PManager
 	cfgm *utils.ConfigManager
 	lm   *utils.LogsManager
+	tcm  *TopicAwareConnectionManager
 }
 
 func NewCronManager(p2pm *P2PManager) *CronManager {
@@ -16,6 +17,7 @@ func NewCronManager(p2pm *P2PManager) *CronManager {
 		p2pm: p2pm,
 		cfgm: utils.NewConfigManager(""),
 		lm:   p2pm.Lm,
+		tcm:  p2pm.tcm,
 	}
 }
 
@@ -34,6 +36,16 @@ func (cm *CronManager) JobQueue() (*cron.Cron, error) {
 		return nil, err
 	}
 	err = c.AddFunc(configs["connection_health_check"], cm.p2pm.MaintainConnections)
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "cron")
+		return nil, err
+	}
+	err = c.AddFunc(configs["connection_stats"], cm.tcm.GetConnectionStats)
+	if err != nil {
+		cm.lm.Log("error", err.Error(), "cron")
+		return nil, err
+	}
+	err = c.AddFunc(configs["peer_evaluation"], cm.tcm.PeersEvaluation)
 	if err != nil {
 		cm.lm.Log("error", err.Error(), "cron")
 		return nil, err

@@ -63,6 +63,7 @@ type P2PManager struct {
 	idht               *dht.IpfsDHT
 	h                  host.Host
 	ctx                context.Context
+	tcm                *TopicAwareConnectionManager
 	DB                 *sql.DB
 	crons              []*cron.Cron
 	Lm                 *utils.LogsManager
@@ -117,6 +118,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		ps:                 nil,
 		h:                  nil,
 		ctx:                nil,
+		tcm:                nil,
 		DB:                 db,
 		crons:              []*cron.Cron{},
 		Lm:                 lm,
@@ -330,38 +332,24 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
+	p2pm.tcm = tcm
 
-	// TODO, display stats and connected nodes (per user request?)
 	go func() {
-		ticker := time.NewTicker(time.Minute * 1)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				stats := tcm.GetConnectionStats()
-				p2pm.Lm.Log("info", fmt.Sprintf("peers stats:\n%v\n", stats), "p2p")
-			case <-p2pm.ctx.Done():
-				p2pm.Lm.Log("info", "Displaying stats stopped", "p2p")
-				return
+		p2pm.subscriptions = p2pm.subscriptions[:0]
+		for _, completeTopicName := range p2pm.completeTopicNames {
+			sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, p2pm.ps, completeTopicName)
+			if err != nil {
+				p2pm.Lm.Log("panic", err.Error(), "p2p")
+				panic(fmt.Sprintf("%v", err))
 			}
+			p2pm.subscriptions = append(p2pm.subscriptions, sub)
+
+			notifyManager := NewTopicAwareNotifiee(p2pm.ps, topic, completeTopicName, bootstrapPeers, tcm, p2pm.Lm)
+
+			// Attach the notifiee to the host's network
+			p2pm.h.Network().Notify(notifyManager)
 		}
 	}()
-
-	p2pm.subscriptions = p2pm.subscriptions[:0]
-	for _, completeTopicName := range p2pm.completeTopicNames {
-		sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, p2pm.ps, completeTopicName)
-		if err != nil {
-			p2pm.Lm.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
-		}
-		p2pm.subscriptions = append(p2pm.subscriptions, sub)
-
-		notifyManager := NewTopicAwareNotifiee(p2pm.ps, topic, completeTopicName, bootstrapPeers, tcm, p2pm.Lm)
-
-		// Attach the notifiee to the host's network
-		p2pm.h.Network().Notify(notifyManager)
-	}
 
 	// Start toppics aware peer discovery
 	go p2pm.DiscoverPeers()
@@ -614,9 +602,7 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 		return nil, errors.New(err.Error())
 	}
 
-	go func() {
-		p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
-	}()
+	go p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second)
 
 	return kademliaDHT, nil
 }
@@ -648,7 +634,7 @@ func (p2pm *P2PManager) DiscoverPeers() {
 	}
 
 	// Connect to peers asynchronously
-	p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+	go p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
 }
 
 // Monitor connection health and reconnect (cron)
@@ -728,14 +714,6 @@ func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) error {
 	return nil
 }
 
-func (p2pm *P2PManager) PurgeNode(p peer.AddrInfo) {
-	p2pm.h.Network().ClosePeer(p.ID)
-	p2pm.h.Network().Peerstore().RemovePeer(p.ID)
-	p2pm.h.Peerstore().ClearAddrs(p.ID)
-	p2pm.h.Peerstore().RemovePeer(p.ID)
-	p2pm.Lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
-}
-
 func (p2pm *P2PManager) ConnectNodeWithRetry(ctx context.Context, peer peer.AddrInfo, maxRetries int, baseDelay time.Duration) error {
 	for attempt := range maxRetries {
 		select {
@@ -803,6 +781,14 @@ func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int,
 
 	wg.Wait()
 	return connectedPeers
+}
+
+func (p2pm *P2PManager) PurgeNode(p peer.AddrInfo) {
+	p2pm.h.Network().ClosePeer(p.ID)
+	p2pm.h.Network().Peerstore().RemovePeer(p.ID)
+	p2pm.h.Peerstore().ClearAddrs(p.ID)
+	p2pm.h.Peerstore().RemovePeer(p.ID)
+	p2pm.Lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
 }
 
 func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, job *node_types.Job, existingStream network.Stream) error {
