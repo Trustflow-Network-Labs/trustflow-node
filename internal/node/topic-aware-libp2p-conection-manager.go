@@ -118,13 +118,11 @@ func (tcm *TopicAwareConnectionManager) StartPeriodicEvaluation() {
 func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 	tcm.UpdateTopicPeersList(tcm.targetTopics)
 	tcm.reevaluateAllPeers()
-	/* TODO, avoid GetConnectionStats re-evaluating peers
-	// use previously completed peers evaluation
+	// Use previously completed peers evaluation
 	connStats := tcm.GetConnectionStats()
 	msg := fmt.Sprintf("Connection stats:\nTotal connections: %d\nTopic peers connected: %d\nRouting peers connected: %d\nOther peers connected: %d\n",
 		connStats["total"], connStats["topic_peers"], connStats["routing_peers"], connStats["other_peers"])
 	tcm.lm.Log("debug", msg, "libp2p-events")
-	*/
 }
 
 // Refresh the list of peers subscribed to our topics
@@ -575,24 +573,24 @@ func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
 	allConns := tcm.host.Network().Conns()
 
 	stats["total"] = len(allConns)
-	stats["topic_peers"] = 0
-	stats["routing_peers"] = 0
-	stats["other_peers"] = 0
 
-	for _, conn := range allConns {
-		peerID := conn.RemotePeer()
-		isTopicPeer, routingScore := tcm.classifyPeer(peerID)
-
-		if isTopicPeer {
-			stats["topic_peers"]++
-		} else if routingScore > tcm.routingScoreThreshold {
-			stats["routing_peers"]++
-		} else {
-			stats["other_peers"]++
+	connectedTopicPeers := 0
+	for peerID := range tcm.topicPeers {
+		if tcm.host.Network().Connectedness(peerID) == network.Connected {
+			connectedTopicPeers++
 		}
 	}
+	stats["topic_peers"] = connectedTopicPeers
 
-	tcm.lm.Log("info", fmt.Sprintf("peer connection stats %v\n", stats), "p2p")
+	connectedRoutingPeers := 0
+	for peerID := range tcm.routingPeers {
+		if tcm.host.Network().Connectedness(peerID) == network.Connected {
+			connectedRoutingPeers++
+		}
+	}
+	stats["routing_peers"] = connectedRoutingPeers
+
+	stats["other_peers"] = stats["total"] - (stats["topic_peers"] + stats["routing_peers"])
 
 	return stats
 }
