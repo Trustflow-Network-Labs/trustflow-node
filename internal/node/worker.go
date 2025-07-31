@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Worker represents a managed goroutine
@@ -21,13 +22,69 @@ type WorkerManager struct {
 	workers map[int64]*Worker
 	mu      sync.RWMutex
 	p2pm    *P2PManager
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
-	return &WorkerManager{
+	ctx, cancel := context.WithCancel(p2pManager.ctx)
+
+	wm := &WorkerManager{
 		workers: make(map[int64]*Worker),
 		p2pm:    p2pManager,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
+
+	// Start cleanup routine
+	go wm.periodicCleanup()
+
+	return wm
+}
+
+// Periodic cleanup for finished workers
+func (wm *WorkerManager) periodicCleanup() {
+	ticker := time.NewTicker(time.Minute * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			wm.cleanupFinishedWorkers()
+		case <-wm.ctx.Done():
+			return
+		}
+	}
+}
+
+// Cleanup finished workers to prevent map growth
+func (wm *WorkerManager) cleanupFinishedWorkers() {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+
+	for id, worker := range wm.workers {
+		if !worker.IsRunning() {
+			delete(wm.workers, id)
+			wm.p2pm.Lm.Log("debug", fmt.Sprintf("Cleaned up finished worker %d", id), "worker")
+		}
+	}
+}
+
+// Shutdown
+func (wm *WorkerManager) Shutdown() {
+	wm.mu.Lock()
+	workers := make([]*Worker, 0, len(wm.workers))
+	for _, worker := range wm.workers {
+		workers = append(workers, worker)
+	}
+	wm.mu.Unlock()
+
+	// Stop all workers
+	for _, worker := range workers {
+		worker.Stop()
+	}
+
+	wm.cancel() // Cancel cleanup routine
 }
 
 // StartWorker creates and starts a new worker

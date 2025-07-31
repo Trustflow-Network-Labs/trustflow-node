@@ -1,6 +1,7 @@
 package node
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"maps"
@@ -18,6 +19,78 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	mh "github.com/multiformats/go-multihash"
 )
+
+// LRUCache implements a simple LRU cache for peer statistics
+type LRUCache struct {
+	capacity int
+	items    map[peer.ID]*list.Element
+	order    *list.List
+	mu       sync.RWMutex
+}
+
+type cacheItem struct {
+	key   peer.ID
+	value *PeerStats
+}
+
+func NewLRUCache(capacity int) *LRUCache {
+	return &LRUCache{
+		capacity: capacity,
+		items:    make(map[peer.ID]*list.Element),
+		order:    list.New(),
+	}
+}
+
+func (c *LRUCache) Get(key peer.ID) (*PeerStats, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, exists := c.items[key]; exists {
+		c.order.MoveToFront(elem)
+		return elem.Value.(*cacheItem).value, true
+	}
+	return nil, false
+}
+
+func (c *LRUCache) Set(key peer.ID, value *PeerStats) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, exists := c.items[key]; exists {
+		c.order.MoveToFront(elem)
+		elem.Value.(*cacheItem).value = value
+		return
+	}
+
+	// Add new item
+	if c.order.Len() >= c.capacity {
+		// Remove least recently used
+		back := c.order.Back()
+		if back != nil {
+			c.order.Remove(back)
+			delete(c.items, back.Value.(*cacheItem).key)
+		}
+	}
+
+	elem := c.order.PushFront(&cacheItem{key: key, value: value})
+	c.items[key] = elem
+}
+
+func (c *LRUCache) Remove(key peer.ID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, exists := c.items[key]; exists {
+		c.order.Remove(elem)
+		delete(c.items, key)
+	}
+}
+
+func (c *LRUCache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.items)
+}
 
 // PeerStats tracks historical data about a peer's usefulness
 type PeerStats struct {
@@ -38,27 +111,32 @@ type TopicAwareConnectionManager struct {
 	lm           *utils.LogsManager
 
 	// Connection priorities
-	topicPeers     map[peer.ID]bool       // Peers subscribed to our topics
-	routingPeers   map[peer.ID]float64    // Peers useful for routing (with score)
-	lastEvaluation map[peer.ID]time.Time  // Last time we evaluated peer usefulness
-	peerStats      map[peer.ID]*PeerStats // Historical statistics
+	topicPeers     map[peer.ID]bool      // Peers subscribed to our topics
+	routingPeers   map[peer.ID]float64   // Peers useful for routing (with score)
+	lastEvaluation map[peer.ID]time.Time // Last time we evaluated peer usefulness
+	peerStatsCache *LRUCache             // Historical statistics
 
 	mu sync.RWMutex
 
 	// Configuration
 	maxConnections        int
+	maxPeerTracking       int     // Limit tracked peers
 	topicPeerRatio        float64 // % of connections reserved for topic peers
 	routingPeerRatio      float64 // % for routing peers
 	evaluationPeriod      time.Duration
 	routingScoreThreshold float64
+	cleanupInterval       time.Duration // Regular cleanup
 
 	evaluationSemaphore chan struct{}
-	evaluationTicker    *time.Ticker
+	evaluationTicker    *time.Ticker // Evaluation ticker
+	cleanupTicker       *time.Ticker // Cleanup ticker
 	stopChan            chan struct{}
 }
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
+
+	maxPeerTracking := maxConnections * 3 // Track 3x max connections
 
 	tcm := &TopicAwareConnectionManager{
 		ctx:                   p2pm.ctx,
@@ -70,18 +148,21 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		topicPeers:            make(map[peer.ID]bool),
 		routingPeers:          make(map[peer.ID]float64),
 		lastEvaluation:        make(map[peer.ID]time.Time),
-		peerStats:             make(map[peer.ID]*PeerStats),
+		peerStatsCache:        NewLRUCache(maxPeerTracking),
 		maxConnections:        maxConnections,
+		maxPeerTracking:       maxPeerTracking,
 		topicPeerRatio:        0.6, // 60% for topic peers
 		routingPeerRatio:      0.3, // 30% for routing peers
 		evaluationPeriod:      time.Minute * 5,
+		cleanupInterval:       time.Minute * 10,
 		routingScoreThreshold: 0.1,
 		evaluationSemaphore:   make(chan struct{}, 3),
 		stopChan:              make(chan struct{}),
 	}
 
-	// Start periodic evaluation
+	// Start periodic evaluation and cleanup
 	tcm.startPeriodicEvaluation(3 * time.Minute)
+	tcm.startPeriodicCleanup()
 
 	return tcm, nil
 }
@@ -110,8 +191,89 @@ func (tcm *TopicAwareConnectionManager) startPeriodicEvaluation(interval time.Du
 }
 
 // Stop periodic peer evaluation
-func (tcm *TopicAwareConnectionManager) StartPeriodicEvaluation() {
+func (tcm *TopicAwareConnectionManager) StopPeriodicEvaluation() {
 	close(tcm.stopChan)
+}
+
+// Periodic cleanup to prevent unbounded growth
+func (tcm *TopicAwareConnectionManager) startPeriodicCleanup() {
+	tcm.cleanupTicker = time.NewTicker(tcm.cleanupInterval)
+
+	go func() {
+		defer tcm.cleanupTicker.Stop()
+
+		for {
+			select {
+			case <-tcm.cleanupTicker.C:
+				tcm.cleanupStaleData()
+			case <-tcm.stopChan:
+				return
+			case <-tcm.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// Cleanup stale peer data
+func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
+	tcm.mu.Lock()
+	defer tcm.mu.Unlock()
+
+	now := time.Now()
+	staleThreshold := time.Hour * 2 // Remove data older than 2 hours
+
+	// Clean up topicPeers
+	if len(tcm.topicPeers) > tcm.maxPeerTracking {
+		// Keep only connected peers if over limit
+		newTopicPeers := make(map[peer.ID]bool)
+		for peerID := range tcm.topicPeers {
+			if tcm.host.Network().Connectedness(peerID) == network.Connected {
+				newTopicPeers[peerID] = true
+			}
+		}
+		tcm.topicPeers = newTopicPeers
+	}
+
+	// Clean up routingPeers
+	if len(tcm.routingPeers) > tcm.maxPeerTracking {
+		// Keep only recent and connected peers
+		newRoutingPeers := make(map[peer.ID]float64)
+		for peerID, score := range tcm.routingPeers {
+			if tcm.host.Network().Connectedness(peerID) == network.Connected ||
+				(now.Sub(tcm.lastEvaluation[peerID]) < staleThreshold) {
+				newRoutingPeers[peerID] = score
+			}
+		}
+		tcm.routingPeers = newRoutingPeers
+	}
+
+	// Clean up lastEvaluation
+	stalePeers := make([]peer.ID, 0)
+	for peerID, lastEval := range tcm.lastEvaluation {
+		if now.Sub(lastEval) > staleThreshold {
+			delete(tcm.lastEvaluation, peerID)
+			stalePeers = append(stalePeers, peerID)
+		}
+	}
+
+	// Also cleanup stale entries from LRU cache
+	// Do this outside the main lock to avoid holding it too long
+	tcm.mu.Unlock()
+
+	// Clean up stale entries from stats cache
+	for _, peerID := range stalePeers {
+		// Only remove if peer is disconnected and stale
+		if tcm.host.Network().Connectedness(peerID) != network.Connected {
+			tcm.peerStatsCache.Remove(peerID)
+		}
+	}
+
+	tcm.mu.Lock() // Re-acquire for the defer unlock
+
+	tcm.lm.Log("debug", fmt.Sprintf(
+		"Cleanup completed. Tracking %d topic peers, %d routing peers, %d stats entries",
+		len(tcm.topicPeers), len(tcm.routingPeers), tcm.peerStatsCache.Len()), "p2p")
 }
 
 // Periodic evaluation of peers
@@ -130,18 +292,49 @@ func (tcm *TopicAwareConnectionManager) UpdateTopicPeersList(targetTopics []stri
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
 
-	// Clear current topic peers
-	newTopicPeers := make(map[peer.ID]bool)
+	// Update selectively to prevent churn
+	currentTopicPeers := make(map[peer.ID]bool)
 
 	// Get current topic subscribers using pubsub.ListPeers directly
 	for _, topicName := range targetTopics {
 		peers := tcm.pubsub.ListPeers(topicName)
 		for _, peerID := range peers {
-			newTopicPeers[peerID] = true
+			currentTopicPeers[peerID] = true
 		}
 	}
 
-	tcm.topicPeers = newTopicPeers
+	// Bounded update - only keep up to maxPeerTracking peers
+	if len(currentTopicPeers) > tcm.maxPeerTracking {
+		// If we have too many topic peers, prioritize currently connected ones
+		boundedTopicPeers := make(map[peer.ID]bool)
+		connectedCount := 0
+
+		// First pass: add connected peers
+		for peerID := range currentTopicPeers {
+			if connectedCount >= tcm.maxPeerTracking {
+				break
+			}
+			if tcm.host.Network().Connectedness(peerID) == network.Connected {
+				boundedTopicPeers[peerID] = true
+				connectedCount++
+			}
+		}
+
+		// Second pass: fill remaining slots with any peers
+		for peerID := range currentTopicPeers {
+			if len(boundedTopicPeers) >= tcm.maxPeerTracking {
+				break
+			}
+			if _, exists := boundedTopicPeers[peerID]; !exists {
+				boundedTopicPeers[peerID] = true
+			}
+		}
+
+		tcm.topicPeers = boundedTopicPeers
+		tcm.lm.Log("debug", fmt.Sprintf("Topic peers list bounded to %d entries", len(boundedTopicPeers)), "p2p")
+	} else {
+		tcm.topicPeers = currentTopicPeers
+	}
 }
 
 // Determines if a peer is topic-relevant or routing-useful
@@ -185,25 +378,67 @@ func (tcm *TopicAwareConnectionManager) classifyPeer(peerID peer.ID) (isTopicPee
 
 // Calculates comprehensive routing score
 func (tcm *TopicAwareConnectionManager) evaluateRoutingUsefulness(peerID peer.ID) {
+	// FIXED: Add context checking and timeout
+	ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*1)
+	defer cancel()
+
+	// Check if we should still evaluate this peer
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	defer func() {
+		tcm.mu.Lock()
 		tcm.lastEvaluation[peerID] = time.Now()
+		tcm.mu.Unlock()
 	}()
 
 	score := 0.0
 
 	// Method 1: Check peer's potential connections to topic-subscribed peers
-	score += tcm.scoreByTopicPeerConnections(peerID)
+	// Add context checking between expensive operations
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		score += tcm.scoreByTopicPeerConnections(peerID)
+	}
 
 	// Method 2: DHT routing table position
-	score += tcm.scoreDHTPosition(peerID)
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		score += tcm.scoreDHTPosition(peerID)
+	}
 
 	// Method 3: Historical success in reaching topic peers
-	score += tcm.scoreHistoricalSuccess(peerID)
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		score += tcm.scoreHistoricalSuccess(peerID)
+	}
 
 	// Method 4: Connection quality and stability
-	score += tcm.scoreConnectionQuality(peerID)
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		score += tcm.scoreConnectionQuality(peerID)
+	}
 
-	tcm.routingPeers[peerID] = math.Min(score, 1.0)
+	// Bound the final score and update with bounds checking
+	finalScore := math.Min(score, 1.0)
+
+	tcm.mu.Lock()
+	// Only update if we haven't exceeded our tracking limits
+	if len(tcm.routingPeers) < tcm.maxPeerTracking || tcm.routingPeers[peerID] != 0 {
+		tcm.routingPeers[peerID] = finalScore
+	}
+	tcm.mu.Unlock()
 }
 
 // Evaluates potential to reach topic peers
@@ -352,7 +587,7 @@ func (tcm *TopicAwareConnectionManager) scoreDHTPosition(peerID peer.ID) float64
 
 // Evaluates peer based on past performance
 func (tcm *TopicAwareConnectionManager) scoreHistoricalSuccess(peerID peer.ID) float64 {
-	stats, exists := tcm.peerStats[peerID]
+	stats, exists := tcm.peerStatsCache.Get(peerID)
 	if !exists || stats.DiscoveryAttempts == 0 {
 		return 0.1 // Default neutral score for new peers
 	}
@@ -368,7 +603,7 @@ func (tcm *TopicAwareConnectionManager) scoreHistoricalSuccess(peerID peer.ID) f
 
 // Evaluates connection stability and quality
 func (tcm *TopicAwareConnectionManager) scoreConnectionQuality(peerID peer.ID) float64 {
-	stats, exists := tcm.peerStats[peerID]
+	stats, exists := tcm.peerStatsCache.Get(peerID)
 	if !exists {
 		return 0.1 // Default for new peers
 	}
@@ -480,26 +715,64 @@ func (tcm *TopicAwareConnectionManager) reevaluateAllPeers() {
 // Handle new peer connections
 func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 	// Initialize peer stats
-	tcm.mu.Lock()
-	if _, exists := tcm.peerStats[peerID]; !exists {
-		tcm.peerStats[peerID] = &PeerStats{
+	if _, exists := tcm.peerStatsCache.Get(peerID); !exists {
+		stats := &PeerStats{
 			ConnectionQuality: 0.5, // Start with neutral quality
+		}
+		tcm.peerStatsCache.Set(peerID, stats)
+	}
+
+	// Add to active tracking with bounds checking
+	tcm.mu.Lock()
+	// Check if we need to prevent unbounded growth
+	if len(tcm.topicPeers) < tcm.maxPeerTracking {
+		// We have room, initialize if needed
+		if _, exists := tcm.topicPeers[peerID]; !exists {
+			tcm.topicPeers[peerID] = false // Will be updated by topic discovery
+		}
+	}
+
+	if len(tcm.routingPeers) < tcm.maxPeerTracking {
+		// Initialize with default routing score
+		if _, exists := tcm.routingPeers[peerID]; !exists {
+			tcm.routingPeers[peerID] = 0.0 // Will be updated by evaluation
 		}
 	}
 	tcm.mu.Unlock()
 
 	// Evaluate peer after allowing time for topic subscription
+	// Add timeout and context cancellation to prevent goroutine leaks
 	go func() {
-		time.Sleep(time.Second * 5)
+		// Create a bounded context for this evaluation
+		ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
+		defer cancel()
+
+		// Wait for peer to potentially subscribe to topics
+		select {
+		case <-time.After(time.Second * 5):
+			// Continue with evaluation
+		case <-ctx.Done():
+			return // Context cancelled, abort evaluation
+		}
 
 		// Use semaphore with timeout to prevent blocking
 		select {
 		case tcm.evaluationSemaphore <- struct{}{}:
 			defer func() { <-tcm.evaluationSemaphore }()
-			tcm.evaluateRoutingUsefulness(peerID)
+
+			// Check context before expensive evaluation
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				tcm.evaluateRoutingUsefulness(peerID)
+			}
+
 		case <-time.After(time.Second * 10):
 			// Timeout - skip evaluation to prevent blocking
 			tcm.lm.Log("debug", "Peer evaluation timeout for "+peerID.String(), "p2p")
+		case <-ctx.Done():
+			return
 		}
 	}()
 }
@@ -509,21 +782,39 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
 
-	// Remove from active tracking but keep historical stats
+	// Remove from active tracking
 	delete(tcm.topicPeers, peerID)
 	delete(tcm.routingPeers, peerID)
 	delete(tcm.lastEvaluation, peerID)
+
+	// Enhanced stats cache cleanup strategy
+	// Don't immediately remove stats - keep them for potential reconnection
+	// But mark them for cleanup if peer doesn't reconnect within reasonable time
+	go func() {
+		// Wait 5 minutes for potential reconnection
+		reconnectWaitTime := time.Minute * 5
+
+		select {
+		case <-time.After(reconnectWaitTime):
+			// Check if peer reconnected
+			if tcm.host.Network().Connectedness(peerID) != network.Connected {
+				// Peer didn't reconnect, safe to remove stats
+				tcm.peerStatsCache.Remove(peerID)
+				tcm.lm.Log("debug", fmt.Sprintf("Removed stats for disconnected peer %s", peerID.String()), "p2p")
+			}
+		case <-tcm.ctx.Done():
+			// Context cancelled, cleanup anyway
+			tcm.peerStatsCache.Remove(peerID)
+			return
+		}
+	}()
 }
 
 // Update historical performance data
 func (tcm *TopicAwareConnectionManager) UpdatePeerStats(peerID peer.ID, discoverySuccess bool, connectionQuality float64) {
-	tcm.mu.Lock()
-	defer tcm.mu.Unlock()
-
-	stats, exists := tcm.peerStats[peerID]
+	stats, exists := tcm.peerStatsCache.Get(peerID)
 	if !exists {
 		stats = &PeerStats{}
-		tcm.peerStats[peerID] = stats
 	}
 
 	stats.DiscoveryAttempts++
@@ -534,6 +825,8 @@ func (tcm *TopicAwareConnectionManager) UpdatePeerStats(peerID peer.ID, discover
 		stats.SuccessfulDiscoveries++
 		stats.LastSuccessfulDiscovery = time.Now()
 	}
+
+	tcm.peerStatsCache.Set(peerID, stats)
 }
 
 // Additional utility methods for debugging and monitoring
@@ -593,4 +886,26 @@ func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
 	stats["other_peers"] = stats["total"] - (stats["topic_peers"] + stats["routing_peers"])
 
 	return stats
+}
+
+func (tcm *TopicAwareConnectionManager) Shutdown() {
+	// Signal shutdown
+	close(tcm.stopChan)
+
+	// Stop tickers
+	if tcm.evaluationTicker != nil {
+		tcm.evaluationTicker.Stop()
+	}
+	if tcm.cleanupTicker != nil {
+		tcm.cleanupTicker.Stop()
+	}
+
+	// Clear all tracking data
+	tcm.mu.Lock()
+	tcm.topicPeers = make(map[peer.ID]bool)
+	tcm.routingPeers = make(map[peer.ID]float64)
+	tcm.lastEvaluation = make(map[peer.ID]time.Time)
+	tcm.mu.Unlock()
+
+	// Note: LRU cache will be garbage collected when tcm is destroyed
 }

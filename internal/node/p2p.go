@@ -791,40 +791,23 @@ func (p2pm *P2PManager) PurgeNode(p peer.AddrInfo) {
 	p2pm.Lm.Log("debug", fmt.Sprintf("Removed peer %s from a peer store", p.ID), "p2p")
 }
 
-func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, job *node_types.Job, existingStream network.Stream) error {
-	err := p2pm.ConnectNodeWithRetry(p2pm.ctx, receivingPeer, 3, 2*time.Second)
-	if err != nil {
-		p2pm.Lm.Log("error", err.Error(), "p2p")
-		return err
-	}
-
+func StreamData[T any](
+	p2pm *P2PManager,
+	receivingPeer peer.AddrInfo,
+	data T,
+	job *node_types.Job,
+	existingStream network.Stream,
+) error {
+	var workflowId int64 = int64(0)
+	var jobId int64 = int64(0)
+	var orderingPeer255 [255]byte
+	var interfaceId int64 = int64(0)
 	var s network.Stream
+	var ctx context.Context
+	var cancel context.CancelFunc
+	var deadline time.Time
 
-	if existingStream != nil {
-		// Try writing a ping to see if stream is alive
-		existingStream.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-		_, err := existingStream.Write([]byte{})
-		existingStream.SetWriteDeadline(time.Time{}) // reset deadline
-
-		if err == nil {
-			// Stream is alive, reuse it
-			s = existingStream
-			p2pm.Lm.Log("debug", fmt.Sprintf("Reusing existing stream with %s", receivingPeer.ID), "p2p")
-		} else {
-			// Stream is broken, discard and create a new one
-			p2pm.Lm.Log("debug", fmt.Sprintf("Existing stream with %s is not usable: %v", receivingPeer.ID, err), "p2p")
-		}
-	}
-
-	if s == nil {
-		s, err = p2pm.h.NewStream(p2pm.ctx, receivingPeer.ID, p2pm.protocolID)
-		if err != nil {
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-			return err
-		}
-	}
-
-	t := uint16(0)
+	var t uint16 = uint16(0)
 	switch v := any(data).(type) {
 	case *[]node_types.ServiceOffer:
 		t = 0
@@ -853,16 +836,70 @@ func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, jo
 	case *node_types.ServiceResponseCancellation:
 		t = 12
 	default:
-		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
-		p2pm.Lm.Log("error", msg, "p2p")
-		s.Reset()
-		return errors.New(msg)
+		err := fmt.Errorf("data type %v is not allowed in this context (streaming data)", v)
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		if existingStream != nil {
+			existingStream.Reset()
+		}
+		return err
 	}
 
-	var workflowId int64 = int64(0)
-	var jobId int64 = int64(0)
-	var orderingPeer255 [255]byte
-	var interfaceId int64 = int64(0)
+	// Timeout context
+	//	if t == 2 || t == 3 {
+	if t == 3 {
+		ctx, cancel = context.WithTimeout(p2pm.ctx, 5*time.Hour) // Allow loner periods, TODO put in config
+	} else {
+		ctx, cancel = context.WithTimeout(p2pm.ctx, 1*time.Minute)
+	}
+	defer cancel()
+
+	err := p2pm.ConnectNodeWithRetry(ctx, receivingPeer, 3, 2*time.Second)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+
+	if existingStream != nil {
+		existingStream.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		_, err := existingStream.Write([]byte{})
+		existingStream.SetDeadline(time.Time{}) // reset deadline
+
+		if err == nil {
+			// Stream is alive, reuse it
+			s = existingStream
+			p2pm.Lm.Log("debug", fmt.Sprintf("Reusing existing stream with %s", receivingPeer.ID), "p2p")
+		} else {
+			// Stream is broken, discard and create a new one
+			existingStream.Reset()
+			p2pm.Lm.Log("debug", fmt.Sprintf("Existing stream with %s is not usable: %v", receivingPeer.ID, err), "p2p")
+		}
+	}
+
+	// Create new stream
+	if s == nil {
+		s, err = p2pm.h.NewStream(ctx, receivingPeer.ID, p2pm.protocolID)
+		if err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			return err
+		}
+	}
+	// Ensure stream is always cleaned up
+	defer func() {
+		if s != nil {
+			s.Close()
+		}
+	}()
+
+	// Set timeouts for all stream operations
+	//	if t == 2 || t == 3 {
+	if t == 3 {
+		deadline = time.Now().Add(5 * time.Hour) // TODO, put in configs
+		s.SetDeadline(deadline)
+	} else {
+		deadline = time.Now().Add(1 * time.Minute)
+		s.SetDeadline(deadline)
+	}
+	defer s.SetDeadline(time.Time{}) // Clear deadline
 
 	if job != nil {
 		var orderingPeer []byte = []byte(job.OrderingNodeId)
@@ -878,13 +915,45 @@ func StreamData[T any](p2pm *P2PManager, receivingPeer peer.AddrInfo, data T, jo
 	var sendingPeer255 [255]byte
 	copy(sendingPeer255[:], sendingPeer)
 
-	go p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId, interfaceId)
-	go sendStream(p2pm, s, data)
+	// Use channels for proper goroutine coordination
+	proposalDone := make(chan error, 1)
+	streamDone := make(chan error, 1)
 
-	return nil
+	go func() {
+		proposalDone <- p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId, interfaceId)
+	}()
+
+	go func() {
+		streamDone <- sendStream(p2pm, s, data)
+	}()
+
+	// Wait for both operations with timeout
+	select {
+	case err := <-proposalDone:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case err := <-streamDone:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, onode [255]byte, wid int64, jid int64, iid int64) {
+func (p2pm *P2PManager) streamProposal(
+	s network.Stream,
+	p [255]byte,
+	t uint16,
+	onode [255]byte,
+	wid int64,
+	jid int64,
+	iid int64,
+) error {
 	// Create an instance of StreamData to write
 	streamData := node_types.StreamData{
 		Type:           t,
@@ -899,9 +968,12 @@ func (p2pm *P2PManager) streamProposal(s network.Stream, p [255]byte, t uint16, 
 	if err := binary.Write(s, binary.BigEndian, streamData); err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		s.Reset()
+		return err
 	}
 	message := fmt.Sprintf("Stream proposal type %d has been sent in stream %s", streamData.Type, s.ID())
 	p2pm.Lm.Log("debug", message, "p2p")
+
+	return nil
 }
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
@@ -999,15 +1071,26 @@ func (p2pm *P2PManager) streamAccepted(s network.Stream) {
 	p2pm.Lm.Log("debug", message, "p2p")
 }
 
-func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
+func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
+	// Ensure stream is properly closed on all exit paths
+	defer func() {
+		if r := recover(); r != nil {
+			p2pm.Lm.Log("error", fmt.Sprintf("Stream panic recovered: %v", r), "p2p")
+			s.Reset()
+		}
+	}()
+
 	var ready [7]byte
 	var expected [7]byte = [7]byte{'T', 'F', 'R', 'E', 'A', 'D', 'Y'}
 
+	// Timeout for reading ready signal
+	s.SetReadDeadline(time.Now().Add(30 * time.Second))
 	err := binary.Read(s, binary.BigEndian, &ready)
+	s.SetReadDeadline(time.Time{}) // Clear deadline
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		s.Reset()
-		return
+		return err
 	}
 
 	// Check if received data matches TFREADY signal
@@ -1015,7 +1098,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 		err := errors.New("did not get expected TFREADY signal")
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		s.Reset()
-		return
+		return err
 	}
 
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
@@ -1030,7 +1113,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 	if err != nil {
 		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
 		p2pm.Lm.Log("error", message, "p2p")
-		return
+		return err
 	}
 
 	// Read chunk size form configs
@@ -1051,27 +1134,33 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			s.Reset()
-			return
+			return err
 		}
 
 		err = p2pm.sendStreamChunks(b, pointer, chunkSize, s)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			s.Reset()
-			return
+			return err
 		}
 	case *[]byte:
 		err = p2pm.sendStreamChunks(*v, pointer, chunkSize, s)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			s.Reset()
-			return
+			return err
 		}
 	case *os.File:
-		defer v.Close() // Ensure the file is closed after operations
-		buffer := make([]byte, chunkSize)
+		// Ensure file is always closed
+		defer func() {
+			if closeErr := v.Close(); closeErr != nil {
+				p2pm.Lm.Log("error", fmt.Sprintf("Failed to close file: %v", closeErr), "p2p")
+			}
+		}()
 
+		buffer := make([]byte, chunkSize)
 		writer := bufio.NewWriter(s)
+		defer writer.Flush() // Ensure all data is written
 
 		for {
 			n, err := v.Read(buffer)
@@ -1081,29 +1170,40 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) {
 				}
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				s.Reset()
-				return
+				return err
 			}
+
+			// Write timeout
+			s.SetWriteDeadline(time.Now().Add(1 * time.Minute)) // TODO, put in configs
 			_, err = writer.Write(buffer[:n])
+			s.SetWriteDeadline(time.Time{})
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				s.Reset()
-				return
+				return err
 			}
-
 		}
 
-		writer.Flush()
-		s.Close()
+		if err = writer.Flush(); err != nil {
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			s.Reset()
+			return err
+		}
+
+		// Stream closure
+		return s.CloseWrite()
 
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.Lm.Log("error", msg, "p2p")
 		s.Reset()
-		return
+		return err
 	}
 
 	message = fmt.Sprintf("Sending ended %s", s.ID())
 	p2pm.Lm.Log("debug", message, "p2p")
+
+	return nil
 }
 
 func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uint64, s network.Stream) error {
