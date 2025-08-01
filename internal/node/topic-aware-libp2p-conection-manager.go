@@ -127,10 +127,13 @@ type TopicAwareConnectionManager struct {
 	routingScoreThreshold float64
 	cleanupInterval       time.Duration // Regular cleanup
 
-	evaluationSemaphore chan struct{}
 	evaluationTicker    *time.Ticker // Evaluation ticker
 	cleanupTicker       *time.Ticker // Cleanup ticker
 	stopChan            chan struct{}
+	
+	// Worker pool for peer evaluation
+	peerEvalQueue       chan peer.ID  // Queue for peer evaluation requests
+	workerPool          sync.WaitGroup // Track worker goroutines
 }
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
@@ -156,13 +159,16 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		evaluationPeriod:      time.Minute * 5,
 		cleanupInterval:       time.Minute * 10,
 		routingScoreThreshold: 0.1,
-		evaluationSemaphore:   make(chan struct{}, 3),
 		stopChan:              make(chan struct{}),
+		peerEvalQueue:         make(chan peer.ID, 100), // Buffer for 100 peer evaluation requests
 	}
 
 	// Start periodic evaluation and cleanup
 	tcm.startPeriodicEvaluation(3 * time.Minute)
 	tcm.startPeriodicCleanup()
+	
+	// Start worker pool for peer evaluation
+	tcm.startWorkerPool(3) // Start 3 worker goroutines
 
 	return tcm, nil
 }
@@ -355,16 +361,8 @@ func (tcm *TopicAwareConnectionManager) classifyPeer(peerID peer.ID) (isTopicPee
 	tcm.mu.RUnlock()
 
 	if needsEvaluation {
-		// Evaluate in the background to avoid blocking
-		go func() {
-			select {
-			case tcm.evaluationSemaphore <- struct{}{}:
-				defer func() { <-tcm.evaluationSemaphore }()
-				tcm.evaluateRoutingUsefulness(peerID)
-			default:
-				// Semaphore full, skip evaluation for now
-			}
-		}()
+		// Schedule evaluation using worker pool (non-blocking)
+		tcm.schedulePeerEvaluation(peerID)
 
 		// Return cached score or default
 		if hasScore {
@@ -698,17 +696,9 @@ func (tcm *TopicAwareConnectionManager) reevaluateAllPeers() {
 	}
 	tcm.mu.Unlock()
 
-	// Process peers with controlled concurrency
+	// Process peers using worker pool (bounded concurrency)
 	for _, peerID := range connectedPeers {
-		go func(id peer.ID) {
-			select {
-			case tcm.evaluationSemaphore <- struct{}{}:
-				defer func() { <-tcm.evaluationSemaphore }()
-				tcm.evaluateRoutingUsefulness(id)
-			default:
-				// Semaphore full, skip this peer for now
-			}
-		}(peerID)
+		tcm.schedulePeerEvaluation(peerID)
 	}
 }
 
@@ -740,41 +730,8 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 	}
 	tcm.mu.Unlock()
 
-	// Evaluate peer after allowing time for topic subscription
-	// Add timeout and context cancellation to prevent goroutine leaks
-	go func() {
-		// Create a bounded context for this evaluation
-		ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
-		defer cancel()
-
-		// Wait for peer to potentially subscribe to topics
-		select {
-		case <-time.After(time.Second * 5):
-			// Continue with evaluation
-		case <-ctx.Done():
-			return // Context cancelled, abort evaluation
-		}
-
-		// Use semaphore with timeout to prevent blocking
-		select {
-		case tcm.evaluationSemaphore <- struct{}{}:
-			defer func() { <-tcm.evaluationSemaphore }()
-
-			// Check context before expensive evaluation
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				tcm.evaluateRoutingUsefulness(peerID)
-			}
-
-		case <-time.After(time.Second * 10):
-			// Timeout - skip evaluation to prevent blocking
-			tcm.lm.Log("debug", "Peer evaluation timeout for "+peerID.String(), "p2p")
-		case <-ctx.Done():
-			return
-		}
-	}()
+	// Schedule peer evaluation using bounded worker pool
+	tcm.schedulePeerEvaluation(peerID)
 }
 
 // Handle peer disconnections
@@ -907,5 +864,65 @@ func (tcm *TopicAwareConnectionManager) Shutdown() {
 	tcm.lastEvaluation = make(map[peer.ID]time.Time)
 	tcm.mu.Unlock()
 
+	// Stop worker pool
+	close(tcm.peerEvalQueue)
+	tcm.workerPool.Wait()
+
 	// Note: LRU cache will be garbage collected when tcm is destroyed
+}
+
+// Start worker pool for peer evaluation
+func (tcm *TopicAwareConnectionManager) startWorkerPool(numWorkers int) {
+	for i := range numWorkers {
+		tcm.workerPool.Add(1)
+		go tcm.peerEvaluationWorker(i)
+	}
+}
+
+// Worker goroutine that processes peer evaluation requests
+func (tcm *TopicAwareConnectionManager) peerEvaluationWorker(workerID int) {
+	defer tcm.workerPool.Done()
+
+	for {
+		select {
+		case peerID, ok := <-tcm.peerEvalQueue:
+			if !ok {
+				// Channel closed, worker should exit
+				tcm.lm.Log("debug", fmt.Sprintf("Peer evaluation worker %d shutting down", workerID), "p2p")
+				return
+			}
+
+			// Create a bounded context for this evaluation
+			ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
+
+			// Wait for peer to potentially subscribe to topics
+			select {
+			case <-time.After(time.Second * 5):
+				// Continue with evaluation
+			case <-ctx.Done():
+				cancel()
+				continue // Context cancelled, skip this evaluation
+			}
+
+			// Perform the actual evaluation
+			tcm.evaluateRoutingUsefulness(peerID)
+			cancel()
+
+		case <-tcm.ctx.Done():
+			tcm.lm.Log("debug", fmt.Sprintf("Peer evaluation worker %d context cancelled", workerID), "p2p")
+			return
+		}
+	}
+}
+
+// Schedule peer evaluation (non-blocking)
+func (tcm *TopicAwareConnectionManager) schedulePeerEvaluation(peerID peer.ID) {
+	select {
+	case tcm.peerEvalQueue <- peerID:
+		// Successfully queued for evaluation
+		tcm.lm.Log("debug", "Queued peer "+peerID.String()+" for evaluation", "p2p")
+	default:
+		// Queue is full, drop the request to prevent blocking
+		tcm.lm.Log("debug", "Peer evaluation queue full, skipping evaluation for "+peerID.String(), "p2p")
+	}
 }
