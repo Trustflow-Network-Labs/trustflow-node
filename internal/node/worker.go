@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
 // Worker represents a managed goroutine
@@ -164,19 +166,24 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 		msg := fmt.Sprintf("Worker %d: Working...\n", w.ID)
 		p2pm.Lm.Log("info", msg, "worker")
 
-		// Create a done channel to run job and listen for cancellation concurrently
-		errCh := make(chan error, 1)
+		// Set initial job status to RUNNING
+		jm.UpdateJobStatus(w.ID, "RUNNING")
+		w.sendStatusUpdateAsync(jm, "RUNNING")
 
+		// Get an error channel from the pool to reduce allocations
+		errCh := utils.GlobalErrorChannelPool.Get()
+		defer utils.GlobalErrorChannelPool.Put(errCh)
+
+		// Start job execution in separate goroutine
 		go func() {
-			// Set job status to RUNNING
-			jm.UpdateJobStatus(w.ID, "RUNNING")
-
-			// Send job status update to remote node
-			go func() {
-				jm.StatusUpdate(w.ID, "RUNNING")
-			}()
-
-			errCh <- jm.StartJob(w.ID)
+			// Execute the job and send result to error channel
+			jobErr := jm.StartJob(w.ID)
+			select {
+			case errCh <- jobErr:
+				// Successfully sent result
+			case <-w.ctx.Done():
+				// Context cancelled, don't send
+			}
 		}()
 
 		select {
@@ -186,28 +193,20 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 
 			// Set job status to COMPLETED
 			jm.UpdateJobStatus(w.ID, "COMPLETED")
-
-			// Send job status update to remote node
-			go func() {
-				jm.StatusUpdate(w.ID, "COMPLETED")
-			}()
+			w.sendStatusUpdateAsync(jm, "COMPLETED")
 
 		case err := <-errCh:
+			
 			if err != nil {
 				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
 				p2pm.Lm.Log("error", msg, "worker")
 
 				if retry < maxRetries-1 {
-					// Set job status to READY
+					// Set job status to READY for retry
 					jm.UpdateJobStatus(w.ID, "READY")
-
-					// Send job status update to remote node
-					go func() {
-						jm.StatusUpdate(w.ID, "READY")
-					}()
+					w.sendStatusUpdateAsync(jm, "READY")
 				} else {
-					// Set job status to ERRORED
-					// Send job status update to remote node
+					// Set job status to ERRORED - no more retries
 					jm.logAndEmitJobError(w.ID, err)
 				}
 			}
@@ -226,4 +225,39 @@ func (w *Worker) IsRunning() bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.isRunning
+}
+
+// sendStatusUpdateAsync sends status updates without blocking
+// Uses a bounded goroutine to prevent goroutine leaks
+func (w *Worker) sendStatusUpdateAsync(jm *JobManager, status string) {
+	select {
+	case <-w.ctx.Done():
+		// Context cancelled, don't send update
+		return
+	default:
+	}
+
+	// Use a goroutine with timeout to prevent blocking indefinitely
+	go func() {
+		// Create a timeout context for the status update
+		ctx, cancel := context.WithTimeout(w.ctx, time.Second*10)
+		defer cancel()
+
+		// Create a channel to signal completion
+		done := make(chan struct{})
+		
+		go func() {
+			defer close(done)
+			jm.StatusUpdate(w.ID, status)
+		}()
+
+		// Wait for completion or timeout
+		select {
+		case <-done:
+			// Status update completed successfully
+		case <-ctx.Done():
+			// Timeout or context cancelled
+			// Log but don't block worker execution
+		}
+	}()
 }

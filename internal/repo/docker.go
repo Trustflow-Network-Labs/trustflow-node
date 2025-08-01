@@ -703,7 +703,8 @@ func (dm *DockerManager) runService(
 	dm.lm.Log("info", fmt.Sprintf("Started container %s (%s)", svc.Name, resp.ID[:12]), "docker")
 
 	var wgIO sync.WaitGroup
-	errChanIn := make(chan error, 1)
+	errChanIn := utils.GlobalErrorChannelPool.Get()
+	defer utils.GlobalErrorChannelPool.Put(errChanIn)
 	if inputs != nil {
 		wgIO.Add(1)
 		go func() {
@@ -753,7 +754,8 @@ func (dm *DockerManager) runService(
 		return resp.ID, image, err
 	}
 
-	errChanOut := make(chan error, 1)
+	errChanOut := utils.GlobalErrorChannelPool.Get()
+	defer utils.GlobalErrorChannelPool.Put(errChanOut)
 	wgIO.Add(1)
 	go func() {
 		defer wgIO.Done()

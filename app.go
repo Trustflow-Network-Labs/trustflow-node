@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/adgsm/trustflow-node/internal/dependencies"
@@ -22,7 +23,9 @@ type App struct {
 	sm                node.ServiceManager
 	wm                workflow.WorkflowManager
 	confirmFuncChan   chan bool
+	confirmChanMutex  sync.Mutex  // Protect confirmFuncChan access
 	frontendReadyChan chan struct{}
+	channelManager    *utils.ChannelManager  // Centralized channel management
 	gui               ui.UI
 }
 
@@ -35,21 +38,35 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.channelManager = utils.NewChannelManager(ctx)
 	a.frontendReadyChan = make(chan struct{})
 	a.gui = ui.GUI{
 		PrintFunc: func(msg string) {
 			runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		},
 		ConfirmFunc: func(question string) bool {
+			a.confirmChanMutex.Lock()
+			
+			// Close existing channel if it exists
+			if a.confirmFuncChan != nil {
+				close(a.confirmFuncChan)
+			}
+			
+			// Create new channel
 			a.confirmFuncChan = make(chan bool)
+			currentChan := a.confirmFuncChan // Keep reference for this call
+			a.confirmChanMutex.Unlock()
 
 			// Send the prompt to frontend
 			runtime.EventsEmit(a.ctx, "sysconfirm-event", question)
 
 			// Wait for frontend response (blocks until received)
-			response := <-a.confirmFuncChan
-
-			return response
+			select {
+			case response := <-currentChan:
+				return response
+			case <-a.ctx.Done():
+				return false // Default to false if context is cancelled
+			}
 		},
 		ExitFunc: func(code int) {
 			var msg = ""
@@ -88,6 +105,20 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.IsHostRunning() {
 		a.StopNode()
 	}
+	
+	// Clean up channels
+	a.confirmChanMutex.Lock()
+	if a.confirmFuncChan != nil {
+		close(a.confirmFuncChan)
+		a.confirmFuncChan = nil
+	}
+	a.confirmChanMutex.Unlock()
+	
+	// Shutdown channel manager
+	if a.channelManager != nil {
+		a.channelManager.Shutdown()
+	}
+	
 	defer a.p2pm.Close()
 }
 
@@ -106,8 +137,18 @@ func (a *App) CheckAndInstallDependencies() {
 
 // User confirm with the response
 func (a *App) SetUserConfirmation(response bool) {
+	a.confirmChanMutex.Lock()
+	defer a.confirmChanMutex.Unlock()
+	
 	if a.confirmFuncChan != nil {
-		a.confirmFuncChan <- response
+		select {
+		case a.confirmFuncChan <- response:
+			// Successfully sent response
+		case <-a.ctx.Done():
+			// Context cancelled, don't block
+		default:
+			// Channel might be closed or no receiver, don't block
+		}
 	}
 }
 
