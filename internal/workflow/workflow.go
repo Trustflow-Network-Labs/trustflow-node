@@ -14,12 +14,14 @@ import (
 type WorkflowManager struct {
 	db *sql.DB
 	lm *utils.LogsManager
+	cm *utils.ConfigManager
 }
 
-func NewWorkflowManager(db *sql.DB, lm *utils.LogsManager) *WorkflowManager {
+func NewWorkflowManager(db *sql.DB, lm *utils.LogsManager, cm *utils.ConfigManager) *WorkflowManager {
 	return &WorkflowManager{
 		db: db,
 		lm: lm,
+		cm: cm,
 	}
 }
 
@@ -137,17 +139,9 @@ func (wm *WorkflowManager) Get(id int64) (node_types.Workflow, error) {
 
 // List workflows
 func (wm *WorkflowManager) List(params ...uint32) ([]node_types.Workflow, error) {
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		wm.lm.Log("warn", msg, "workflows")
-	}
-
 	var offset uint32 = 0
 	var limit uint32 = 10
-	l := config["search_results"]
+	l := wm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10

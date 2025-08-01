@@ -18,11 +18,13 @@ import (
 
 type DependencyManager struct {
 	UI ui.UI
+	cm *utils.ConfigManager
 }
 
-func NewDependencyManager(ui ui.UI) *DependencyManager {
+func NewDependencyManager(ui ui.UI, cm *utils.ConfigManager) *DependencyManager {
 	return &DependencyManager{
 		UI: ui,
+		cm: cm,
 	}
 }
 
@@ -329,16 +331,9 @@ func (dm *DependencyManager) installDarwinDependencies(missing []string) error {
 
 func (dm *DependencyManager) initDarwinDependencies() error {
 	if !dm.isColimaRunning() {
-
-		configManager := utils.NewConfigManager("")
-		configs, err := configManager.ReadConfigs()
-		if err != nil {
-			return err
-		}
-
 		// Start docker
 		dm.UI.Print("Starting Colima")
-		storagePath, err := filepath.Abs(configs["local_storage"])
+		storagePath, err := filepath.Abs(dm.cm.GetConfigWithDefault("local_storage", "./local_storage/"))
 		if err != nil {
 			dm.UI.Print(fmt.Sprintf("⚠️ Error: %s", err.Error()))
 			return err

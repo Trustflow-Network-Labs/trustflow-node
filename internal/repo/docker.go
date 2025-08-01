@@ -45,12 +45,14 @@ import (
 
 type DockerManager struct {
 	lm *utils.LogsManager
+	cm *utils.ConfigManager
 	UI ui.UI
 }
 
-func NewDockerManager(ui ui.UI, lm *utils.LogsManager) *DockerManager {
+func NewDockerManager(ui ui.UI, lm *utils.LogsManager, cm *utils.ConfigManager) *DockerManager {
 	return &DockerManager{
 		lm: lm,
+		cm: cm,
 		UI: ui,
 	}
 }
@@ -266,13 +268,7 @@ func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
 	defer reader.Close()
 
 	// Save image logs
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return err
-	}
-
-	err = dm.processDockerPullOutput(reader, imageName, configs)
+	err = dm.processDockerPullOutput(reader, imageName)
 	if err != nil {
 		return err
 	}
@@ -280,9 +276,9 @@ func (dm *DockerManager) pullImage(cli *client.Client, imageName string) error {
 	return nil
 }
 
-func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName string, configs map[string]string) error {
+func (dm *DockerManager) processDockerPullOutput(reader io.Reader, imageName string) error {
 	sanitizedImageName := dm.sanitizeImageName(imageName)
-	logPath := filepath.Join(configs["local_docker_root"], sanitizedImageName, "logs", "pull.log")
+	logPath := filepath.Join(dm.cm.GetConfigWithDefault("local_docker_root", "./local_storage/docker/"), sanitizedImageName, "logs", "pull.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
@@ -361,9 +357,9 @@ func (dm *DockerManager) extractProgressBar(progress string) string {
 }
 
 // Parses and formats Docker build output
-func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName string, configs map[string]string) error {
+func (dm *DockerManager) processDockerBuildOutput(reader io.Reader, imageName string) error {
 	sanitizedImageName := dm.sanitizeImageName(imageName)
-	logPath := filepath.Join(configs["local_docker_root"], sanitizedImageName, "logs", "build.log")
+	logPath := filepath.Join(dm.cm.GetConfigWithDefault("local_docker_root", "./local_storage/docker/"), sanitizedImageName, "logs", "build.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
@@ -432,14 +428,9 @@ func (dm *DockerManager) buildImage(
 	}
 
 	// Save image logs
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return dockerImage, err
-	}
 	defer resp.Body.Close()
 
-	err = dm.processDockerBuildOutput(resp.Body, imageName, configs)
+	err = dm.processDockerBuildOutput(resp.Body, imageName)
 	if err != nil {
 		return dockerImage, err
 	}
@@ -498,20 +489,13 @@ func (dm *DockerManager) detectDockerfiles(path string) []composetypes.ServiceCo
 	var services []composetypes.ServiceConfig
 	var skipDirs = make(map[string]bool)
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		dm.lm.Log("error", err.Error(), "docker")
-		return services
-	}
-
-	dockerScanSkip := strings.SplitSeq(configs["docker_scan_skip"], ",")
+	dockerScanSkip := strings.SplitSeq(dm.cm.GetConfigWithDefault("docker_scan_skip", ".git, packages, node_modules, .idea, .vscode"), ",")
 	for skip := range dockerScanSkip {
 		skip = strings.TrimSpace(skip)
 		skipDirs[skip] = true
 	}
 
-	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -660,16 +644,8 @@ func (dm *DockerManager) runService(
 		return rid, image, err
 	}
 
-	// Save container logs
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		dm.lm.Log("error", err.Error(), "docker")
-		return resp.ID, image, err
-	}
-
 	// Create job dir
-	jobDir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(job.Id, 10))
+	jobDir := filepath.Join(dm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(job.Id, 10))
 	err = os.MkdirAll(jobDir, 0755)
 	if err != nil {
 		dm.lm.Log("error", err.Error(), "docker")

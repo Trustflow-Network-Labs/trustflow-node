@@ -9,6 +9,7 @@ import (
 	"github.com/adgsm/trustflow-node/internal/node"
 	"github.com/adgsm/trustflow-node/internal/node_types"
 	"github.com/adgsm/trustflow-node/internal/ui"
+	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/adgsm/trustflow-node/internal/workflow"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -65,11 +66,14 @@ func (a *App) startup(ctx context.Context) {
 		},
 	}
 
-	p2pm := node.NewP2PManager(ctx, a.gui)
-	a.p2pm = *p2pm
-	a.dm = *dependencies.NewDependencyManager(a.gui)
-	a.sm = *node.NewServiceManager(p2pm)
-	a.wm = *workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm)
+	// Configs manager
+	cm := utils.NewConfigManager("")
+
+	// P2P manager
+	a.p2pm = *node.NewP2PManager(ctx, a.gui, cm)
+	a.dm = *dependencies.NewDependencyManager(a.gui, cm)
+	a.sm = *node.NewServiceManager(&a.p2pm)
+	a.wm = *workflow.NewWorkflowManager(a.p2pm.DB, a.p2pm.Lm, cm)
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()

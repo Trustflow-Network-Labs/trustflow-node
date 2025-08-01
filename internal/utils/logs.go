@@ -15,6 +15,7 @@ import (
 )
 
 type LogsManager struct {
+	cm          *ConfigManager
 	dir         string
 	logFileName string
 	logger      *log.Logger
@@ -22,18 +23,14 @@ type LogsManager struct {
 	mutex       sync.RWMutex
 }
 
-func NewLogsManager() *LogsManager {
-	// read configs
-	configManager := NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		panic(err)
-	}
-
+func NewLogsManager(cm *ConfigManager) *LogsManager {
 	paths := GetAppPaths("")
+	logFileName := cm.GetConfigWithDefault("logfile", "log")
+
 	lm := &LogsManager{
+		cm:          cm,
 		dir:         paths.LogDir,
-		logFileName: config["logfile"],
+		logFileName: logFileName,
 		logger:      log.New(),
 	}
 

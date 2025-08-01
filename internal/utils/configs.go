@@ -3,17 +3,24 @@ package utils
 import (
 	"bufio"
 	"embed"
+	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 //go:embed configs
 var defaultConfig embed.FS
 
+type Config map[string]string
+
 type ConfigManager struct {
 	configsPath string
+	configs     Config
+	configMutex sync.RWMutex
 }
 
 func NewConfigManager(path string) *ConfigManager {
@@ -27,12 +34,16 @@ func NewConfigManager(path string) *ConfigManager {
 		path = filepath.Join(paths.ConfigDir, "configs")
 	}
 
+	configs, err := readConfigs(path)
+	if err != nil {
+		panic(err)
+	}
+
 	return &ConfigManager{
 		configsPath: path,
+		configs:     configs,
 	}
 }
-
-type Config map[string]string
 
 func ensureConfig() error {
 	paths := GetAppPaths("")
@@ -51,19 +62,19 @@ func ensureConfig() error {
 	return nil
 }
 
-func (cm *ConfigManager) ReadConfigs() (Config, error) {
+func readConfigs(configsPath string) (Config, error) {
 	// init config
 	config := Config{
-		"file": cm.configsPath,
+		"file": configsPath,
 	}
 
 	// return error if config filepath is not provided
-	if len(cm.configsPath) == 0 {
-		return config, nil
+	if len(configsPath) == 0 {
+		return nil, fmt.Errorf("invalid configs path `%s`", configsPath)
 	}
 
 	// open configs file
-	file, err := os.Open(cm.configsPath)
+	file, err := os.Open(configsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -102,4 +113,44 @@ func (cm *ConfigManager) ReadConfigs() (Config, error) {
 	}
 
 	return config, nil
+}
+
+func (cm *ConfigManager) GetConfig(key string) (string, bool) {
+	cm.configMutex.RLock()
+	defer cm.configMutex.RUnlock()
+
+	value, exists := cm.configs[key]
+	return value, exists
+}
+
+func (cm *ConfigManager) GetConfigWithDefault(key string, defaultValue string) string {
+	if value, exists := cm.GetConfig(key); exists {
+		return value
+	}
+	return defaultValue
+}
+
+func (cm *ConfigManager) GetAllConfigs() Config {
+	cm.configMutex.RLock()
+	defer cm.configMutex.RUnlock()
+
+	// Return a copy to prevent external modification
+	configsCopy := make(Config)
+	maps.Copy(configsCopy, cm.configs)
+	return configsCopy
+}
+
+// Config reload method
+func (cm *ConfigManager) ReloadConfig(path string) error {
+	cm.configMutex.Lock()
+	defer cm.configMutex.Unlock()
+
+	newConfigs, err := readConfigs(path)
+	if err != nil {
+		return err
+	}
+
+	cm.configs = newConfigs
+
+	return nil
 }

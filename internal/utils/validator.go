@@ -16,9 +16,9 @@ type ValidatorManager struct {
 	cm *ConfigManager
 }
 
-func NewValidatorManager() *ValidatorManager {
+func NewValidatorManager(cm *ConfigManager) *ValidatorManager {
 	return &ValidatorManager{
-		cm: NewConfigManager(""),
+		cm: cm,
 	}
 }
 
@@ -30,11 +30,7 @@ func (vm *ValidatorManager) NotEmpty(s string) error {
 }
 
 func (vm *ValidatorManager) MinLen(s string) error {
-	config, err := vm.cm.ReadConfigs()
-	if err != nil {
-		return err
-	}
-	sl := config["phrase_min_len"]
+	sl := vm.cm.GetConfigWithDefault("phrase_min_len", "3")
 	il, err := strconv.ParseInt(sl, 10, 64)
 	if err != nil {
 		return err

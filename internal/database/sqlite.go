@@ -15,31 +15,24 @@ import (
 
 type SQLiteManager struct {
 	dir string
+	cm  *utils.ConfigManager
 }
 
-func NewSQLiteManager() *SQLiteManager {
+func NewSQLiteManager(cm *utils.ConfigManager) *SQLiteManager {
 	paths := utils.GetAppPaths("")
 	return &SQLiteManager{
 		dir: paths.DataDir,
+		cm:  cm,
 	}
 }
 
 // Create connection
 func (sqlm *SQLiteManager) CreateConnection() (*sql.DB, error) {
-	logsManager := utils.NewLogsManager()
+	logsManager := utils.NewLogsManager(sqlm.cm)
 	defer logsManager.Close()
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		logsManager.Log("error", message, "database")
-		return nil, err
-	}
-
 	// Make sure we have os specific path separator since we are adding this path to host's path
-	dbFileName := config["database_file"]
+	dbFileName := sqlm.cm.GetConfigWithDefault("database_file", "./trustflow.db")
 	switch runtime.GOOS {
 	case "linux", "darwin":
 		dbFileName = filepath.ToSlash(dbFileName)

@@ -41,12 +41,12 @@ func NewMenuManager(p2pm *P2PManager) *MenuManager {
 		lm:   p2pm.Lm,
 		p2pm: p2pm,
 		sm:   NewServiceManager(p2pm),
-		vm:   utils.NewValidatorManager(),
+		vm:   utils.NewValidatorManager(p2pm.cm),
 		tm:   utils.NewTextManager(),
 		pm:   price.NewPriceManager(p2pm.DB, p2pm.Lm),
 		rm:   resource.NewResourceManager(p2pm.DB, p2pm.Lm),
 		cm:   currency.NewCurrencyManager(p2pm.DB, p2pm.Lm),
-		wm:   workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm),
+		wm:   workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm, p2pm.cm),
 		jm:   NewJobManager(p2pm),
 	}
 }
@@ -801,16 +801,7 @@ func (mm *MenuManager) printWorkflows(wm *workflow.WorkflowManager, params ...ui
 	var offset uint32 = 0
 	var limit uint32 = 10
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		mm.lm.Log("error", message, "menu")
-		panic(err)
-	}
-
-	l := config["search_results"]
+	l := mm.p2pm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10
@@ -1592,7 +1583,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Validate repo
-	gitManager := repo.NewGitManager()
+	gitManager := repo.NewGitManager(mm.p2pm.cm)
 	err = gitManager.ValidateRepo(gruResult, username, token)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Failed to access Git repo: %v\n", err)
@@ -1608,15 +1599,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Pull/clone
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		msg := fmt.Sprintf("\U00002757 Failed reading configs: %v\n", err)
-		fmt.Println(msg)
-		mm.lm.Log("error", msg, "menu")
-		return err
-	}
-	gitRoot := configs["local_git_root"]
+	gitRoot := mm.p2pm.cm.GetConfigWithDefault("local_git_root", "./local_storage/git/")
 	repoPath, err := gitManager.CloneOrPull(gitRoot, gruResult, branch, username, token)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Failed pulling/cloning repo %s: %v\n", gruResult, err)
@@ -1642,7 +1625,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Run docker & build image(s)
-	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm)
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm)
 	_, images, errors := dockerManager.Run(repoPath, nil, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
@@ -1726,7 +1709,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Validate docker image
-	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm)
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm)
 	cmdOut, err := dockerManager.ValidateImage(pediResult)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))
@@ -1912,16 +1895,7 @@ func (mm *MenuManager) printServices(sm *ServiceManager, params ...uint32) error
 	var offset uint32 = 0
 	var limit uint32 = 10
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		mm.lm.Log("error", message, "menu")
-		panic(err)
-	}
-
-	l := config["search_results"]
+	l := mm.p2pm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10

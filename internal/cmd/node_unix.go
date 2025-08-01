@@ -27,9 +27,14 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		dm := dependencies.NewDependencyManager(ui.CLI{})
+		// Configs manager
+		cm := utils.NewConfigManager("")
+
+		// Dependencies manager
+		dm := dependencies.NewDependencyManager(ui.CLI{}, cm)
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
+
 		/* TODO, this is just a test of node type functionality
 		ntm := utils.NewNodeTypeManager()
 		nodeType, err := ntm.GetNodeTypeConfig([]uint16{port})
@@ -38,7 +43,9 @@ var nodeCmd = &cobra.Command{
 		}
 		fmt.Printf("%v\n", nodeType)
 		*/
-		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{})
+
+		// P2P Manager
+		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{}, cm)
 		defer p2pManager.Close()
 		p2pManager.Start(port, daemon, public, relay)
 	},
@@ -51,7 +58,11 @@ var nodeDaemonCmd = &cobra.Command{
 	Long:    "Start running a p2p node as a daemon in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		logsManager := utils.NewLogsManager()
+		// Configs manager
+		cm := utils.NewConfigManager("")
+
+		// Logs manager
+		logsManager := utils.NewLogsManager(cm)
 		defer logsManager.Close()
 
 		// Start the process in background
@@ -94,7 +105,7 @@ var nodeDaemonCmd = &cobra.Command{
 		}
 
 		// Create PID Manager instance
-		pm, err := utils.NewPIDManager()
+		pm, err := utils.NewPIDManager(cm)
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)
@@ -121,11 +132,15 @@ var stopNodeCmd = &cobra.Command{
 	Long:    "Stops running p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
-		logsManager := utils.NewLogsManager()
+		// Configs manager
+		cm := utils.NewConfigManager("")
+
+		// Logs manager
+		logsManager := utils.NewLogsManager(cm)
 		defer logsManager.Close()
 
 		// Create PID Manager instance
-		pm, err := utils.NewPIDManager()
+		pm, err := utils.NewPIDManager(cm)
 		if err != nil {
 			msg := fmt.Sprintf("Error creating PID manager: %v\n", err)
 			fmt.Println(msg)

@@ -11,30 +11,23 @@ import (
 )
 
 type PIDManager struct {
-	dir    string
-	config Config
+	dir string
+	cm  *ConfigManager
 }
 
-func NewPIDManager() (*PIDManager, error) {
+func NewPIDManager(cm *ConfigManager) (*PIDManager, error) {
 	// Get os paths
 	paths := GetAppPaths("")
 
-	// Read configs
-	configManager := NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		return nil, err
-	}
-
 	return &PIDManager{
-		dir:    paths.DataDir,
-		config: config,
+		dir: paths.DataDir,
+		cm:  cm,
 	}, nil
 }
 
 func (p *PIDManager) WritePID(pid int) error {
 	// Make sure we have os specific path separator since we are adding this path to host's path
-	pidFileName := p.config["pid_path"]
+	pidFileName := p.cm.GetConfigWithDefault("pid_path", "./trustflow.pid")
 	switch runtime.GOOS {
 	case "linux", "darwin":
 		pidFileName = filepath.ToSlash(pidFileName)
@@ -55,7 +48,7 @@ func (p *PIDManager) WritePID(pid int) error {
 
 func (p *PIDManager) ReadPID() (int, error) {
 	// Make sure we have os specific path separator since we are adding this path to host's path
-	pidFileName := p.config["pid_path"]
+	pidFileName := p.cm.GetConfigWithDefault("pid_path", "./trustflow.pid")
 	switch runtime.GOOS {
 	case "linux", "darwin":
 		pidFileName = filepath.ToSlash(pidFileName)

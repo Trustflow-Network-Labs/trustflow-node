@@ -21,15 +21,14 @@ import (
 )
 
 type JobManager struct {
-	db   *sql.DB
-	lm   *utils.LogsManager
-	sm   *ServiceManager
-	wm   *WorkerManager
-	dm   *repo.DockerManager
-	p2pm *P2PManager
-	tm   *utils.TextManager
-	vm   *utils.ValidatorManager
-
+	db                 *sql.DB
+	lm                 *utils.LogsManager
+	sm                 *ServiceManager
+	wm                 *WorkerManager
+	dm                 *repo.DockerManager
+	p2pm               *P2PManager
+	tm                 *utils.TextManager
+	vm                 *utils.ValidatorManager
 	processQueueTicker *time.Ticker
 	statusUpdateTicker *time.Ticker
 	tickerStopChan     chan struct{}
@@ -42,10 +41,10 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		lm:   p2pm.Lm,
 		sm:   NewServiceManager(p2pm),
 		wm:   NewWorkerManager(p2pm),
-		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm),
+		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm),
 		p2pm: p2pm,
 		tm:   utils.NewTextManager(),
-		vm:   utils.NewValidatorManager(),
+		vm:   utils.NewValidatorManager(p2pm.cm),
 	}
 }
 
@@ -122,22 +121,16 @@ func (jm *JobManager) StopPeriodicTasks() {
 
 // Get ticker intervals from config
 func (jm *JobManager) getTickerIntervals() (time.Duration, time.Duration, error) {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return 0, 0, err
-	}
-
 	// Use simple duration strings in config
 	processQueueInterval := 30 * time.Second // Default
-	if val, exists := configs["process_job_queue_interval"]; exists {
+	if val, exists := jm.p2pm.cm.GetConfig("process_job_queue_interval"); exists {
 		if duration, err := time.ParseDuration(val); err == nil {
 			processQueueInterval = duration
 		}
 	}
 
 	statusUpdateInterval := 1 * time.Minute // Default
-	if val, exists := configs["job_status_update_interval"]; exists {
+	if val, exists := jm.p2pm.cm.GetConfig("job_status_update_interval"); exists {
 		if duration, err := time.ParseDuration(val); err == nil {
 			statusUpdateInterval = duration
 		}
@@ -842,19 +835,12 @@ func (jm *JobManager) ProcessQueue() {
 		idsNone = append(idsNone, id)
 	}
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
+	maxRetries, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("max_job_run_retries", "10"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
 	}
-
-	maxRetries, err := jm.tm.ToInt(configs["max_job_run_retries"])
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return
-	}
-	initialBackoff, err := jm.tm.ToInt(configs["job_initial_backoff"])
+	initialBackoff, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("job_initial_backoff", "60"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return
@@ -1016,18 +1002,12 @@ func (jm *JobManager) StartJob(id int64) error {
 		return err
 	}
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
+	maxRetries, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("max_job_send_output_retries", "10"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-	maxRetries, err := jm.tm.ToInt(configs["max_job_send_output_retries"])
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-	initialBackoff, err := jm.tm.ToInt(configs["job_send_output_initial_backoff"])
+	initialBackoff, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("job_send_output_initial_backoff", "60"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
@@ -1145,16 +1125,10 @@ func (jm *JobManager) streamDataJob(jobId int64) error {
 }
 
 func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, index int) error {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-	path := configs["local_storage"] + strings.TrimSpace(paths[index])
+	path := jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/") + strings.TrimSpace(paths[index])
 
 	// Check if the file exists
-	_, err = os.Stat(path)
+	_, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		err = fmt.Errorf("file %s does not exist", path)
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -1183,7 +1157,7 @@ func (jm *JobManager) streamDataJobEngine(job node_types.Job, paths []string, in
 			// Get peer
 			if interfacePeer.PeerNodeId == host {
 				// It's own service / data
-				fdir := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(jobId, 10), "input", host)
+				fdir := filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(jobId, 10), "input", host)
 				if err = os.MkdirAll(fdir, 0755); err != nil {
 					jm.lm.Log("error", err.Error(), "jobs")
 					return err
@@ -1351,18 +1325,12 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 	}
 
 	// Send job outputs
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
+	maxRetries, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("max_job_send_output_retries", "10"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
-	maxRetries, err := jm.tm.ToInt(configs["max_job_send_output_retries"])
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-	initialBackoff, err := jm.tm.ToInt(configs["job_send_output_initial_backoff"])
+	initialBackoff, err := jm.tm.ToInt(jm.p2pm.cm.GetConfigWithDefault("job_send_output_initial_backoff", "60"))
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
 		return err
@@ -1375,13 +1343,6 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 
 // Send docker job outputs
 func (jm *JobManager) sendDockerOutput(jobId int64) error {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-
 	job, err := jm.GetJob(jobId)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -1389,9 +1350,9 @@ func (jm *JobManager) sendDockerOutput(jobId int64) error {
 	}
 
 	for _, intrface := range job.JobInterfaces {
-		base := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+		base := filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
 		for _, interfacePeer := range intrface.JobInterfacePeers {
-			err := jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, configs, "OUTPUT")
+			err := jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, "OUTPUT")
 			if err != nil {
 				jm.lm.Log("error", err.Error(), "jobs")
 				return err
@@ -1408,7 +1369,6 @@ func (jm *JobManager) sendDataForPeerInterface(
 	intrface node_types.JobInterface,
 	interfacePeer node_types.JobInterfacePeer,
 	base string,
-	configs utils.Config,
 	whatData string,
 ) error {
 	paths := strings.SplitSeq(interfacePeer.PeerPath, ",")
@@ -1523,10 +1483,10 @@ func (jm *JobManager) sendDataForPeerInterface(
 			var fdir string
 			if interfacePeer.PeerJobId == 0 {
 				// Copy it to local repo
-				fdir = filepath.Join(configs["local_storage"])
+				fdir = filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"))
 			} else {
 				// Copy it to job
-				fdir = filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(interfacePeer.PeerJobId, 10), "input", host)
+				fdir = filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10), "job", strconv.FormatInt(interfacePeer.PeerJobId, 10), "input", host)
 			}
 			fdir += string(os.PathSeparator)
 
@@ -1597,13 +1557,6 @@ func (jm *JobManager) SendIfPeerEligible(
 	var err error
 	var eligible bool = false
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return err
-	}
-
 	job, err = jm.GetJob(jobId)
 	if err != nil {
 		jm.lm.Log("error", err.Error(), "jobs")
@@ -1630,8 +1583,8 @@ func (jm *JobManager) SendIfPeerEligible(
 					// Eligible
 					eligible = true
 
-					base := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
-					return jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, configs, dir)
+					base := filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+					return jm.sendDataForPeerInterface(job, intrface, interfacePeer, base, dir)
 				}
 			}
 		}
@@ -1692,16 +1645,10 @@ func (jm *JobManager) checkInterfaces(job node_types.Job) ([]string, []string, m
 	var inputFiles []string
 	var outputFiles []string
 	var mounts = make(map[string]string)
-
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		jm.lm.Log("error", err.Error(), "jobs")
-		return nil, nil, nil, err
-	}
+	var err error
 
 	for _, intrface := range job.JobInterfaces {
-		basePath := filepath.Join(configs["local_storage"], "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
+		basePath := filepath.Join(jm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", job.OrderingNodeId, strconv.FormatInt(job.WorkflowId, 10))
 		switch intrface.InterfaceType {
 		case "STDIN":
 			inputFiles, err = jm.validateHostPaths(basePath, intrface, inputFiles)

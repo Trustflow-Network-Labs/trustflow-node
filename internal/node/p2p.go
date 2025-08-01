@@ -48,41 +48,43 @@ import (
 )
 
 type P2PManager struct {
-	daemon             bool
-	public             bool
-	relay              bool
-	bootstrapAddrs     []string
-	relayAddrs         []string
-	topicNames         []string
-	completeTopicNames []string
-	topicsSubscribed   map[string]*pubsub.Topic
-	subscriptions      []*pubsub.Subscription
-	protocolID         protocol.ID
-	ps                 *pubsub.PubSub
-	idht               *dht.IpfsDHT
-	h                  host.Host
-	ctx                context.Context
-	tcm                *TopicAwareConnectionManager
-	DB                 *sql.DB
-	Lm                 *utils.LogsManager
-	wm                 *workflow.WorkflowManager
-	sc                 *node_types.ServiceOffersCache
-	UI                 ui.UI
-
+	daemon                bool
+	public                bool
+	relay                 bool
+	bootstrapAddrs        []string
+	relayAddrs            []string
+	topicNames            []string
+	completeTopicNames    []string
+	topicsSubscribed      map[string]*pubsub.Topic
+	subscriptions         []*pubsub.Subscription
+	protocolID            protocol.ID
+	ps                    *pubsub.PubSub
+	idht                  *dht.IpfsDHT
+	h                     host.Host
+	ctx                   context.Context
+	tcm                   *TopicAwareConnectionManager
+	DB                    *sql.DB
+	cm                    *utils.ConfigManager
+	Lm                    *utils.LogsManager
+	wm                    *workflow.WorkflowManager
+	sc                    *node_types.ServiceOffersCache
+	UI                    ui.UI
 	peerDiscoveryTicker   *time.Ticker
 	connectionMaintTicker *time.Ticker
 	cronStopChan          chan struct{}
 	cronWg                sync.WaitGroup
 }
 
-func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
+func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
 	// Create a database connection
-	sqlm := database.NewSQLiteManager()
+	sqlm := database.NewSQLiteManager(cm)
 	db, err := sqlm.CreateConnection()
 	if err != nil {
 		panic(err)
 	}
-	lm := utils.NewLogsManager()
+
+	// Init log manager
+	lm := utils.NewLogsManager(cm)
 
 	p2pm := &P2PManager{
 		daemon: false,
@@ -123,8 +125,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		ctx:                nil,
 		tcm:                nil,
 		DB:                 db,
+		cm:                 cm,
 		Lm:                 lm,
-		wm:                 workflow.NewWorkflowManager(db, lm),
+		wm:                 workflow.NewWorkflowManager(db, lm, cm),
 		sc:                 node_types.NewServiceOffersCache(),
 		UI:                 ui,
 	}
@@ -216,22 +219,16 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 
 // Get ticker intervals from config (no cron parsing needed)
 func (p2pm *P2PManager) getTickerIntervals() (time.Duration, time.Duration, error) {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return 0, 0, err
-	}
-
 	// Use simple duration strings in config instead of cron
 	peerDiscoveryInterval := 5 * time.Minute // Default
-	if val, exists := configs["peer_discovery_interval"]; exists {
+	if val, exists := p2pm.cm.GetConfig("peer_discovery_interval"); exists {
 		if duration, err := time.ParseDuration(val); err == nil {
 			peerDiscoveryInterval = duration
 		}
 	}
 
 	connectionHealthInterval := 2 * time.Minute // Default
-	if val, exists := configs["connection_health_interval"]; exists {
+	if val, exists := p2pm.cm.GetConfig("connection_health_interval"); exists {
 		if duration, err := time.ParseDuration(val); err == nil {
 			connectionHealthInterval = duration
 		}
@@ -270,15 +267,6 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.ctx = context.Background()
 	}
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		p2pm.Lm.Log("error", message, "p2p")
-		return
-	}
-
 	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.DB, p2pm.UI, p2pm.Lm)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -287,7 +275,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 
 	// Read port number from configs
 	if port == 0 {
-		p := config["node_port"]
+		p := p2pm.cm.GetConfigWithDefault("node_port", "30609")
 		p64, err := strconv.ParseUint(p, 10, 16)
 		if err != nil {
 			port = 30609
@@ -298,14 +286,14 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 
 	// Read topics' names to subscribe
 	p2pm.completeTopicNames = p2pm.completeTopicNames[:0]
-	topicNamePrefix := config["topic_name_prefix"]
+	topicNamePrefix := p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.")
 	for _, topicName := range p2pm.topicNames {
 		topicName = topicNamePrefix + strings.TrimSpace(topicName)
 		p2pm.completeTopicNames = append(p2pm.completeTopicNames, topicName)
 	}
 
 	// Read streaming protocol
-	p2pm.protocolID = protocol.ID(config["protocol_id"])
+	p2pm.protocolID = protocol.ID(p2pm.cm.GetConfigWithDefault("protocol_id", "/trustflow-network/1.0.0"))
 
 	// Create or get previously created node key
 	keystoreManager := keystore.NewKeyStoreManager(p2pm.DB, p2pm.Lm)
@@ -1213,17 +1201,8 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	var chunkSize uint64 = 4096
 	var pointer uint64 = 0
 
-	// Load configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		p2pm.Lm.Log("error", message, "p2p")
-		return err
-	}
-
 	// Read chunk size form configs
-	cs := config["chunk_size"]
+	cs := p2pm.cm.GetConfigWithDefault("chunk_size", "81920")
 	chunkSize, err = strconv.ParseUint(cs, 10, 64)
 	if err != nil {
 		message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
@@ -1724,7 +1703,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			}
 
 			// Update workflow job status
-			workflowManager := workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm)
+			workflowManager := workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm, p2pm.cm)
 			if !jobRunResponse.Accepted {
 				msg := fmt.Sprintf("Job Run Request (job run request Id %d) for node Id %s is not accepted with the following reason: %s.\n\n",
 					jobRunResponse.JobId, jobRunResponse.NodeId, jobRunResponse.Message)
@@ -1772,7 +1751,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			}
 
 			// Update workflow job status
-			workflowManager := workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm)
+			workflowManager := workflow.NewWorkflowManager(p2pm.DB, p2pm.Lm, p2pm.cm)
 			err = workflowManager.UpdateWorkflowJobStatus(jobRunStatus.WorkflowId, jobRunStatus.NodeId, jobRunStatus.JobId, jobRunStatus.Status)
 			if err != nil {
 				msg := fmt.Sprintf("Could not update workflow job %d-%s-%d status to %s.\n\n%s",
@@ -2089,21 +2068,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			return
 		}
 
-		// Read chunk size form configs
-		configManager := utils.NewConfigManager("")
-		configs, err := configManager.ReadConfigs()
-		if err != nil {
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-			s.Reset()
-			return
-		}
-
 		sWorkflowId := strconv.FormatInt(streamData.WorkflowId, 10)
 		sJobId := strconv.FormatInt(streamData.JobId, 10)
-		fdir = filepath.Join(configs["local_storage"], "workflows", orderingNodeId, sWorkflowId, "job", sJobId, "input", peerId)
+		fdir = filepath.Join(p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", orderingNodeId, sWorkflowId, "job", sJobId, "input", peerId)
 		fpath = fdir + utils.RandomString(32)
 
-		cs := configs["chunk_size"]
+		cs := p2pm.cm.GetConfigWithDefault("chunk_size", "81920")
 		chunkSize, err = strconv.ParseUint(cs, 10, 64)
 		if err != nil {
 			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
@@ -2203,14 +2173,6 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 	var err error
 	var topic *pubsub.Topic
 
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		p2pm.Lm.Log("error", msg, "p2p")
-		return err
-	}
-
 	switch v := any(message).(type) {
 	case node_types.ServiceLookup:
 		m, err = json.Marshal(message)
@@ -2219,7 +2181,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 			return err
 		}
 
-		topicKey := config["topic_name_prefix"] + "lookup.service"
+		topicKey := p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + "lookup.service"
 		topic = p2pm.topicsSubscribed[topicKey]
 
 	default:
@@ -2238,14 +2200,6 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 }
 
 func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		p2pm.Lm.Log("error", message, "p2p")
-		return
-	}
-
 	for {
 		if sub == nil {
 			err := fmt.Errorf("subscription is nil. Will stop listening")
@@ -2271,7 +2225,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 		p2pm.Lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
 
 		switch topic {
-		case config["topic_name_prefix"] + "lookup.service":
+		case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + "lookup.service":
 			services, err := p2pm.ServiceLookup(m.Message.Data, true)
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -2305,14 +2259,6 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 }
 
 func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		p2pm.Lm.Log("error", message, "p2p")
-		return nil, err
-	}
-
 	var services []node_types.ServiceOffer
 	var lookup node_types.ServiceLookup
 
@@ -2320,7 +2266,7 @@ func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.Se
 		return services, nil
 	}
 
-	err = json.Unmarshal(data, &lookup)
+	err := json.Unmarshal(data, &lookup)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return nil, err
@@ -2335,7 +2281,7 @@ func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.Se
 	// Search services
 	var offset uint32 = 0
 	var limit uint32 = 1
-	l := config["search_results"]
+	l := p2pm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10

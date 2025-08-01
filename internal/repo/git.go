@@ -20,10 +20,13 @@ import (
 )
 
 type GitManager struct {
+	cm *utils.ConfigManager
 }
 
-func NewGitManager() *GitManager {
-	return &GitManager{}
+func NewGitManager(cm *utils.ConfigManager) *GitManager {
+	return &GitManager{
+		cm: cm,
+	}
 }
 
 // Get appropriate auth basing on provided parameters
@@ -63,12 +66,7 @@ func (gm *GitManager) getAuth(repoURL, username, password string) (transport.Aut
 
 // ValidateRepo checks if the Git repo is reachable by attempting a shallow clone without checkout.
 func (gm *GitManager) ValidateRepo(repoUrl, username, password string) error {
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return err
-	}
-	tmpRoot := configs["local_tmp"]
+	tmpRoot := gm.cm.GetConfigWithDefault("local_tmp", "./local_storage/tmp/")
 
 	// Make sure tmpRoot exists
 	if err := os.MkdirAll(tmpRoot, 0755); err != nil {
@@ -113,19 +111,13 @@ func (gm *GitManager) CheckDockerFiles(path string) (DockerFileCheckResult, erro
 	result := DockerFileCheckResult{}
 	skipDirs := make(map[string]bool)
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		return result, err
-	}
-
-	dockerScanSkip := strings.SplitSeq(configs["docker_scan_skip"], ",")
+	dockerScanSkip := strings.SplitSeq(gm.cm.GetConfigWithDefault("docker_scan_skip", ".git, packages, node_modules, .idea, .vscode"), ",")
 	for skip := range dockerScanSkip {
 		skip = strings.TrimSpace(skip)
 		skipDirs[skip] = true
 	}
 
-	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}

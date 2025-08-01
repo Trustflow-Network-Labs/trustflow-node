@@ -28,7 +28,7 @@ func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		db:   p2pm.DB,
 		lm:   p2pm.Lm,
-		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm),
+		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm),
 		p2pm: p2pm,
 	}
 }
@@ -249,17 +249,9 @@ func (sm *ServiceManager) GetServicesByNodeId(nodeId string) ([]node_types.Servi
 func (sm *ServiceManager) List(params ...uint32) ([]node_types.Service, error) {
 	var services []node_types.Service
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		msg := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		sm.lm.Log("warn", msg, "services")
-	}
-
 	var offset uint32 = 0
 	var limit uint32 = 10
-	l := config["search_results"]
+	l := sm.p2pm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10
@@ -329,13 +321,6 @@ func (sm *ServiceManager) Add(name string, description string, serviceType strin
 func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error) {
 	sm.lm.Log("debug", fmt.Sprintf("add data service path(s) %s to service ID %d", pathss, serviceId), "services")
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		sm.lm.Log("error", err.Error(), "services")
-		return 0, err
-	}
-
 	var cids []string
 	var cidss string
 	paths := strings.Split(pathss, ",")
@@ -348,7 +333,7 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 
 		// Add file/folder, compress it and make CID
 		// Compress (File/Folder)
-		rnd := configs["local_storage"] + utils.RandomString(32)
+		rnd := sm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/") + utils.RandomString(32)
 		err := utils.Compress(path, rnd)
 		if err != nil {
 			os.RemoveAll(rnd)
@@ -364,7 +349,7 @@ func (sm *ServiceManager) AddData(serviceId int64, pathss string) (int64, error)
 			return 0, err
 		}
 
-		err = os.Rename(rnd, configs["local_storage"]+cid)
+		err = os.Rename(rnd, sm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/")+cid)
 		if err != nil {
 			sm.lm.Log("error", err.Error(), "services")
 			return 0, err
@@ -583,13 +568,6 @@ func (sm *ServiceManager) removeData(id int64) error {
 		return err
 	}
 
-	configManager := utils.NewConfigManager("")
-	configs, err := configManager.ReadConfigs()
-	if err != nil {
-		sm.lm.Log("error", err.Error(), "services")
-		return err
-	}
-
 	// Split comma separated paths
 	paths := strings.SplitSeq(data.Path, ",")
 	for path := range paths {
@@ -610,7 +588,7 @@ func (sm *ServiceManager) removeData(id int64) error {
 
 		if no == 1 {
 			// Delete the data only if this is the only service using the data
-			err = os.RemoveAll(configs["local_storage"] + path)
+			err = os.RemoveAll(sm.p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/") + path)
 			if err != nil {
 				sm.lm.Log("error", err.Error(), "services")
 				return err
@@ -763,18 +741,9 @@ func (sm *ServiceManager) LookupRemoteService(searchPhrases string, serviceType 
 func (sm *ServiceManager) SearchServices(searchService node_types.SearchService, params ...uint32) ([]node_types.ServiceOffer, error) {
 	var services []node_types.ServiceOffer
 
-	// Read configs
-	configManager := utils.NewConfigManager("")
-	config, err := configManager.ReadConfigs()
-	if err != nil {
-		message := fmt.Sprintf("Can not read configs file. (%s)", err.Error())
-		sm.lm.Log("error", message, "services")
-		panic(err)
-	}
-
 	var offset uint32 = 0
 	var limit uint32 = 10
-	l := config["search_results"]
+	l := sm.p2pm.cm.GetConfigWithDefault("search_results", "10")
 	l64, err := strconv.ParseUint(l, 10, 32)
 	if err != nil {
 		limit = 10
