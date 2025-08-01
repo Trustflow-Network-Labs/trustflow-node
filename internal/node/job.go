@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adgsm/trustflow-node/internal/node_types"
@@ -28,6 +29,11 @@ type JobManager struct {
 	p2pm *P2PManager
 	tm   *utils.TextManager
 	vm   *utils.ValidatorManager
+
+	processQueueTicker *time.Ticker
+	statusUpdateTicker *time.Ticker
+	tickerStopChan     chan struct{}
+	tickerWg           sync.WaitGroup
 }
 
 func NewJobManager(p2pm *P2PManager) *JobManager {
@@ -41,6 +47,103 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		tm:   utils.NewTextManager(),
 		vm:   utils.NewValidatorManager(),
 	}
+}
+
+// Start all job periodic tasks
+func (jm *JobManager) StartPeriodicTasks() error {
+	// Get ticker intervals from config
+	processQueueInterval, statusUpdateInterval, err := jm.getTickerIntervals()
+	if err != nil {
+		jm.lm.Log("error", fmt.Sprintf("Can not read configs file. (%s)", err.Error()), "jobs")
+		return err
+	}
+
+	// Initialize stop channel
+	jm.tickerStopChan = make(chan struct{})
+
+	// Start job queue processing periodic task
+	jm.processQueueTicker = time.NewTicker(processQueueInterval)
+	jm.tickerWg.Add(1)
+	go func() {
+		defer jm.tickerWg.Done()
+		defer jm.processQueueTicker.Stop()
+
+		jm.lm.Log("info", fmt.Sprintf("Started job queue processing every %v", processQueueInterval), "jobs")
+
+		for {
+			select {
+			case <-jm.processQueueTicker.C:
+				jm.ProcessQueue()
+			case <-jm.tickerStopChan:
+				jm.lm.Log("info", "Stopped job queue processing periodic task", "jobs")
+				return
+			case <-jm.p2pm.ctx.Done():
+				jm.lm.Log("info", "Context cancelled, stopping job queue processing", "jobs")
+				return
+			}
+		}
+	}()
+
+	// Start status update periodic task
+	jm.statusUpdateTicker = time.NewTicker(statusUpdateInterval)
+	jm.tickerWg.Add(1)
+	go func() {
+		defer jm.tickerWg.Done()
+		defer jm.statusUpdateTicker.Stop()
+
+		jm.lm.Log("info", fmt.Sprintf("Started job status updates every %v", statusUpdateInterval), "jobs")
+
+		for {
+			select {
+			case <-jm.statusUpdateTicker.C:
+				jm.RequestWorkflowJobsStatusUpdates()
+			case <-jm.tickerStopChan:
+				jm.lm.Log("info", "Stopped job status update periodic task", "jobs")
+				return
+			case <-jm.p2pm.ctx.Done():
+				jm.lm.Log("info", "Context cancelled, stopping job status updates", "jobs")
+				return
+			}
+		}
+	}()
+
+	jm.lm.Log("info", "Started all job periodic tasks", "jobs")
+	return nil
+}
+
+// Stop all job periodic tasks
+func (jm *JobManager) StopPeriodicTasks() {
+	if jm.tickerStopChan != nil {
+		close(jm.tickerStopChan)
+		jm.tickerWg.Wait() // Wait for all goroutines to finish
+		jm.lm.Log("info", "Stopped all job periodic tasks", "jobs")
+	}
+}
+
+// Get ticker intervals from config
+func (jm *JobManager) getTickerIntervals() (time.Duration, time.Duration, error) {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Use simple duration strings in config
+	processQueueInterval := 30 * time.Second // Default
+	if val, exists := configs["process_job_queue_interval"]; exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			processQueueInterval = duration
+		}
+	}
+
+	statusUpdateInterval := 1 * time.Minute // Default
+	if val, exists := configs["job_status_update_interval"]; exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			statusUpdateInterval = duration
+		}
+	}
+
+	return processQueueInterval, statusUpdateInterval, nil
 }
 
 // Job exists?

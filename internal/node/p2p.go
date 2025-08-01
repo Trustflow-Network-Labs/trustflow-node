@@ -45,7 +45,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	ma "github.com/multiformats/go-multiaddr"
-	"github.com/robfig/cron"
 )
 
 type P2PManager struct {
@@ -65,11 +64,15 @@ type P2PManager struct {
 	ctx                context.Context
 	tcm                *TopicAwareConnectionManager
 	DB                 *sql.DB
-	crons              []*cron.Cron
 	Lm                 *utils.LogsManager
 	wm                 *workflow.WorkflowManager
 	sc                 *node_types.ServiceOffersCache
 	UI                 ui.UI
+
+	peerDiscoveryTicker   *time.Ticker
+	connectionMaintTicker *time.Ticker
+	cronStopChan          chan struct{}
+	cronWg                sync.WaitGroup
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
@@ -120,7 +123,6 @@ func NewP2PManager(ctx context.Context, ui ui.UI) *P2PManager {
 		ctx:                nil,
 		tcm:                nil,
 		DB:                 db,
-		crons:              []*cron.Cron{},
 		Lm:                 lm,
 		wm:                 workflow.NewWorkflowManager(db, lm),
 		sc:                 node_types.NewServiceOffersCache(),
@@ -139,6 +141,103 @@ func (p2pm *P2PManager) Close() error {
 		return p2pm.Lm.Close()
 	}
 	return nil
+}
+
+// Start all P2P periodic tasks
+func (p2pm *P2PManager) StartPeriodicTasks() error {
+	// Get ticker intervals from config
+	peerDiscoveryInterval, connectionHealthInterval, err := p2pm.getTickerIntervals()
+	if err != nil {
+		p2pm.Lm.Log("error", fmt.Sprintf("Can not read configs file. (%s)", err.Error()), "p2p")
+		return err
+	}
+
+	// Initialize stop channel
+	p2pm.cronStopChan = make(chan struct{})
+
+	// Start peer discovery periodic task
+	p2pm.peerDiscoveryTicker = time.NewTicker(peerDiscoveryInterval)
+	p2pm.cronWg.Add(1)
+	go func() {
+		defer p2pm.cronWg.Done()
+		defer p2pm.peerDiscoveryTicker.Stop()
+
+		p2pm.Lm.Log("info", fmt.Sprintf("Started peer discovery every %v", peerDiscoveryInterval), "p2p")
+
+		for {
+			select {
+			case <-p2pm.peerDiscoveryTicker.C:
+				p2pm.DiscoverPeers()
+			case <-p2pm.cronStopChan:
+				p2pm.Lm.Log("info", "Stopped peer discovery periodic task", "p2p")
+				return
+			case <-p2pm.ctx.Done():
+				p2pm.Lm.Log("info", "Context cancelled, stopping peer discovery", "p2p")
+				return
+			}
+		}
+	}()
+
+	// Start connection maintenance periodic task
+	p2pm.connectionMaintTicker = time.NewTicker(connectionHealthInterval)
+	p2pm.cronWg.Add(1)
+	go func() {
+		defer p2pm.cronWg.Done()
+		defer p2pm.connectionMaintTicker.Stop()
+
+		p2pm.Lm.Log("info", fmt.Sprintf("Started connection maintenance every %v", connectionHealthInterval), "p2p")
+
+		for {
+			select {
+			case <-p2pm.connectionMaintTicker.C:
+				p2pm.MaintainConnections()
+			case <-p2pm.cronStopChan:
+				p2pm.Lm.Log("info", "Stopped connection maintenance periodic task", "p2p")
+				return
+			case <-p2pm.ctx.Done():
+				p2pm.Lm.Log("info", "Context cancelled, stopping connection maintenance", "p2p")
+				return
+			}
+		}
+	}()
+
+	p2pm.Lm.Log("info", "Started all P2P periodic tasks", "p2p")
+	return nil
+}
+
+// Stop all P2P periodic tasks
+func (p2pm *P2PManager) StopPeriodicTasks() {
+	if p2pm.cronStopChan != nil {
+		close(p2pm.cronStopChan)
+		p2pm.cronWg.Wait() // Wait for all goroutines to finish
+		p2pm.Lm.Log("info", "Stopped all P2P periodic tasks", "p2p")
+	}
+}
+
+// Get ticker intervals from config (no cron parsing needed)
+func (p2pm *P2PManager) getTickerIntervals() (time.Duration, time.Duration, error) {
+	configManager := utils.NewConfigManager("")
+	configs, err := configManager.ReadConfigs()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Use simple duration strings in config instead of cron
+	peerDiscoveryInterval := 5 * time.Minute // Default
+	if val, exists := configs["peer_discovery_interval"]; exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			peerDiscoveryInterval = duration
+		}
+	}
+
+	connectionHealthInterval := 2 * time.Minute // Default
+	if val, exists := configs["connection_health_interval"]; exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			connectionHealthInterval = duration
+		}
+	}
+
+	return peerDiscoveryInterval, connectionHealthInterval, nil
 }
 
 // IsHostRunning checks if the provided host is actively running
@@ -351,17 +450,23 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		}
 	}()
 
-	// Start toppics aware peer discovery
+	// Start topics aware peer discovery
 	go p2pm.DiscoverPeers()
 
-	// Start crons
-	cronManager := NewCronManager(p2pm)
-	c, err := cronManager.JobQueue()
+	// Start P2P periodic tasks
+	err = p2pm.StartPeriodicTasks()
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		panic(fmt.Sprintf("%v", err))
 	}
-	p2pm.crons = append(p2pm.crons, c)
+
+	// Start job periodic tasks
+	jobManager := NewJobManager(p2pm)
+	err = jobManager.StartPeriodicTasks()
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "jobs")
+		panic(fmt.Sprintf("%v", err))
+	}
 
 	if !daemon {
 		// Print interactive menu
@@ -372,7 +477,10 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		<-p2pm.ctx.Done()
 	}
 
-	// When host is stopped close DB connection
+	// Stop job periodic tasks when shutting down
+	jobManager.StopPeriodicTasks()
+
+	// Close DB connection
 	if err = p2pm.DB.Close(); err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 	}
@@ -533,6 +641,9 @@ func (p2pm *P2PManager) createHost(
 }
 
 func (p2pm *P2PManager) Stop() error {
+	// Stop periodic tasks
+	p2pm.StopPeriodicTasks()
+
 	// Cancel subscriptions
 	for _, subscription := range p2pm.subscriptions {
 		subscription.Cancel()
@@ -544,11 +655,6 @@ func (p2pm *P2PManager) Stop() error {
 			p2pm.UI.Print(fmt.Sprintf("Could not close topic %s: %s\n", key, err.Error()))
 		}
 		delete(p2pm.topicsSubscribed, key)
-	}
-
-	// Stop crons
-	for _, c := range p2pm.crons {
-		c.Stop()
 	}
 
 	// Stop p2p node
