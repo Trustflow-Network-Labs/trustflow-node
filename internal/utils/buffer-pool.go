@@ -30,9 +30,9 @@ func (bp *BufferPool) Get() []byte {
 }
 
 // Put returns a buffer to the pool
-func (bp *BufferPool) Put(buf []byte) {
+func (bp *BufferPool) Put(buf *[]byte) {
 	// Only return buffers of the correct size
-	if len(buf) == bp.bufSize {
+	if len(*buf) == bp.bufSize {
 		bp.pool.Put(buf)
 	}
 }

@@ -1300,7 +1300,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 		}()
 
 		buffer := utils.P2PBufferPool.Get()
-		defer utils.P2PBufferPool.Put(buffer)
+		defer utils.P2PBufferPool.Put(&buffer)
 
 		writer := utils.GlobalWriterPool.Get(s)
 		defer utils.GlobalWriterPool.Put(writer)
@@ -2148,7 +2148,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		defer utils.GlobalReaderPool.Put(reader)
 
 		buf := utils.P2PBufferPool.Get()
-		defer utils.P2PBufferPool.Put(buf)
+		defer utils.P2PBufferPool.Put(&buf)
 
 		for {
 			n, err := reader.Read(buf)
