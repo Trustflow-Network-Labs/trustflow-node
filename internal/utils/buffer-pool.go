@@ -8,8 +8,8 @@ import (
 
 // BufferPool manages reusable byte buffers to prevent memory leaks
 type BufferPool struct {
-	pool     sync.Pool
-	bufSize  int
+	pool    sync.Pool
+	bufSize int
 }
 
 // NewBufferPool creates a new buffer pool with specified buffer size
@@ -17,7 +17,7 @@ func NewBufferPool(bufferSize int) *BufferPool {
 	return &BufferPool{
 		bufSize: bufferSize,
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return make([]byte, bufferSize)
 			},
 		},
@@ -46,7 +46,7 @@ type WriterPool struct {
 func NewWriterPool() *WriterPool {
 	return &WriterPool{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bufio.NewWriter(nil)
 			},
 		},
@@ -76,7 +76,7 @@ type ReaderPool struct {
 func NewReaderPool() *ReaderPool {
 	return &ReaderPool{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bufio.NewReader(nil)
 			},
 		},
@@ -100,13 +100,13 @@ func (rp *ReaderPool) Put(reader *bufio.Reader) {
 var (
 	// P2P streaming buffers (81KB default)
 	P2PBufferPool = NewBufferPool(81920)
-	
+
 	// File copy buffers (32KB)
 	FileBufferPool = NewBufferPool(32 * 1024)
-	
+
 	// Small buffers (4KB) for general use
 	SmallBufferPool = NewBufferPool(4 * 1024)
-	
+
 	// Writer and reader pools
 	GlobalWriterPool = NewWriterPool()
 	GlobalReaderPool = NewReaderPool()

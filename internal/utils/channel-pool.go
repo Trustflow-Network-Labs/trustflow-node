@@ -14,7 +14,7 @@ type ErrorChannelPool struct {
 func NewErrorChannelPool() *ErrorChannelPool {
 	return &ErrorChannelPool{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return make(chan error, 1)
 			},
 		},
@@ -35,7 +35,7 @@ func (p *ErrorChannelPool) Put(ch chan error) {
 	default:
 		// Channel was empty
 	}
-	
+
 	p.pool.Put(ch)
 }
 
@@ -48,7 +48,7 @@ type BoolChannelPool struct {
 func NewBoolChannelPool() *BoolChannelPool {
 	return &BoolChannelPool{
 		pool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return make(chan bool, 1)
 			},
 		},
@@ -69,7 +69,7 @@ func (p *BoolChannelPool) Put(ch chan bool) {
 	default:
 		// Channel was empty
 	}
-	
+
 	p.pool.Put(ch)
 }
 
