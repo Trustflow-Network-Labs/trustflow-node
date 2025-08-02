@@ -47,8 +47,7 @@ func (sm *ServiceManager) Exists(id int64) (error, bool) {
 
 	err := row.Scan(&serviceId)
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("debug", msg, "servics")
+		sm.lm.Log("debug", err.Error(), "servics")
 		return nil, false
 	}
 
@@ -91,8 +90,7 @@ func (sm *ServiceManager) GetData(serviceId int64) (node_types.DataService, erro
 
 	err := row.Scan(&dataService.Id, &dataService.ServiceId, &dataService.Path)
 	if err != nil {
-		msg := err.Error()
-		sm.lm.Log("debug", msg, "servics")
+		sm.lm.Log("debug", err.Error(), "servics")
 		return dataService, err
 	}
 

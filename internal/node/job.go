@@ -153,8 +153,7 @@ func (jm *JobManager) JobExists(id int64) (error, bool) {
 
 	err := row.Scan(&jobId)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("debug", msg, "jobs")
+		jm.lm.Log("debug", err.Error(), "jobs")
 		return nil, false
 	}
 
@@ -433,13 +432,12 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	// Check if job exists in a queue
 	err, exists := jm.JobExists(id)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 	if !exists {
-		msg := fmt.Sprintf("Job %d does not exists in a queue", id)
-		jm.lm.Log("error", msg, "jobs")
+		err := fmt.Errorf("job %d does not exists in a queue", id)
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
@@ -447,8 +445,7 @@ func (jm *JobManager) UpdateJobStatus(id int64, status string) error {
 	_, err = jm.db.ExecContext(context.Background(), "update jobs set status = ? where id = ?;",
 		status, id)
 	if err != nil {
-		msg := err.Error()
-		jm.lm.Log("error", msg, "jobs")
+		jm.lm.Log("error", err.Error(), "jobs")
 		return err
 	}
 
