@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -73,6 +72,9 @@ type P2PManager struct {
 	connectionMaintTicker *time.Ticker
 	cronStopChan          chan struct{}
 	cronWg                sync.WaitGroup
+	streamSemaphore       chan struct{}        // Limit concurrent stream processing
+	activeStreams         map[string]time.Time // Track active streams for cleanup
+	streamsMutex          sync.RWMutex         // Protect activeStreams map
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -87,9 +89,11 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	lm := utils.NewLogsManager(cm)
 
 	p2pm := &P2PManager{
-		daemon: false,
-		public: false,
-		relay:  false,
+		daemon:          false,
+		public:          false,
+		relay:           false,
+		streamSemaphore: make(chan struct{}, 10), // Allow max 10 concurrent streams
+		activeStreams:   make(map[string]time.Time),
 		bootstrapAddrs: []string{
 			"/ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
 			"/ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
@@ -333,8 +337,10 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 
 	maxConnections := 400
 
-	// Create resource manager with higher limits
-	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
+	// Create resource manager with moderate limits to prevent memory leaks
+	// For now, use finite limits instead of infinite to control resource usage
+	limits := rcmgr.DefaultLimits.AutoScale()
+	limiter := rcmgr.NewFixedLimiter(limits)
 	resourceManager, err := rcmgr.NewResourceManager(limiter)
 	if err != nil {
 		p2pm.Lm.Log("panic", err.Error(), "p2p")
@@ -394,13 +400,25 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.UI.Print(message)
 	}
 
-	// Setup a stream handler.
+	// Setup a stream handler with bounded concurrency.
 	// This gets called every time a peer connects and opens a stream to this node.
 	p2pm.h.SetStreamHandler(p2pm.protocolID, func(s network.Stream) {
 		message := fmt.Sprintf("Remote peer `%s` started streaming to our node `%s` in stream id `%s`, using protocol id: `%s`",
 			s.Conn().RemotePeer().String(), hst.ID(), s.ID(), p2pm.protocolID)
 		p2pm.Lm.Log("info", message, "p2p")
-		go p2pm.streamProposalResponse(s)
+
+		// Use semaphore to limit concurrent stream processing
+		select {
+		case p2pm.streamSemaphore <- struct{}{}:
+			go func() {
+				defer func() { <-p2pm.streamSemaphore }()
+				p2pm.streamProposalResponse(s)
+			}()
+		default:
+			// Semaphore full, reject stream
+			p2pm.Lm.Log("warn", "Stream processing at capacity, rejecting stream "+s.ID(), "p2p")
+			s.Reset()
+		}
 	})
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
@@ -1071,6 +1089,44 @@ func (p2pm *P2PManager) streamProposal(
 }
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
+	// Create timeout context for the entire stream processing
+	ctx, cancel := context.WithTimeout(p2pm.ctx, 15*time.Minute) // TODO, put in configs
+	defer cancel()
+
+	// Set reasonable timeouts to prevent indefinite blocking without closing the stream prematurely
+	s.SetReadDeadline(time.Now().Add(10 * time.Minute))  // TODO, put in configs
+	s.SetWriteDeadline(time.Now().Add(10 * time.Minute)) // TODO, put in configs
+
+	// Recovery function to handle panics and reset stream on errors
+	defer func() {
+		if r := recover(); r != nil {
+			p2pm.Lm.Log("error", fmt.Sprintf("Stream handler panic: %v", r), "p2p")
+			s.Reset() // Reset only on panic to free resources
+		}
+	}()
+
+	// Track this stream for cleanup
+	streamID := s.ID()
+	p2pm.streamsMutex.Lock()
+	p2pm.activeStreams[streamID] = time.Now()
+	p2pm.streamsMutex.Unlock()
+
+	// Ensure stream is removed from tracking when function exits
+	defer func() {
+		p2pm.streamsMutex.Lock()
+		delete(p2pm.activeStreams, streamID)
+		p2pm.streamsMutex.Unlock()
+	}()
+
+	// Check if context is cancelled before processing
+	select {
+	case <-ctx.Done():
+		p2pm.Lm.Log("warn", "Stream processing cancelled due to timeout", "p2p")
+		s.Reset()
+		return
+	default:
+		// Continue processing
+	}
 	// Prepare to read the stream data
 	var streamData node_types.StreamData
 	err := binary.Read(s, binary.BigEndian, &streamData)
@@ -1243,9 +1299,11 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 			}
 		}()
 
-		buffer := make([]byte, chunkSize)
-		writer := bufio.NewWriter(s)
-		defer writer.Flush() // Ensure all data is written
+		buffer := utils.P2PBufferPool.Get()
+		defer utils.P2PBufferPool.Put(buffer)
+
+		writer := utils.GlobalWriterPool.Get(s)
+		defer utils.GlobalWriterPool.Put(writer)
 
 		for {
 			n, err := v.Read(buffer)
@@ -2041,7 +2099,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		var err error
 		var fdir string
 		var fpath string
-		var chunkSize uint64 = 4096
 
 		// Allow node to receive remote files
 		// Data should be accepted in following cases:
@@ -2073,12 +2130,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		fdir = filepath.Join(p2pm.cm.GetConfigWithDefault("local_storage", "./local_storage/"), "workflows", orderingNodeId, sWorkflowId, "job", sJobId, "input", peerId)
 		fpath = fdir + utils.RandomString(32)
 
-		cs := p2pm.cm.GetConfigWithDefault("chunk_size", "81920")
-		chunkSize, err = strconv.ParseUint(cs, 10, 64)
-		if err != nil {
-			message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
-			p2pm.Lm.Log("warn", message, "p2p")
-		}
+		// Note: chunkSize is now handled by buffer pool, no need to parse it here
 		if err = os.MkdirAll(fdir, 0755); err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			s.Reset()
@@ -2092,8 +2144,11 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 		defer file.Close()
 
-		reader := bufio.NewReader(s)
-		buf := make([]byte, chunkSize)
+		reader := utils.GlobalReaderPool.Get(s)
+		defer utils.GlobalReaderPool.Put(reader)
+
+		buf := utils.P2PBufferPool.Get()
+		defer utils.P2PBufferPool.Put(buf)
 
 		for {
 			n, err := reader.Read(buf)

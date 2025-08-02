@@ -719,7 +719,7 @@ func (dm *DockerManager) runService(
 					return
 				}
 				files = append(files, file)
-				bufferedInputs[i] = bufio.NewReader(file)
+				bufferedInputs[i] = utils.GlobalReaderPool.Get(file)
 			}
 			defer func() {
 				for _, f := range files {
