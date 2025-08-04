@@ -567,6 +567,35 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 			return nil, err
 		}
 
+		// Create relay traffic table for billing
+		createRelayTrafficTableSql := `
+CREATE TABLE IF NOT EXISTS relay_traffic_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    peer_id TEXT NOT NULL,
+    ingress_bytes INTEGER DEFAULT 0,
+    egress_bytes INTEGER DEFAULT 0,
+    protocol TEXT,
+    direction TEXT, -- 'ingress' or 'egress'
+    recorded_at INTEGER NOT NULL, -- Unix timestamp
+    relay_node_id TEXT, -- ID of the relay node processing the traffic
+    circuit_id TEXT, -- Circuit identifier for grouping related traffic
+    connection_type TEXT DEFAULT 'relay_only', -- 'relay_only', 'relay_then_direct', 'direct_only'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for efficient billing queries
+CREATE INDEX IF NOT EXISTS idx_relay_traffic_peer_time ON relay_traffic_log(peer_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_relay_traffic_time ON relay_traffic_log(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_relay_traffic_relay_node ON relay_traffic_log(relay_node_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_relay_traffic_circuit ON relay_traffic_log(circuit_id);
+`
+		_, err = db.ExecContext(context.Background(), createRelayTrafficTableSql)
+		if err != nil {
+			message := fmt.Sprintf("Can not create `relay_traffic_log` table. (%s)", err.Error())
+			logsManager.Log("error", message, "database")
+			return nil, err
+		}
+
 		createAuditTriggersSql := `
 -- === JOBS Triggers ===
 CREATE TRIGGER IF NOT EXISTS trg_jobs_insert

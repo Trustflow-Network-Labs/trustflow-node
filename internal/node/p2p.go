@@ -75,6 +75,7 @@ type P2PManager struct {
 	streamSemaphore       chan struct{}        // Limit concurrent stream processing
 	activeStreams         map[string]time.Time // Track active streams for cleanup
 	streamsMutex          sync.RWMutex         // Protect activeStreams map
+	relayTrafficMonitor   *RelayTrafficMonitor // Monitor relay traffic for billing
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -466,6 +467,11 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		panic(fmt.Sprintf("%v", err))
 	}
 
+	// Start relay billing logger if relay is enabled
+	if p2pm.relay && p2pm.relayTrafficMonitor != nil {
+		go p2pm.StartRelayBillingLogger(p2pm.ctx)
+	}
+
 	// Start job periodic tasks
 	jobManager := NewJobManager(p2pm)
 	err = jobManager.StartPeriodicTasks()
@@ -473,6 +479,10 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		p2pm.Lm.Log("error", err.Error(), "jobs")
 		panic(fmt.Sprintf("%v", err))
 	}
+
+	// Relay diagnostics, DEBAG mode
+	diagnostics := NewRelayDiagnostics(p2pm)
+	diagnostics.RunFullDiagnostic()
 
 	if !daemon {
 		// Print interactive menu
@@ -530,8 +540,18 @@ func (p2pm *P2PManager) createPublicHost(
 		p2pm.Lm.Log("info", message, "p2p")
 		p2pm.UI.Print(message)
 
-		// TODO, make this configurable
+		// Initialize relay traffic monitor for billing with database storage
+		p2pm.relayTrafficMonitor = NewRelayTrafficMonitor(hst.Network(), p2pm.DB)
+
+		// Register relay connection notifee for billing
+		relayNotifee := &RelayConnectionNotifee{
+			monitor: p2pm.relayTrafficMonitor,
+			p2pm:    p2pm,
+		}
+		hst.Network().Notify(relayNotifee)
+
 		// Start relay service with resource limits (this is for high-bandwidth relay servers)
+		// TODO, make this configurable
 		_, err = relayv2.New(hst,
 			relayv2.WithResources(relayv2.Resources{
 				Limit: &relayv2.RelayLimit{
@@ -637,6 +657,14 @@ func (p2pm *P2PManager) createHost(
 		libp2p.EnableAutoNATv2(),
 		// enable hole punching for direct connections when possible
 		libp2p.EnableHolePunching(),
+		// Add bandwidth reporting for relay traffic billing (only for relay nodes)
+		func() libp2p.Option {
+			if p2pm.relay {
+				relayReporter := NewRelayBandwidthReporter(p2pm.DB, p2pm.Lm, p2pm)
+				return libp2p.BandwidthReporter(relayReporter)
+			}
+			return func(*libp2p.Config) error { return nil } // No-op for non-relay nodes
+		}(),
 	)
 	if err != nil {
 		return nil, err
