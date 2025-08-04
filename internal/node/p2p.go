@@ -480,10 +480,6 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		panic(fmt.Sprintf("%v", err))
 	}
 
-	// Relay diagnostics, DEBAG mode
-	diagnostics := NewRelayDiagnostics(p2pm)
-	diagnostics.RunFullDiagnostic()
-
 	if !daemon {
 		// Print interactive menu
 		menuManager := NewMenuManager(p2pm)
@@ -568,6 +564,10 @@ func (p2pm *P2PManager) createPublicHost(
 			hst.Close()
 			return nil, err
 		}
+
+		// Relay diagnostics, DEBAG mode
+		//		diagnostics := NewRelayDiagnostics(p2pm)
+		//		diagnostics.RunFullDiagnostic()
 	}
 
 	return hst, nil
