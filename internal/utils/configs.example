@@ -4,6 +4,20 @@ topic_name = trustflow.network
 protocol_id = /trustflow-network/1.0.0
 search_results = 10
 
+[relay]
+# Relay service pricing (for public relay nodes)
+# Set pricing for your relay service - customers will pay this rate
+relay_price_per_gb = 0.15
+relay_currency = USD
+relay_max_bandwidth_mbps = 25
+relay_contact_info = admin@example.com
+relay_availability_percent = 99.5
+
+# Relay discovery preferences (for private nodes behind NAT)  
+# Configure what you're willing to pay for relay services
+relay_max_price_gb = 0.30
+relay_min_reputation = 4.0
+
 [sqlite]
 database_file = ./trustflow.db
 

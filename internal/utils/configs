@@ -4,6 +4,18 @@ topic_name_prefix = trustflow.network.
 protocol_id = /trustflow-network/1.0.0
 search_results = 10
 
+[relay]
+# Relay service pricing (for public relay nodes)
+relay_price_per_gb = 0.10
+relay_currency = USD
+relay_max_bandwidth_mbps = 10
+relay_contact_info = 
+relay_availability_percent = 99.0
+
+# Relay discovery preferences (for private nodes behind NAT)
+relay_max_price_gb = 0.50
+relay_min_reputation = 3.0
+
 [sqlite]
 database_file = ./trustflow.db
 

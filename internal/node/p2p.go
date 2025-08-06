@@ -72,10 +72,12 @@ type P2PManager struct {
 	connectionMaintTicker *time.Ticker
 	cronStopChan          chan struct{}
 	cronWg                sync.WaitGroup
-	streamSemaphore       chan struct{}        // Limit concurrent stream processing
-	activeStreams         map[string]time.Time // Track active streams for cleanup
-	streamsMutex          sync.RWMutex         // Protect activeStreams map
-	relayTrafficMonitor   *RelayTrafficMonitor // Monitor relay traffic for billing
+	streamSemaphore       chan struct{}              // Limit concurrent stream processing
+	activeStreams         map[string]time.Time       // Track active streams for cleanup
+	streamsMutex          sync.RWMutex               // Protect activeStreams map
+	relayTrafficMonitor   *RelayTrafficMonitor       // Monitor relay traffic for billing
+	relayPeerSource       *TopicAwareRelayPeerSource // Discover relay peers dynamically
+	relayAdvertiser       *RelayServiceAdvertiser    // Advertise our relay service
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -531,6 +533,9 @@ func (p2pm *P2PManager) createPublicHost(
 		return nil, err
 	}
 
+	// Initialize relay components after DHT is ready
+	p2pm.initRelayComponents()
+
 	if p2pm.relay {
 		message := "Starting relay server"
 		p2pm.Lm.Log("info", message, "p2p")
@@ -564,6 +569,24 @@ func (p2pm *P2PManager) createPublicHost(
 			hst.Close()
 			return nil, err
 		}
+
+		// Auto-start relay service advertising for public relay nodes
+		go func() {
+			// Wait a bit for DHT to bootstrap before advertising
+			time.Sleep(30 * time.Second)
+
+			config := p2pm.createRelayConfigFromNodeConfig()
+			err := p2pm.StartRelayAdvertising(p2pm.ctx, config)
+			if err != nil {
+				p2pm.Lm.Log("warning",
+					fmt.Sprintf("Failed to start relay advertising: %v", err),
+					"relay-advertiser")
+			} else {
+				p2pm.Lm.Log("info",
+					fmt.Sprintf("🚀 Auto-started relay marketplace advertising for topics: %v", config.Topics),
+					"relay-advertiser")
+			}
+		}()
 
 		// Relay diagnostics, DEBAG mode
 		//		diagnostics := NewRelayDiagnostics(p2pm)
@@ -605,6 +628,43 @@ func (p2pm *P2PManager) createPrivateHost(
 		p2pm.h.Close()
 		return nil, err
 	}
+
+	// Initialize relay components after DHT is ready
+	p2pm.initRelayComponents()
+
+	// Auto-configure relay discovery for private nodes
+	go func() {
+		// Wait for DHT to bootstrap before configuring relay discovery
+		time.Sleep(30 * time.Second)
+
+		// Configure relay discovery parameters from config
+		maxRelays := 5
+		minReputation := 3.0
+		maxPricePerGB := 0.50 // Max $0.50/GB
+		currency := "USD"
+
+		// Read configuration from node config if available
+		if val, exists := p2pm.cm.GetConfig("relay_max_price_gb"); exists {
+			if price, err := strconv.ParseFloat(val, 64); err == nil {
+				maxPricePerGB = price
+			}
+		}
+		if val, exists := p2pm.cm.GetConfig("relay_min_reputation"); exists {
+			if rep, err := strconv.ParseFloat(val, 64); err == nil {
+				minReputation = rep
+			}
+		}
+		if val, exists := p2pm.cm.GetConfig("relay_currency"); exists {
+			currency = val
+		}
+
+		p2pm.ConfigureRelayDiscovery(maxRelays, minReputation, maxPricePerGB, currency)
+
+		p2pm.Lm.Log("info",
+			fmt.Sprintf("🔍 Auto-configured relay discovery: max %d relays, min rating %.1f, max $%.2f/GB",
+				maxRelays, minReputation, maxPricePerGB),
+			"relay-discovery")
+	}()
 
 	return hst, nil
 }
@@ -650,8 +710,14 @@ func (p2pm *P2PManager) createHost(
 		libp2p.NATPortMap(),
 		// control which nodes we allow to connect
 		libp2p.ConnectionGater(blacklistManager.Gater),
-		// use static relays for more reliable relay selection
-		libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo),
+		// Use dynamic relay discovery for topic-aware relay selection
+		func() libp2p.Option {
+			if p2pm.relayPeerSource != nil {
+				return libp2p.EnableAutoRelayWithPeerSource(p2pm.relayPeerSource.PeerSourceFunc())
+			}
+			// Fallback to static relays if dynamic source not available
+			return libp2p.EnableAutoRelayWithStaticRelays(relayAddrsInfo)
+		}(),
 		libp2p.EnableRelay(),
 		// enable AutoNAT v2 for automatic reachability detection
 		libp2p.EnableAutoNATv2(),
@@ -672,6 +738,44 @@ func (p2pm *P2PManager) createHost(
 	p2pm.h = hst
 
 	return hst, nil
+}
+
+// createRelayConfigFromNodeConfig creates relay service configuration from node configuration
+func (p2pm *P2PManager) createRelayConfigFromNodeConfig() RelayServiceConfig {
+	config := CreateDefaultRelayConfig(p2pm.completeTopicNames)
+
+	// Read pricing configuration
+	if val, exists := p2pm.cm.GetConfig("relay_price_per_gb"); exists {
+		if price, err := strconv.ParseFloat(val, 64); err == nil {
+			config.PricePerGB = price
+		}
+	}
+
+	// Read currency configuration
+	if val, exists := p2pm.cm.GetConfig("relay_currency"); exists {
+		config.Currency = val
+	}
+
+	// Read bandwidth limits
+	if val, exists := p2pm.cm.GetConfig("relay_max_bandwidth_mbps"); exists {
+		if mbps, err := strconv.ParseInt(val, 10, 64); err == nil {
+			config.MaxBandwidth = mbps * 1024 * 1024 // Convert to bytes/second
+		}
+	}
+
+	// Read contact information
+	if val, exists := p2pm.cm.GetConfig("relay_contact_info"); exists {
+		config.ContactInfo = val
+	}
+
+	// Read availability target
+	if val, exists := p2pm.cm.GetConfig("relay_availability_percent"); exists {
+		if availability, err := strconv.ParseFloat(val, 64); err == nil {
+			config.Availability = availability
+		}
+	}
+
+	return config
 }
 
 func (p2pm *P2PManager) Stop() error {

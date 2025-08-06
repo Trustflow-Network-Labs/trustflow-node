@@ -1,11 +1,11 @@
-package main
+package examples
 
 import (
 	"fmt"
 )
 
 // RelayBillingDemo demonstrates the relay traffic monitoring and billing system
-func main() {
+func RelayBillingDemo() {
 	// This is a demo showing how to use the relay billing system
 
 	// 1. The system automatically captures real traffic through the BandwidthReporter
