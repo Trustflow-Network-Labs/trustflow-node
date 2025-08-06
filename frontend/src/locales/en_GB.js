@@ -3,8 +3,7 @@ export default {
 		"landing": {
             "trustflow-node-text": "Powering the decentralized backend of tomorrow",
             "trustflow-node-text-helper": "Trustflow Node is an open-source, decentralized framework for trust-based data exchange and secure computation across distributed networks. It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifiable, and scalable infrastructure for the next generation of decentralized applications.",
-			"start-node-options-text": "Does this node have a public IP address? Would you like it to act as a relay and earn money by relaying traffic for private nodes behind NAT?",
-			"node-has-public-ip": "Node has public IP",
+			"node-has-public-ip-act-as-relay": "This node have a public IP address. Would you like it to act as a relay and earn money by relaying traffic for private nodes behind NAT?",
 			"act-as-relay": "Act as a relay",
 			"on": "Yes",
 			"off": "No",

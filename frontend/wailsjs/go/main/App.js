@@ -38,6 +38,10 @@ export function IsHostRunning() {
   return window['go']['main']['App']['IsHostRunning']();
 }
 
+export function IsPublicNode() {
+  return window['go']['main']['App']['IsPublicNode']();
+}
+
 export function ListWorkflows(arg1, arg2) {
   return window['go']['main']['App']['ListWorkflows'](arg1, arg2);
 }
@@ -70,8 +74,8 @@ export function SetWorkflowGUIProps(arg1, arg2) {
   return window['go']['main']['App']['SetWorkflowGUIProps'](arg1, arg2);
 }
 
-export function StartNode(arg1, arg2, arg3) {
-  return window['go']['main']['App']['StartNode'](arg1, arg2, arg3);
+export function StartNode(arg1, arg2) {
+  return window['go']['main']['App']['StartNode'](arg1, arg2);
 }
 
 export function StopNode() {

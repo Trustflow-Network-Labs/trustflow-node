@@ -131,33 +131,29 @@ func (nt *NodeTypeManager) detectNodeType() (NodeType, error) {
 	// Method 1: Get local IP
 	localIP, err := nt.getLocalIP()
 	if err != nil {
-		fmt.Printf("Could not determine local IP: %v\n", err)
+		// Could not determine local IP
 		return Private, nil
 	}
 
-	fmt.Printf("Local IP: %s\n", localIP)
-
 	// Method 2: Check if local IP is private
 	if nt.isPrivateIP(localIP) {
-		fmt.Println("Local IP is private, node type: private")
+		// Local IP is private, node type: private
 		return Private, nil
 	}
 
 	// Method 3: Compare with external IP
 	externalIP, err := nt.getExternalIP()
 	if err != nil {
-		fmt.Printf("Could not fetch external IP: %v\n", err)
-		fmt.Println("Defaulting to private due to error")
+		// Could not fetch external IP
+		// Defaulting to private due to error
 		return Private, nil
 	}
 
-	fmt.Printf("External IP: %s\n", externalIP)
-
 	if localIP == externalIP {
-		fmt.Println("Local IP matches external IP, node type: public")
+		// Local IP matches external IP, node type: public
 		return Public, nil
 	} else {
-		fmt.Println("Local IP differs from external IP, node type: private")
+		// Local IP differs from external IP, node type: private
 		return Private, nil
 	}
 }
@@ -168,7 +164,7 @@ func (nt *NodeTypeManager) determineNodeType() (NodeType, error) {
 	if manualType := os.Getenv("NODE_TYPE"); manualType != "" {
 		manualType = strings.ToLower(manualType)
 		if manualType == "public" || manualType == "private" {
-			fmt.Printf("Using manual override: %s\n", manualType)
+			// Using manual override
 			return NodeType(manualType), nil
 		}
 	}

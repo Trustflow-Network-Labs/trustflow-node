@@ -22,10 +22,11 @@ type App struct {
 	dm                dependencies.DependencyManager
 	sm                node.ServiceManager
 	wm                workflow.WorkflowManager
+	ntm               *utils.NodeTypeManager
 	confirmFuncChan   chan bool
-	confirmChanMutex  sync.Mutex  // Protect confirmFuncChan access
+	confirmChanMutex  sync.Mutex // Protect confirmFuncChan access
 	frontendReadyChan chan struct{}
-	channelManager    *utils.ChannelManager  // Centralized channel management
+	channelManager    *utils.ChannelManager // Centralized channel management
 	gui               ui.UI
 }
 
@@ -46,12 +47,12 @@ func (a *App) startup(ctx context.Context) {
 		},
 		ConfirmFunc: func(question string) bool {
 			a.confirmChanMutex.Lock()
-			
+
 			// Close existing channel if it exists
 			if a.confirmFuncChan != nil {
 				close(a.confirmFuncChan)
 			}
-			
+
 			// Create new channel
 			a.confirmFuncChan = make(chan bool)
 			currentChan := a.confirmFuncChan // Keep reference for this call
@@ -105,7 +106,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.IsHostRunning() {
 		a.StopNode()
 	}
-	
+
 	// Clean up channels
 	a.confirmChanMutex.Lock()
 	if a.confirmFuncChan != nil {
@@ -113,12 +114,12 @@ func (a *App) shutdown(ctx context.Context) {
 		a.confirmFuncChan = nil
 	}
 	a.confirmChanMutex.Unlock()
-	
+
 	// Shutdown channel manager
 	if a.channelManager != nil {
 		a.channelManager.Shutdown()
 	}
-	
+
 	defer a.p2pm.Close()
 }
 
@@ -139,7 +140,7 @@ func (a *App) CheckAndInstallDependencies() {
 func (a *App) SetUserConfirmation(response bool) {
 	a.confirmChanMutex.Lock()
 	defer a.confirmChanMutex.Unlock()
-	
+
 	if a.confirmFuncChan != nil {
 		select {
 		case a.confirmFuncChan <- response:
@@ -157,14 +158,53 @@ func (a *App) IsHostRunning() bool {
 	return a.p2pm.IsHostRunning()
 }
 
+// Get node type (public or private)
+func (a *App) IsPublicNode() bool {
+	// Determine node type (if node has public IP or not)
+	a.ntm = utils.NewNodeTypeManager()
+	nodeType, err := a.ntm.GetNodeTypeConfig([]uint16{})
+	if err != nil {
+		return false
+	} else {
+		return nodeType.Type == "public"
+	}
+}
+
 // Start P2P node
-func (a *App) StartNode(port uint16, public bool, relay bool) {
-	if !public {
+func (a *App) StartNode(port uint16, relay bool) {
+	var public bool = false
+
+	// Determine node type (if node has public IP or not)
+	a.ntm = utils.NewNodeTypeManager()
+	nodeType, err := a.ntm.GetNodeTypeConfig([]uint16{port})
+	if err != nil {
+		msg := fmt.Sprintf("⚠️ Can not determine node type: %v", err)
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+	} else {
+		msg := fmt.Sprintf("Node type: %s", nodeType.Type)
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		msg = fmt.Sprintf("Local IP: %s", nodeType.LocalIP)
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		msg = fmt.Sprintf("External IP: %s", nodeType.ExternalIP)
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		for port, open := range nodeType.Connectivity {
+			if !open {
+				msg = fmt.Sprintf("❌ Port %d is not open", port)
+			} else {
+				msg = fmt.Sprintf("✅ Port %d is open", port)
+			}
+			runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		}
+
+		public = nodeType.Type == "public"
+	}
+
+	if !public && relay {
+		msg := "Private node behind NAT should not be used as a relay."
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		relay = false
 	}
-	if relay {
-		public = true
-	}
+
 	a.p2pm.Start(port, true, public, relay)
 }
 

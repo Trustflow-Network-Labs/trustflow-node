@@ -17,7 +17,6 @@ import (
 
 var port uint16
 var daemon bool = false
-var public bool = false
 var relay bool = false
 var pid int
 var nodeCmd = &cobra.Command{
@@ -27,6 +26,7 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		var public bool = false
 		// Configs manager
 		cm := utils.NewConfigManager("")
 
@@ -35,14 +35,30 @@ var nodeCmd = &cobra.Command{
 		dm.CheckAndInstallDependencies()
 		fmt.Println("\n🚀 Dependencies checked. Continuing to start the app...")
 
-		/* TODO, this is just a test of node type functionality
+		// Determine node type (if node has public IP or not)
 		ntm := utils.NewNodeTypeManager()
 		nodeType, err := ntm.GetNodeTypeConfig([]uint16{port})
 		if err != nil {
-			fmt.Printf("error:\n%v\n", err)
+			fmt.Printf("⚠️ Can not determine node type:\n%v\n", err)
+		} else {
+			fmt.Printf("Node type: %s\n", nodeType.Type)
+			fmt.Printf("Local IP: %s\n", nodeType.LocalIP)
+			fmt.Printf("External IP: %s\n", nodeType.ExternalIP)
+			for port, open := range nodeType.Connectivity {
+				if !open {
+					fmt.Printf("❌ Port %d is not open\n", port)
+				} else {
+					fmt.Printf("✅ Port %d is open\n", port)
+				}
+			}
+
+			public = nodeType.Type == "public"
 		}
-		fmt.Printf("%v\n", nodeType)
-		*/
+
+		if !public && relay {
+			fmt.Println("⚠️ Private node behind NAT should not be used as a relay.")
+			relay = false
+		}
 
 		// P2P Manager
 		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{}, cm)
@@ -66,15 +82,8 @@ var nodeDaemonCmd = &cobra.Command{
 		defer logsManager.Close()
 
 		// Start the process in background
-		if !public {
-			relay = false
-		}
-		if relay {
-			public = true
-		}
-		pub := fmt.Sprintf("-b=%t", public)
 		rel := fmt.Sprintf("-r=%t", relay)
-		command := exec.Command(os.Args[0], "start", "-d=true", pub, rel)
+		command := exec.Command(os.Args[0], "start", "-d=true", rel)
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		command.Stdin = nil
@@ -172,12 +181,10 @@ var stopNodeCmd = &cobra.Command{
 func init() {
 	nodeCmd.Flags().Uint16VarP(&port, "port", "p", 30609, "Serve node on specified port [1024-65535]")
 	nodeCmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "Serve node as daemon")
-	nodeCmd.Flags().BoolVarP(&public, "public", "b", false, "Public IP node")
 	nodeCmd.Flags().BoolVarP(&relay, "relay", "r", false, "Serve as relay node")
 	rootCmd.AddCommand(nodeCmd)
 
 	nodeDaemonCmd.Flags().Uint16VarP(&port, "port", "p", 30609, "Serve node on specified port [1024-65535]")
-	nodeDaemonCmd.Flags().BoolVarP(&public, "public", "b", false, "Public IP node")
 	nodeDaemonCmd.Flags().BoolVarP(&relay, "relay", "r", false, "Serve as relay node")
 	rootCmd.AddCommand(nodeDaemonCmd)
 
