@@ -1,8 +1,6 @@
 <template class="app">
-  <Landing v-if="!hostRunning"
-    @host-running="(running) => {hostRunning = running}"/>
-  <Cockpit v-if="hostRunning"
-    @host-running="(running) => {hostRunning = running}"/>
+  <Landing v-if="!hostRunning" />
+  <Cockpit v-if="hostRunning" />
 </template>
 
 <script src="./js/app.js" scoped />

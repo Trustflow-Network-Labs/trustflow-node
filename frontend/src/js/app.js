@@ -13,7 +13,11 @@ const setup = function() {
 
 const created = async function () {}
 
-const computed = {}
+const computed = {
+    hostRunning() {
+		return MainStore.getHostRunning
+    }
+}
 
 const watch = {}
 
@@ -37,6 +41,9 @@ const mounted = async function() {
     EventsOn('serviceofferlog-event', (serviceOffer) => {
         MainStore.setServiceOffer(serviceOffer)
     })
+    EventsOn('hostrunninglog-event', (running) => {
+        MainStore.setHostRunning(running)
+    })
 
     // ✅ Tell backend we're ready
     await NotifyFrontendReady()
@@ -50,6 +57,7 @@ const unmounted = function() {
     EventsOff('sysconfirm-event')
     EventsOff('dependenciesready-event')
     EventsOff('serviceofferlog-event')
+    EventsOff('hostrunninglog-event')
 }
 
 const destroyed = function() {
@@ -74,7 +82,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
         }
     }
 }

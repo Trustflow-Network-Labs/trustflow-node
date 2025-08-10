@@ -1,8 +1,7 @@
 <template>
   <main id="cockpit" :class="[cockpitClass, 'window-container']">
     <div class="menu-container">
-      <Menu
-        @host-running="(running) => {hostRunning = running}" />
+      <Menu />
     </div>
     <div class="resizer"></div>
     <div class="main-container">

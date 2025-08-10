@@ -10,6 +10,7 @@ export const useMainStore = defineStore('main', {
         appConfirm: "",
         appLogs: [],
         exitLogs: [],
+        hostRunning: false,
         selectedMenuKey: null,
         serviceOffer: null,
         pickedService: null,
@@ -22,6 +23,7 @@ export const useMainStore = defineStore('main', {
         getLocale: (state) => state.locale,
         getAppCanStart: (state) => state.appCanStart,
         getAppConfirm: (state) => state.appConfirm,
+        getHostRunning: (state) => state.hostRunning,
         getAppLogs: (state) => state.appLogs,
         getExitLogs: (state) => state.exitLogs,
         getSelectedMenuKey: (state) => state.selectedMenuKey,
@@ -47,6 +49,9 @@ export const useMainStore = defineStore('main', {
         },
         setAppConfirm(appConfirm) {
             this.appConfirm = appConfirm
+        },
+        setHostRunning(hostRunning) {
+            this.hostRunning = hostRunning
         },
         setAppLogs(appLogs) {
             this.appLogs = appLogs

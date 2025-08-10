@@ -11,7 +11,6 @@ const setup = function() {
 }
 
 const created = async function () {
-    this.hostRunning = await this.isHostRunning()
     this.publicNode = await this.isPublicNode()
 }
 
@@ -40,12 +39,12 @@ const computed = {
     exitLogs() {
 		return MainStore.getExitLogs
     },
+    hostRunning() {
+		return MainStore.getHostRunning
+    },
 }
 
 const watch = {
-    hostRunning() {
-        this.$emit('host-running', this.hostRunning)
-    },
     appLogs: {
         handler() {
             this.$nextTick(() => {
@@ -93,21 +92,9 @@ const methods = {
         return await IsPublicNode()
     },
     async startNode() {
-        // Start node and don't wait
+        // Start node and wait
         // for complete initialization
-        StartNode(this.port, this.relay)
-
-        // Use interval and max retries
-        // to check is node started
-        let maxRetries = 10
-        let retries = 0
-        let nodeStarted = window.setInterval(async () => {
-            this.hostRunning = await this.isHostRunning()
-            if (this.hostRunning || retries >= maxRetries-1) {
-                clearInterval(nodeStarted)
-            }
-            retries++
-        }, 500)
+        await StartNode(this.port, this.relay)
     }
 }
 
@@ -137,7 +124,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
             port: 30609,
             publicNode: false,
             relay: false,

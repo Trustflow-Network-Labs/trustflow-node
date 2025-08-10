@@ -185,6 +185,7 @@ func (a *App) StartNode(port uint16, relay bool) {
 	if err != nil {
 		msg := fmt.Sprintf("⚠️ Can not determine node type: %v", err)
 		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		return
 	} else {
 		msg := fmt.Sprintf("Node type: %s", nodeType.Type)
 		runtime.EventsEmit(a.ctx, "syslog-event", msg)
@@ -194,11 +195,13 @@ func (a *App) StartNode(port uint16, relay bool) {
 		runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		for port, open := range nodeType.Connectivity {
 			if !open {
-				msg = fmt.Sprintf("❌ Port %d is not open", port)
+				err = fmt.Errorf("❌ Port %d is not open", port)
+				runtime.EventsEmit(a.ctx, "syslog-event", err.Error())
+				return
 			} else {
 				msg = fmt.Sprintf("✅ Port %d is open", port)
+				runtime.EventsEmit(a.ctx, "syslog-event", msg)
 			}
-			runtime.EventsEmit(a.ctx, "syslog-event", msg)
 		}
 
 		public = nodeType.Type == "public"
@@ -223,17 +226,29 @@ func (a *App) StartNode(port uint16, relay bool) {
 		runtime.EventsEmit(a.ctx, "syslog-event", msg)
 	}
 
+	// Wait for node to become ready
+	// Try every 500ms, up to 10 times (i.e. 5 seconds total)
+	running := a.p2pm.WaitForHostReady(500*time.Millisecond, 10)
+	if !running {
+		err := fmt.Errorf("⚠️ Host is not running")
+		a.p2pm.Lm.Log("error", err.Error(), "p2p")
+		runtime.EventsEmit(a.ctx, "syslog-event", err.Error())
+		runtime.EventsEmit(a.ctx, "hostrunninglog-event", running)
+		return
+	}
+	runtime.EventsEmit(a.ctx, "hostrunninglog-event", running)
+
 	// Add signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case <-a.ctx.Done():
-		a.p2pm.Lm.Log("info", "Context cancelled", "p2p")
+		a.p2pm.Lm.Log("debug", "Context cancelled", "p2p")
 	case <-sigChan:
-		a.p2pm.Lm.Log("info", "Received shutdown signal", "p2p")
+		a.p2pm.Lm.Log("debug", "Received shutdown signal", "p2p")
 	case <-currentStopChan:
-		a.p2pm.Lm.Log("info", "Received stop request from StopNode", "p2p")
+		a.p2pm.Lm.Log("debug", "Received stop request from StopNode", "p2p")
 	}
 }
 

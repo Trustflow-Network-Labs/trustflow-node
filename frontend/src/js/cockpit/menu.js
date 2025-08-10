@@ -11,7 +11,6 @@ const setup = function() {
 
 const created = async function () {
     That = this
-    this.hostRunning = await this.isHostRunning()
 }
 
 const computed = {
@@ -27,6 +26,9 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
+    hostRunning() {
+		return MainStore.getHostRunning
+    },
     selectedMenuKey() {
         return MainStore.getSelectedMenuKey
     },
@@ -111,9 +113,6 @@ const computed = {
 }
 
 const watch = {
-    hostRunning() {
-        this.$emit('host-running', this.hostRunning)
-    },
 }
 
 const mounted = async function() {
@@ -140,7 +139,8 @@ const methods = {
         if (err != null && err != "") {
             this.errorText = err
         }
-        this.hostRunning = await this.isHostRunning()
+        const running = await this.isHostRunning()
+        MainStore.setHostRunning(running)
     },
 }
 
@@ -166,7 +166,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
             errorText: "",
             expandedMenuKeys: {},
         }

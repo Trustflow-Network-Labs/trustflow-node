@@ -29,12 +29,12 @@ const computed = {
     appCanStart() {
 		return MainStore.getAppCanStart
     },
+    hostRunning() {
+		return MainStore.getHostRunning
+    },
 }
 
 const watch = {
-    hostRunning() {
-        this.$emit('host-running', this.hostRunning)
-    }
 }
 
 const mounted = function() {
@@ -75,7 +75,6 @@ export default {
     destroyed: destroyed,
     data() {
         return {
-            hostRunning: false,
             panesResized: false,
         }
     }
