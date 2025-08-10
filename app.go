@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/adgsm/trustflow-node/internal/dependencies"
@@ -28,6 +31,8 @@ type App struct {
 	frontendReadyChan chan struct{}
 	channelManager    *utils.ChannelManager // Centralized channel management
 	gui               ui.UI
+	stopChan          chan struct{} // Channel to signal node stop from StopNode()
+	stopChanMutex     sync.Mutex    // Protect stopChan access
 }
 
 // NewApp creates a new App application struct
@@ -205,11 +210,47 @@ func (a *App) StartNode(port uint16, relay bool) {
 		relay = false
 	}
 
-	a.p2pm.Start(port, true, public, relay)
+	// Initialize stop channel for this start session
+	a.stopChanMutex.Lock()
+	a.stopChan = make(chan struct{})
+	currentStopChan := a.stopChan // Keep reference for this session
+	a.stopChanMutex.Unlock()
+
+	// Start p2p node
+	err = a.p2pm.Start(port, false, public, relay)
+	if err != nil {
+		msg := fmt.Sprintf("⚠️ Can not start p2p node:\n%v\n", err)
+		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+	}
+
+	// Add signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-a.ctx.Done():
+		a.p2pm.Lm.Log("info", "Context cancelled", "p2p")
+	case <-sigChan:
+		a.p2pm.Lm.Log("info", "Received shutdown signal", "p2p")
+	case <-currentStopChan:
+		a.p2pm.Lm.Log("info", "Received stop request from StopNode", "p2p")
+	}
 }
 
 // Stop P2P node
 func (a *App) StopNode() error {
+	// Trigger stop channel to unblock StartNode's select statement
+	a.stopChanMutex.Lock()
+	if a.stopChan != nil {
+		select {
+		case a.stopChan <- struct{}{}:
+			// Successfully sent stop signal
+		default:
+			// Channel might be closed or no receiver, don't block
+		}
+	}
+	a.stopChanMutex.Unlock()
+
 	err := a.p2pm.Stop()
 	if err != nil {
 		return err

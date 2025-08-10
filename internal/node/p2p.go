@@ -147,6 +147,12 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 }
 
 func (p2pm *P2PManager) Close() error {
+	// Close DB connection
+	if err := p2pm.DB.Close(); err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+	// Close logs
 	if p2pm.Lm != nil {
 		return p2pm.Lm.Close()
 	}
@@ -265,7 +271,7 @@ func (p2pm *P2PManager) WaitForHostReady(interval time.Duration, maxAttempts int
 }
 
 // Start p2p node
-func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool) {
+func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool) error {
 	p2pm.daemon = daemon
 	p2pm.public = public
 	p2pm.relay = relay
@@ -277,7 +283,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.DB, p2pm.UI, p2pm.Lm)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		return
+		return err
 	}
 
 	// Read port number from configs
@@ -306,8 +312,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	keystoreManager := keystore.NewKeyStoreManager(p2pm.DB, p2pm.Lm)
 	priv, _, err := keystoreManager.ProvideKey()
 	if err != nil {
-		p2pm.Lm.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
 	}
 
 	// Get botstrap & relay hosts addr info
@@ -346,8 +352,8 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	limiter := rcmgr.NewFixedLimiter(limits)
 	resourceManager, err := rcmgr.NewResourceManager(limiter)
 	if err != nil {
-		p2pm.Lm.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
 	}
 
 	var hst host.Host
@@ -360,13 +366,13 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
 		)
 		if err != nil {
-			p2pm.Lm.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			return err
 		}
 		hst, err = p2pm.createPublicHost(priv, port, resourceManager, connMgr, blacklistManager, bootstrapPeers, relayAddrsInfo)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
+			return err
 		}
 	} else {
 		// Configure connection manager for large file transfers
@@ -376,13 +382,13 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
 		)
 		if err != nil {
-			p2pm.Lm.Log("panic", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			return err
 		}
 		hst, err = p2pm.createPrivateHost(priv, port, resourceManager, connMgr, blacklistManager, bootstrapPeers, relayAddrsInfo)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			panic(fmt.Sprintf("%v", err))
+			return err
 		}
 	}
 
@@ -431,14 +437,14 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		pubsub.WithDiscovery(routingDiscovery),
 	)
 	if err != nil {
-		p2pm.Lm.Log("panic", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
 	}
 
 	tcm, err := NewTopicAwareConnectionManager(p2pm, maxConnections, p2pm.completeTopicNames)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		return err
 	}
 	p2pm.tcm = tcm
 
@@ -447,7 +453,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		for _, completeTopicName := range p2pm.completeTopicNames {
 			sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, p2pm.ps, completeTopicName)
 			if err != nil {
-				p2pm.Lm.Log("panic", err.Error(), "p2p")
+				p2pm.Lm.Log("error", err.Error(), "p2p")
 				panic(fmt.Sprintf("%v", err))
 			}
 			p2pm.subscriptions = append(p2pm.subscriptions, sub)
@@ -466,7 +472,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	err = p2pm.StartPeriodicTasks()
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		panic(fmt.Sprintf("%v", err))
+		return err
 	}
 
 	// Start relay billing logger if relay is enabled
@@ -479,25 +485,10 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	err = jobManager.StartPeriodicTasks()
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "jobs")
-		panic(fmt.Sprintf("%v", err))
+		return err
 	}
 
-	if !daemon {
-		// Print interactive menu
-		menuManager := NewMenuManager(p2pm)
-		menuManager.Run()
-	} else {
-		// Running as a daemon never ends
-		<-p2pm.ctx.Done()
-	}
-
-	// Stop job periodic tasks when shutting down
-	jobManager.StopPeriodicTasks()
-
-	// Close DB connection
-	if err = p2pm.DB.Close(); err != nil {
-		p2pm.Lm.Log("error", err.Error(), "p2p")
-	}
+	return nil
 }
 
 func (p2pm *P2PManager) createPublicHost(
@@ -799,6 +790,10 @@ func (p2pm *P2PManager) Stop() error {
 	if err := p2pm.h.Close(); err != nil {
 		return err
 	}
+
+	// Stop job periodic tasks when shutting down
+	jobManager := NewJobManager(p2pm)
+	jobManager.StopPeriodicTasks()
 
 	return nil
 }

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 
@@ -63,10 +65,38 @@ var nodeCmd = &cobra.Command{
 			relay = false
 		}
 
-		// P2P manager
-		p2pManager := node.NewP2PManager(cmd.Context(), ui.CLI{}, cm)
+		// Logs manager
+		logsManager := utils.NewLogsManager(cm)
+		defer logsManager.Close()
+
+		// P2P Manager
+		ctx := cmd.Context()
+		p2pManager := node.NewP2PManager(ctx, ui.CLI{}, cm)
 		defer p2pManager.Close()
 		p2pManager.Start(port, daemon, public, relay)
+		if err != nil {
+			fmt.Printf("⚠️ Can not start p2p node:\n%v\n", err)
+		}
+		if !daemon {
+			// Print interactive menu
+			menuManager := node.NewMenuManager(p2pManager)
+			menuManager.Run()
+		} else {
+			// Add signal handling
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+			select {
+			case <-ctx.Done():
+			case <-sigChan:
+				logsManager.Log("info", "Received shutdown signal", "p2p")
+			}
+		}
+
+		err = p2pManager.Stop()
+		if err != nil {
+			fmt.Printf("⚠️ Can not stop the node:\n%v\n", err)
+		}
 	},
 }
 

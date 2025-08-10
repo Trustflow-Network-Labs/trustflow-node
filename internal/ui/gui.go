@@ -31,7 +31,7 @@ func (g GUI) Exit(code int) {
 }
 
 func (g GUI) ServiceOffer(serviceOffer node_types.ServiceOffer) {
-	if g.ExitFunc != nil {
+	if g.ServiceOfferFunc != nil {
 		g.ServiceOfferFunc(serviceOffer)
 	}
 }
