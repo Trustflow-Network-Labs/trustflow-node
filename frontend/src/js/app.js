@@ -44,6 +44,32 @@ const mounted = async function() {
     EventsOn('hostrunninglog-event', (running) => {
         MainStore.setHostRunning(running)
     })
+    EventsOn('topicpeerconnectedlog-event', (peerId) => {
+        let topicPeers = MainStore.getTopicPeers
+        topicPeers.push(peerId)
+        MainStore.setTopicPeers(topicPeers)
+    })
+    EventsOn('routingpeerconnectedlog-event', (peerId) => {
+        let routingPeers = MainStore.getRoutingPeers
+        routingPeers.push(peerId)
+        MainStore.setRoutingPeers(routingPeers)
+    })
+    EventsOn('topicpeerdisconnectedlog-event', (peerId) => {
+        let topicPeers = MainStore.getTopicPeers
+        let topicPeersIndex = topicPeers.indexOf(peerId)
+        if (topicPeersIndex > -1) {
+            topicPeers.splice(topicPeersIndex, 1)
+            MainStore.setTopicPeers(topicPeers)
+        }
+    })
+    EventsOn('routingpeerdisconnectedlog-event', (peerId) => {
+        let routingPeers = MainStore.getRoutingPeers
+        let routingPeersIndex = routingPeers.indexOf(peerId)
+        if (routingPeersIndex > -1) {
+            routingPeers.splice(routingPeersIndex, 1)
+            MainStore.setRoutingPeers(routingPeers)
+        }
+    })
 
     // ✅ Tell backend we're ready
     await NotifyFrontendReady()
@@ -58,6 +84,10 @@ const unmounted = function() {
     EventsOff('dependenciesready-event')
     EventsOff('serviceofferlog-event')
     EventsOff('hostrunninglog-event')
+    EventsOff('topicpeerconnectedlog-event')
+    EventsOff('routingpeerconnectedlog-event')
+    EventsOff('topicpeerdisconnectedlog-event')
+    EventsOff('routingpeerdisconnectedlog-event')
 }
 
 const destroyed = function() {

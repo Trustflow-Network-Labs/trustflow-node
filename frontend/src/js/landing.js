@@ -1,4 +1,4 @@
-import {IsHostRunning, IsPublicNode, StartNode, SetUserConfirmation} from '../../wailsjs/go/main/App'
+import { IsPublicNode, StartNode, SetUserConfirmation } from '../../wailsjs/go/main/App'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from "primevue/useconfirm"
 import ToggleButton from 'primevue/togglebutton'
@@ -38,9 +38,6 @@ const computed = {
     },
     exitLogs() {
 		return MainStore.getExitLogs
-    },
-    hostRunning() {
-		return MainStore.getHostRunning
     },
 }
 
@@ -85,9 +82,6 @@ const watch = {
 const mounted = async function() {}
 
 const methods = {
-    async isHostRunning() {
-        return await IsHostRunning()
-    },
     async isPublicNode() {
         return await IsPublicNode()
     },

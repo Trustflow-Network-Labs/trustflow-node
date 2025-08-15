@@ -233,10 +233,10 @@ func (a *App) StartNode(port uint16, relay bool) {
 		err := fmt.Errorf("⚠️ Host is not running")
 		a.p2pm.Lm.Log("error", err.Error(), "p2p")
 		runtime.EventsEmit(a.ctx, "syslog-event", err.Error())
-		runtime.EventsEmit(a.ctx, "hostrunninglog-event", running)
+		runtime.EventsEmit(a.ctx, "hostrunninglog-event", false)
 		return
 	}
-	runtime.EventsEmit(a.ctx, "hostrunninglog-event", running)
+	runtime.EventsEmit(a.ctx, "hostrunninglog-event", true)
 
 	// Add signal handling
 	sigChan := make(chan os.Signal, 1)

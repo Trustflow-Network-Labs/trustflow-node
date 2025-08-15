@@ -29,12 +29,29 @@ const computed = {
     appCanStart() {
 		return MainStore.getAppCanStart
     },
-    hostRunning() {
-		return MainStore.getHostRunning
+    topicPeers() {
+		return MainStore.getTopicPeers
+    },
+    routingPeers() {
+		return MainStore.getRoutingPeers
     },
 }
 
 const watch = {
+    topicPeers: {
+        handler() {
+            console.log('topicPeers', this.topicPeers, this.topicPeers.length)
+        },
+        immediate: false,
+        deep: true,
+    },
+    routingPeers: {
+        handler() {
+            //console.log('routingPeers', this.routingPeers, this.routingPeers.length)
+        },
+        immediate: false,
+        deep: true,
+    },
 }
 
 const mounted = function() {

@@ -14,6 +14,8 @@ export const useMainStore = defineStore('main', {
         selectedMenuKey: null,
         serviceOffer: null,
         pickedService: null,
+        topicPeers: [],
+        routingPeers: [],
     }),
 
     getters: {
@@ -29,6 +31,8 @@ export const useMainStore = defineStore('main', {
         getSelectedMenuKey: (state) => state.selectedMenuKey,
         getServiceOffer: (state) => state.serviceOffer,
         getPickedService: (state) => state.pickedService,
+        getTopicPeers: (state) => state.topicPeers,
+        getRoutingPeers: (state) => state.routingPeers,
     },
 
     actions: {
@@ -67,6 +71,12 @@ export const useMainStore = defineStore('main', {
         },
         setPickedService(service) {
             this.pickedService = service
+        },
+        setTopicPeers(topicPeers) {
+            this.topicPeers = topicPeers
+        },
+        setRoutingPeers(routingPeers) {
+            this.routingPeers = routingPeers
         },
     }
 })

@@ -26,9 +26,6 @@ const computed = {
 	themeVariety() {
 		return MainStore.getThemeVariety
 	},
-    hostRunning() {
-		return MainStore.getHostRunning
-    },
     selectedMenuKey() {
         return MainStore.getSelectedMenuKey
     },
