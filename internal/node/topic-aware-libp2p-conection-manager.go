@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -110,6 +112,7 @@ type TopicAwareConnectionManager struct {
 	dht          *dht.IpfsDHT
 	targetTopics []string
 	lm           *utils.LogsManager
+	uiType       string
 
 	// Connection priorities
 	topicPeers     map[peer.ID]bool      // Peers subscribed to our topics
@@ -139,8 +142,13 @@ type TopicAwareConnectionManager struct {
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
-
 	maxPeerTracking := maxConnections * 3 // Track 3x max connections
+
+	// Detect UI type for emitting events to front-end
+	uiType, err := ui.DetectUIType(p2pm.UI)
+	if err != nil {
+		return nil, err
+	}
 
 	tcm := &TopicAwareConnectionManager{
 		ctx:                   p2pm.ctx,
@@ -148,6 +156,7 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		pubsub:                p2pm.ps,
 		dht:                   p2pm.idht,
 		lm:                    p2pm.Lm,
+		uiType:                uiType,
 		targetTopics:          targetTopics,
 		topicPeers:            make(map[peer.ID]bool),
 		routingPeers:          make(map[peer.ID]float64),
@@ -347,18 +356,25 @@ func (tcm *TopicAwareConnectionManager) UpdateTopicPeersList(targetTopics []stri
 		tcm.topicPeers = currentTopicPeers
 	}
 
-	// Emit events for newly connected topic peers
-	for peerID := range tcm.topicPeers {
-		if !previousTopicPeers[peerID] && tcm.host.Network().Connectedness(peerID) == network.Connected {
-			runtime.EventsEmit(tcm.ctx, "topicpeerconnectedlog-event", peerID.String())
+	switch tcm.uiType {
+	case "CLI":
+		// Do nothing
+	case "GUI":
+		// Emit events for newly connected topic peers
+		for peerID := range tcm.topicPeers {
+			if !previousTopicPeers[peerID] && tcm.host.Network().Connectedness(peerID) == network.Connected {
+				runtime.EventsEmit(tcm.ctx, "topicpeerconnectedlog-event", peerID.String())
+			}
 		}
-	}
 
-	// Emit events for disconnected topic peers
-	for peerID := range previousTopicPeers {
-		if !tcm.topicPeers[peerID] {
-			runtime.EventsEmit(tcm.ctx, "topicpeerdisconnectedlog-event", peerID.String())
+		// Emit events for disconnected topic peers
+		for peerID := range previousTopicPeers {
+			if !tcm.topicPeers[peerID] {
+				runtime.EventsEmit(tcm.ctx, "topicpeerdisconnectedlog-event", peerID.String())
+			}
 		}
+	default:
+		// Do nothing
 	}
 }
 
@@ -455,16 +471,23 @@ func (tcm *TopicAwareConnectionManager) evaluateRoutingUsefulness(peerID peer.ID
 	// Only update if we haven't exceeded our tracking limits
 	if len(tcm.routingPeers) < tcm.maxPeerTracking || tcm.routingPeers[peerID] != 0 {
 		tcm.routingPeers[peerID] = finalScore
-		
-		// Emit event if peer becomes a useful routing peer
-		if oldScore <= tcm.routingScoreThreshold && finalScore > tcm.routingScoreThreshold {
-			if tcm.host.Network().Connectedness(peerID) == network.Connected {
-				runtime.EventsEmit(tcm.ctx, "routingpeerconnectedlog-event", peerID.String())
+
+		switch tcm.uiType {
+		case "CLI":
+			// Do nothing
+		case "GUI":
+			// Emit event if peer becomes a useful routing peer
+			if oldScore <= tcm.routingScoreThreshold && finalScore > tcm.routingScoreThreshold {
+				if tcm.host.Network().Connectedness(peerID) == network.Connected {
+					runtime.EventsEmit(tcm.ctx, "routingpeerconnectedlog-event", peerID.String())
+				}
 			}
-		}
-		// Emit event if peer is no longer a useful routing peer
-		if oldScore > tcm.routingScoreThreshold && finalScore <= tcm.routingScoreThreshold {
-			runtime.EventsEmit(tcm.ctx, "routingpeerdisconnectedlog-event", peerID.String())
+			// Emit event if peer is no longer a useful routing peer
+			if oldScore > tcm.routingScoreThreshold && finalScore <= tcm.routingScoreThreshold {
+				runtime.EventsEmit(tcm.ctx, "routingpeerdisconnectedlog-event", peerID.String())
+			}
+		default:
+			// Do nothing
 		}
 	}
 	tcm.mu.Unlock()
@@ -766,8 +789,20 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 
 	// Schedule immediate topic check after brief delay for peer to subscribe
 	go func() {
-		time.Sleep(2 * time.Second) // Allow time for topic subscription
-		tcm.checkPeerTopicSubscription(peerID)
+		// Use proper context handling to prevent goroutine leaks
+		ctx, cancel := context.WithTimeout(tcm.ctx, 5*time.Second)
+		defer cancel()
+
+		select {
+		case <-time.After(2 * time.Second):
+			// Check if peer is still connected before doing expensive check
+			if tcm.host.Network().Connectedness(peerID) == network.Connected {
+				tcm.checkPeerTopicSubscription(peerID)
+			}
+		case <-ctx.Done():
+			// Context cancelled, exit goroutine
+			return
+		}
 	}()
 }
 
@@ -785,35 +820,20 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	delete(tcm.routingPeers, peerID)
 	delete(tcm.lastEvaluation, peerID)
 
-	// Emit disconnection events
-	if wasTopicPeer {
-		runtime.EventsEmit(tcm.ctx, "topicpeerdisconnectedlog-event", peerID.String())
-	}
-	if wasRoutingPeer {
-		runtime.EventsEmit(tcm.ctx, "routingpeerdisconnectedlog-event", peerID.String())
-	}
-
-	// Enhanced stats cache cleanup strategy
-	// Don't immediately remove stats - keep them for potential reconnection
-	// But mark them for cleanup if peer doesn't reconnect within reasonable time
-	go func() {
-		// Wait 5 minutes for potential reconnection
-		reconnectWaitTime := time.Minute * 5
-
-		select {
-		case <-time.After(reconnectWaitTime):
-			// Check if peer reconnected
-			if tcm.host.Network().Connectedness(peerID) != network.Connected {
-				// Peer didn't reconnect, safe to remove stats
-				tcm.peerStatsCache.Remove(peerID)
-				tcm.lm.Log("debug", fmt.Sprintf("Removed stats for disconnected peer %s", peerID.String()), "p2p")
-			}
-		case <-tcm.ctx.Done():
-			// Context cancelled, cleanup anyway
-			tcm.peerStatsCache.Remove(peerID)
-			return
+	switch tcm.uiType {
+	case "CLI":
+		// Do nothing
+	case "GUI":
+		// Emit disconnection events
+		if wasTopicPeer {
+			runtime.EventsEmit(tcm.ctx, "topicpeerdisconnectedlog-event", peerID.String())
 		}
-	}()
+		if wasRoutingPeer {
+			runtime.EventsEmit(tcm.ctx, "routingpeerdisconnectedlog-event", peerID.String())
+		}
+	default:
+		// Do nothing
+	}
 }
 
 // Update historical performance data
@@ -987,26 +1007,30 @@ func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.I
 	}
 
 	wasTopicPeer := tcm.topicPeers[peerID]
-	
+
 	// Check if peer is now subscribed to any target topics
 	isTopicPeer := false
 	for _, topicName := range tcm.targetTopics {
 		peers := tcm.pubsub.ListPeers(topicName)
-		for _, p := range peers {
-			if p == peerID {
-				isTopicPeer = true
-				break
-			}
-		}
-		if isTopicPeer {
+		if slices.Contains(peers, peerID) {
+			isTopicPeer = true
 			break
 		}
 	}
-	
+
 	// Update topic peer status and emit event if newly classified as topic peer
 	if isTopicPeer && !wasTopicPeer {
 		tcm.topicPeers[peerID] = true
-		runtime.EventsEmit(tcm.ctx, "topicpeerconnectedlog-event", peerID.String())
+
+		switch tcm.uiType {
+		case "CLI":
+			// Do nothing
+		case "GUI":
+			runtime.EventsEmit(tcm.ctx, "topicpeerconnectedlog-event", peerID.String())
+		default:
+			// Do nothing
+		}
+
 		tcm.lm.Log("debug", "Immediate topic peer detection: "+peerID.String(), "p2p")
 	}
 }

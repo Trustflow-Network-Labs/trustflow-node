@@ -57,6 +57,11 @@ func (rtm *RelayTrafficMonitor) StartCircuitMonitoring(circuitID string, peerID 
 	rtm.mu.Lock()
 	defer rtm.mu.Unlock()
 	
+	// Check if we're at the limit - if so, clean up oldest circuits first
+	if len(rtm.activeCircuits) >= rtm.maxActiveCircuits {
+		rtm.cleanupOldestCircuitsUnsafe(rtm.maxActiveCircuits / 4) // Remove 25% to free space
+	}
+	
 	record := &RelayTrafficRecord{
 		PeerID:         peerID,
 		CircuitID:      circuitID,
@@ -362,4 +367,56 @@ type RelayUsageSummary struct {
 	TotalEgress   int64         `json:"total_egress_bytes"`
 	TotalDuration time.Duration `json:"total_duration"`
 	CircuitCount  int           `json:"circuit_count"`
+}
+
+// cleanupOldestCircuitsUnsafe removes the oldest active circuits (must be called with lock held)
+func (rtm *RelayTrafficMonitor) cleanupOldestCircuitsUnsafe(count int) {
+	if count <= 0 || len(rtm.activeCircuits) == 0 {
+		return
+	}
+	
+	// Sort circuits by start time (oldest first)
+	type circuitAge struct {
+		id        string
+		startTime time.Time
+	}
+	
+	circuits := make([]circuitAge, 0, len(rtm.activeCircuits))
+	for id, record := range rtm.activeCircuits {
+		circuits = append(circuits, circuitAge{id: id, startTime: record.StartTime})
+	}
+	
+	// Sort by start time (oldest first)
+	for i := 0; i < len(circuits)-1; i++ {
+		for j := i + 1; j < len(circuits); j++ {
+			if circuits[i].startTime.After(circuits[j].startTime) {
+				circuits[i], circuits[j] = circuits[j], circuits[i]
+			}
+		}
+	}
+	
+	// Remove oldest circuits up to count
+	removed := 0
+	for _, circuit := range circuits {
+		if removed >= count {
+			break
+		}
+		
+		// Store final record in database before removing
+		if record, exists := rtm.activeCircuits[circuit.id]; exists && rtm.db != nil {
+			endTime := time.Now()
+			record.EndTime = &endTime
+			record.Duration = endTime.Sub(record.StartTime)
+			record.Status = "timeout_cleanup"
+			rtm.storeCircuitRecord(record)
+		}
+		
+		delete(rtm.activeCircuits, circuit.id)
+		removed++
+	}
+	
+	if removed > 0 {
+		fmt.Printf("Cleaned up %d oldest circuits due to memory limit (remaining: %d)\n", 
+			removed, len(rtm.activeCircuits))
+	}
 }

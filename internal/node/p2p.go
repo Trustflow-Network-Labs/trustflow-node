@@ -217,6 +217,36 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 		}
 	}()
 
+	// Start stream cleanup periodic task
+	streamCleanupInterval := 1 * time.Minute // Clean up every minute
+	if val, exists := p2pm.cm.GetConfig("stream_cleanup_interval"); exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			streamCleanupInterval = duration
+		}
+	}
+	
+	streamCleanupTicker := time.NewTicker(streamCleanupInterval)
+	p2pm.cronWg.Add(1)
+	go func() {
+		defer p2pm.cronWg.Done()
+		defer streamCleanupTicker.Stop()
+
+		p2pm.Lm.Log("info", fmt.Sprintf("Started stream cleanup every %v", streamCleanupInterval), "p2p")
+
+		for {
+			select {
+			case <-streamCleanupTicker.C:
+				p2pm.cleanupStaleStreams()
+			case <-p2pm.cronStopChan:
+				p2pm.Lm.Log("info", "Stopped stream cleanup periodic task", "p2p")
+				return
+			case <-p2pm.ctx.Done():
+				p2pm.Lm.Log("info", "Context cancelled, stopping stream cleanup", "p2p")
+				return
+			}
+		}
+	}()
+
 	p2pm.Lm.Log("info", "Started all P2P periodic tasks", "p2p")
 	return nil
 }
@@ -228,6 +258,45 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 		p2pm.cronWg.Wait() // Wait for all goroutines to finish
 		p2pm.Lm.Log("info", "Stopped all P2P periodic tasks", "p2p")
 	}
+}
+
+// cleanupStaleStreams removes streams that have been active for too long
+func (p2pm *P2PManager) cleanupStaleStreams() {
+	maxStreamAge := 10 * time.Minute // Default max age for streams
+	if val, exists := p2pm.cm.GetConfig("max_stream_age"); exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			maxStreamAge = duration
+		}
+	}
+
+	p2pm.streamsMutex.Lock()
+	defer p2pm.streamsMutex.Unlock()
+
+	now := time.Now()
+	staleStreams := make([]string, 0)
+	
+	for streamID, startTime := range p2pm.activeStreams {
+		if now.Sub(startTime) > maxStreamAge {
+			staleStreams = append(staleStreams, streamID)
+		}
+	}
+
+	// Remove stale streams
+	for _, streamID := range staleStreams {
+		delete(p2pm.activeStreams, streamID)
+	}
+
+	if len(staleStreams) > 0 {
+		p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d stale streams (total active: %d)", 
+			len(staleStreams), len(p2pm.activeStreams)), "p2p")
+	}
+}
+
+// GetActiveStreamsCount returns the current number of active streams for monitoring
+func (p2pm *P2PManager) GetActiveStreamsCount() int {
+	p2pm.streamsMutex.RLock()
+	defer p2pm.streamsMutex.RUnlock()
+	return len(p2pm.activeStreams)
 }
 
 // Get ticker intervals from config (no cron parsing needed)

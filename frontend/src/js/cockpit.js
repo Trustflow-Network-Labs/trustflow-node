@@ -47,7 +47,7 @@ const watch = {
     },
     routingPeers: {
         handler() {
-            //console.log('routingPeers', this.routingPeers, this.routingPeers.length)
+            console.log('routingPeers', this.routingPeers, this.routingPeers.length)
         },
         immediate: false,
         deep: true,
