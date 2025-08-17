@@ -46,6 +46,8 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
+const LOOKUP_SERVICE string = "lookup.service"
+
 type P2PManager struct {
 	daemon                bool
 	public                bool
@@ -121,7 +123,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
 		},
-		topicNames:         []string{"lookup.service"},
+		topicNames:         []string{LOOKUP_SERVICE},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
 		subscriptions:      []*pubsub.Subscription{},
@@ -2532,7 +2534,7 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 			return err
 		}
 
-		topicKey := p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + "lookup.service"
+		topicKey := p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + LOOKUP_SERVICE
 		topic = p2pm.topicsSubscribed[topicKey]
 
 	default:
@@ -2576,7 +2578,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 		p2pm.Lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
 
 		switch topic {
-		case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + "lookup.service":
+		case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + LOOKUP_SERVICE:
 			err := p2pm.sendServiceOffer(m.Message.Data, peerId)
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
