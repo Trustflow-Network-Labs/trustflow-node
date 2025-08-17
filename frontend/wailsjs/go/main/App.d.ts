@@ -11,6 +11,8 @@ export function AddWorkflowJobInterfacePeer(arg1:number,arg2:number,arg3:string,
 
 export function CheckAndInstallDependencies():Promise<void>;
 
+export function FindPeerServices(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function FindServices(arg1:string,arg2:string):Promise<void>;
 
 export function GetServiceCardGUIProps(arg1:number):Promise<main.ServiceCardGUIProps>;

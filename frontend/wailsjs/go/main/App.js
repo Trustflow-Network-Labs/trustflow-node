@@ -18,6 +18,10 @@ export function CheckAndInstallDependencies() {
   return window['go']['main']['App']['CheckAndInstallDependencies']();
 }
 
+export function FindPeerServices(arg1, arg2, arg3) {
+  return window['go']['main']['App']['FindPeerServices'](arg1, arg2, arg3);
+}
+
 export function FindServices(arg1, arg2) {
   return window['go']['main']['App']['FindServices'](arg1, arg2);
 }

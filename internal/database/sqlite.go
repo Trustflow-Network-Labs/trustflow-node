@@ -542,6 +542,7 @@ INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VAL
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_job_data_request', 'Accept Job Data Requests sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Job Data Requests sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_request_cancellation', 'Accept Service Requests Cancellations sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Request Cancellations sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_response_cancellation', 'Accept Service Response Cancellations sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Response Cancellations sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
+INSERT INTO settings ("key", "description", "setting_type", "value_boolean") VALUES ('accept_service_catalogue_request', 'Accept Service Catalogue Requests sent by other peers', 'BOOLEAN', 1) ON CONFLICT(key) DO UPDATE SET "description" = 'Accept Service Catalogue Requests sent by other peers', "setting_type" = 'BOOLEAN', "value_boolean" = 1;
 `
 		_, err = db.ExecContext(context.Background(), createSettingsTableSql)
 		if err != nil {

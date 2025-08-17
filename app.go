@@ -274,8 +274,13 @@ func (a *App) StopNode() error {
 }
 
 // Find services
-func (a *App) FindServices(searchPhrases string, serviceTypes string) error {
-	return a.sm.LookupRemoteService(searchPhrases, serviceTypes)
+func (a *App) FindServices(searchPhrases string, serviceType string) error {
+	return a.sm.LookupRemoteService(searchPhrases, serviceType)
+}
+
+// Find remote node/peer services
+func (a *App) FindPeerServices(searchPhrases string, serviceType string, peerId string) error {
+	return a.p2pm.RequestServiceCatalogue(searchPhrases, serviceType, peerId)
 }
 
 // Get workflow grid props

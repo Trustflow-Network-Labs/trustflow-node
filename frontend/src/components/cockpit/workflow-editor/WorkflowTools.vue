@@ -67,6 +67,17 @@
           </InputGroup>
           <Menu appendTo="#cockpit" ref="menu" :model="searchServicesTypes" popup class="!min-w-fit"></Menu>
         </div>
+        <div class="search-services-body-section">
+          <FloatLabel variant="on">
+            <MultiSelect id="selectNodes"
+              v-model="selectedTopicPeers"
+              :options="connectedTopicPeers"
+              optionLabel="peerShortName" filter
+              :maxSelectedLabels="multipleSelectMaxVisibleItems"
+              @show="onSelectNodesShow" />
+            <label for="selectNodes">Connected peers</label>
+          </FloatLabel>
+        </div>
         <div class="separator">{{ $t("message.cockpit.detail.workflow-editor.search-services.services-found") }}:</div>
         <div class="service-offers">
           <SearchResult draggable="true"

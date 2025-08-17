@@ -224,7 +224,7 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 			streamCleanupInterval = duration
 		}
 	}
-	
+
 	streamCleanupTicker := time.NewTicker(streamCleanupInterval)
 	p2pm.cronWg.Add(1)
 	go func() {
@@ -274,7 +274,7 @@ func (p2pm *P2PManager) cleanupStaleStreams() {
 
 	now := time.Now()
 	staleStreams := make([]string, 0)
-	
+
 	for streamID, startTime := range p2pm.activeStreams {
 		if now.Sub(startTime) > maxStreamAge {
 			staleStreams = append(staleStreams, streamID)
@@ -287,7 +287,7 @@ func (p2pm *P2PManager) cleanupStaleStreams() {
 	}
 
 	if len(staleStreams) > 0 {
-		p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d stale streams (total active: %d)", 
+		p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d stale streams (total active: %d)",
 			len(staleStreams), len(p2pm.activeStreams)), "p2p")
 	}
 }
@@ -1117,6 +1117,8 @@ func StreamData[T any](
 
 	var t uint16 = uint16(0)
 	switch v := any(data).(type) {
+	case *node_types.ServiceLookup:
+		t = 13
 	case *[]node_types.ServiceOffer:
 		t = 0
 	case *node_types.JobRunRequest:
@@ -1350,44 +1352,47 @@ func (p2pm *P2PManager) streamProposalAssessment(streamDataType uint16) bool {
 	settingsManager := settings.NewSettingsManager(p2pm.DB, p2pm.Lm)
 	// Check what the stream proposal is about
 	switch streamDataType {
+	case 13:
+		// Allow Service Catalogue request
+		accepted = settingsManager.ReadBoolSetting("accept_service_catalogue_request")
 	case 0:
-		// Request to receive a Service Catalogue from the remote peer
+		// Allow receiving Service Catalogue
 		accepted = settingsManager.ReadBoolSetting("accept_service_catalogue")
 	case 1:
-		// Request to the remote peer to run a job
+		// Allow job run request
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_request")
 	case 2:
-		// Request to receive a binary stream from the remote peer
+		// Allow receiving binary stream
 		accepted = settingsManager.ReadBoolSetting("accept_binary_stream")
 	case 3:
-		// Request to receive a file from the remote peer
+		// Allow receiving file
 		accepted = settingsManager.ReadBoolSetting("accept_file")
 	case 4:
-		// Request to receive a Service Request from the remote peer
+		// Allow Service Request
 		accepted = settingsManager.ReadBoolSetting("accept_service_request")
 	case 5:
-		// Request to receive a Service Response from the remote peer
+		// Allow Service Response
 		accepted = settingsManager.ReadBoolSetting("accept_service_response")
 	case 6:
-		// Request to receive a Job Run Response from the remote peer
+		// Allow Job Run Response
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_response")
 	case 7:
-		// Request to send a Job Run Status to the remote peer
+		// Allow Job Run Status
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_status")
 	case 8:
-		// Request to receive a Job Run Status update from the remote peer
+		// Allow Job Run Status update
 		accepted = settingsManager.ReadBoolSetting("accept_job_run_status_request")
 	case 9:
-		// Request to receive a Job Data Receipt Acknowledgment from the remote peer
+		// Allow Job Data Receipt Acknowledgment
 		accepted = settingsManager.ReadBoolSetting("accept_job_data_receipt_acknowledgement")
 	case 10:
-		// Request to receive a Job Data Request from the remote peer
+		// Allow Job Data Request
 		accepted = settingsManager.ReadBoolSetting("accept_job_data_request")
 	case 11:
-		// Request to receive a Service Request Cancllation from the remote peer
+		// Allow Service Request Cancllation
 		accepted = settingsManager.ReadBoolSetting("accept_service_request_cancellation")
 	case 12:
-		// Request to receive a Service Response Cancellation from the remote peer
+		// Allow Service Response Cancellation
 		accepted = settingsManager.ReadBoolSetting("accept_service_response_cancellation")
 	default:
 		message := fmt.Sprintf("Unknown stream type %d is proposed", streamDataType)
@@ -1462,8 +1467,8 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	}
 
 	switch v := any(data).(type) {
-	case *[]node_types.ServiceOffer, *node_types.ServiceRequest, *node_types.ServiceResponse,
-		*node_types.JobRunRequest, *node_types.JobRunResponse,
+	case *node_types.ServiceLookup, *[]node_types.ServiceOffer, *node_types.ServiceRequest,
+		*node_types.ServiceResponse, *node_types.JobRunRequest, *node_types.JobRunResponse,
 		*node_types.JobRunStatus, *node_types.JobRunStatusRequest,
 		*node_types.JobDataReceiptAcknowledgement, *node_types.JobDataRequest,
 		*node_types.ServiceRequestCancellation, *node_types.ServiceResponseCancellation:
@@ -1621,7 +1626,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 
 	// Determine data type
 	switch streamData.Type {
-	case 0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12:
+	case 13, 0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12:
 		// Prepare to read back the data
 		data, err := p2pm.receiveStreamChunks(s, streamData)
 		if err != nil {
@@ -1634,6 +1639,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		p2pm.Lm.Log("debug", message, "p2p")
 
 		switch streamData.Type {
+		case 13:
+			// Received a Service Catalogue Request from the remote peer
+			if err := p2pm.serviceCatalogueRequestReceived(data, remotePeerId); err != nil {
+				s.Reset()
+				return
+			}
 		case 0:
 			// Received a Service Offer from the remote peer
 			if err := p2pm.serviceOfferReceived(data, localPeerId); err != nil {
@@ -1813,6 +1824,17 @@ func (p2pm *P2PManager) fileReceived(
 	)
 
 	err = os.RemoveAll(fpath)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+
+	return nil
+}
+
+// Received Serviced Catalogue Request from remote peer
+func (p2pm *P2PManager) serviceCatalogueRequestReceived(data []byte, remotePeerId peer.ID) error {
+	err := p2pm.sendServiceOffer(data, remotePeerId)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return err
@@ -2555,29 +2577,10 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 
 		switch topic {
 		case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + "lookup.service":
-			services, err := p2pm.ServiceLookup(m.Message.Data, true)
+			err := p2pm.sendServiceOffer(m.Message.Data, peerId)
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				continue
-			}
-
-			// Retrieve known multiaddresses from the peerstore
-			peerAddrInfo, err := p2pm.GeneratePeerAddrInfo(peerId.String())
-			if err != nil {
-				msg := err.Error()
-				p2pm.Lm.Log("error", msg, "p2p")
-				continue
-			}
-
-			// Stream back offered services with prices
-			// (only if there we have matching services to offer)
-			if len(services) > 0 {
-				err = StreamData(p2pm, peerAddrInfo, &services, nil, nil)
-				if err != nil {
-					msg := err.Error()
-					p2pm.Lm.Log("error", msg, "p2p")
-					continue
-				}
 			}
 		default:
 			msg := fmt.Sprintf("Unknown topic %s", topic)
@@ -2585,6 +2588,57 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			continue
 		}
 	}
+}
+
+func (p2pm *P2PManager) sendServiceOffer(data []byte, peerId peer.ID) error {
+	services, err := p2pm.ServiceLookup(data, true)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+
+	// Retrieve known multiaddresses from the peerstore
+	peerAddrInfo, err := p2pm.GeneratePeerAddrInfo(peerId.String())
+	if err != nil {
+		msg := err.Error()
+		p2pm.Lm.Log("error", msg, "p2p")
+		return err
+	}
+
+	// Stream back offered services with prices
+	// (only if there we have matching services to offer)
+	if len(services) > 0 {
+		err = StreamData(p2pm, peerAddrInfo, &services, nil, nil)
+		if err != nil {
+			msg := err.Error()
+			p2pm.Lm.Log("error", msg, "p2p")
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p2pm *P2PManager) RequestServiceCatalogue(searchPhrases string, serviceType string, peer string) error {
+	var serviceLookup node_types.ServiceLookup = node_types.ServiceLookup{
+		Phrases: searchPhrases,
+		Type:    serviceType,
+	}
+
+	peerAddrInfo, err := p2pm.GeneratePeerAddrInfo(peer)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+
+	// Send successfull service response message
+	err = StreamData(p2pm, peerAddrInfo, &serviceLookup, nil, nil)
+	if err != nil {
+		p2pm.Lm.Log("error", err.Error(), "p2p")
+		return err
+	}
+
+	return nil
 }
 
 func (p2pm *P2PManager) ServiceLookup(data []byte, active bool) ([]node_types.ServiceOffer, error) {

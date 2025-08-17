@@ -1,8 +1,10 @@
-import { FindServices } from '../../../../wailsjs/go/main/App'
+import { FindServices, FindPeerServices } from '../../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../../stores/main.js'
 
 import SearchResult from '../../../components/cockpit/workflow-editor/SearchResult.vue'
+
+import { textUtils } from '../../../mixins/text.js'
 
 import InputGroup from 'primevue/inputgroup'
 import InputText from 'primevue/inputtext'
@@ -12,6 +14,7 @@ import Button from 'primevue/button'
 import FloatLabel from 'primevue/floatlabel'
 import Textarea from 'primevue/textarea'
 import ToggleButton from 'primevue/togglebutton'
+import MultiSelect from 'primevue/multiselect'
 
 let MainStore, That
 const setup = function() {
@@ -37,10 +40,23 @@ const computed = {
 	},
     serviceOffer() {
         return MainStore.getServiceOffer
-    }
+    },
+    topicPeers() {
+		return MainStore.getTopicPeers
+    },
+    routingPeers() {
+		return MainStore.getRoutingPeers
+    },
 }
 
 const watch = {
+    topicPeers: {
+        handler() {
+            this.topicPeersSelectOptions()
+        },
+        immediate: false,
+        deep: true,
+    },
     serviceOffer() {
         console.log(this.serviceOffer)
         this.serviceOffers.push(this.serviceOffer)
@@ -60,9 +76,21 @@ const watch = {
 }
 
 const mounted = function() {
+    this.topicPeersSelectOptions()
 }
 
 const methods = {
+    topicPeersSelectOptions() {
+        this.connectedTopicPeers = this.topicPeers.map((peer) => {
+            return {
+                "peerShortName": this.shorten(peer, 6, 6),
+                "peerId": peer,
+            }
+        })
+    },
+    onSelectNodesShow() {
+        this.topicPeersSelectOptions()
+    },
     toggleSearchServiceTypes(event) {
         this.$refs["menu"].toggle(event)
     },
@@ -85,7 +113,19 @@ const methods = {
     },
     async findServices({item}){
         this.serviceOffers.length = 0
-        await FindServices(this.searchServicesPhrases, item.id)
+        switch (this.selectedTopicPeers.length) {
+            case 0:
+                // Braodcast message
+                await FindServices(this.searchServicesPhrases, item.id)
+                break
+            default:
+                // Send message to peers
+                for (let index = 0; index < this.selectedTopicPeers.length; index++) {
+                    const peer = this.selectedTopicPeers[index]
+                    const err = await FindPeerServices(this.searchServicesPhrases, item.id, peer.peerId)
+                    console.log(err) // TODO, print err
+                }
+        }
     },
 	dragStartFunc(event, service) {
         MainStore.setPickedService(service)
@@ -114,6 +154,7 @@ export default {
     props: [
     ],
 	mixins: [
+        textUtils,
     ],
 	components: {
         SearchResult,
@@ -125,6 +166,7 @@ export default {
         FloatLabel,
         Textarea,
         ToggleButton,
+        MultiSelect,
     },
 	directives: {},
 	name: 'WorkflowEditorWorkflowTools',
@@ -173,6 +215,9 @@ export default {
             searchServicesWindowMinimized: false,
             serviceOffers: [],
             snapToGrid: false,
+            connectedTopicPeers: [],
+            selectedTopicPeers: [],
+            multipleSelectMaxVisibleItems: 2,
         }
     }
 }

@@ -1,3 +1,24 @@
+:global(body) {
+    --p-multiselect-overlay-background: #fff;
+    --p-multiselect-overlay-border-color: rgba(205, 81, 36, .5);
+    --p-multiselect-overlay-color: rgb(27, 38, 54);
+    --p-checkbox-background: #fff;
+    --p-checkbox-border-color: rgba(205, 81, 36, .5);
+    --p-checkbox-checked-hover-background: #fff;
+    --p-checkbox-checked-background: #fff;
+    --p-checkbox-checked-border-color: rgba(205, 81, 36, .5);
+    --p-checkbox-checked-hover-border-color: rgba(205, 81, 36, .5);
+    --p-checkbox-icon-checked-color: rgba(205, 81, 36, 1);
+    --p-multiselect-option-focus-background: rgba(205, 81, 36, 1);
+    --p-multiselect-option-color: rgb(27, 38, 54);
+    --p-inputtext-color: rgb(27, 38, 54);
+    --p-inputtext-background: #fff;
+    --p-inputtext-border-color: rgba(205, 81, 36, .5);
+    --p-inputtext-focus-border-color: rgba(205, 81, 36, .5);
+    --p-inputtext-hover-border-color: rgba(205, 81, 36, .5);
+    --p-multiselect-color: rgb(27, 38, 54);
+}
+
 .common-cockpit-workflow-editor-workflow-tools {
     font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
@@ -25,8 +46,16 @@
     --p-togglebutton-checked-background: rgb(246, 114, 66);
     --p-togglebutton-checked-border-color: none;
     --p-togglebutton-content-checked-background: rgb(246, 114, 66);
+    --p-multiselect-background: #fff;
+    --p-multiselect-border-color: rgba(205, 81, 36, .5);
+    --p-multiselect-hover-border-color: rgba(205, 81, 36, .5);
+    --p-multiselect-focus-border-color: rgba(205, 81, 36, .5);
 
     --height: 100vh;
+
+    .p-multiselect {
+        width: 100%;
+    }
 
     position: fixed;
     margin: 0;
