@@ -1,5 +1,7 @@
 [p2p]
 node_port = 30609
+bootstrap_addrs = /ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF, /ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF, /ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH, /ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci, /ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci, /ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9, /ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9
+relay_addrs = /ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF, /ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF, /ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci, /ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci, /ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9, /ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9
 topic_name_prefix = trustflow.network.
 protocol_id = /trustflow-network/1.0.0
 search_results = 10

@@ -93,36 +93,34 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Init log manager
 	lm := utils.NewLogsManager(cm)
 
+	// Load bootstrap peers addresses from configs
+	var bootstrapAddrs []string
+	bootstrapAddresses, exist := cm.GetConfig("bootstrap_addrs")
+	if exist {
+		bas := strings.SplitSeq(bootstrapAddresses, ",")
+		for ba := range bas {
+			bootstrapAddrs = append(bootstrapAddrs, strings.TrimSpace(ba))
+		}
+	}
+
+	// Load relay peers addresses from configs
+	var relayAddrs []string
+	relayAddresses, exist := cm.GetConfig("relay_addrs")
+	if exist {
+		bas := strings.SplitSeq(relayAddresses, ",")
+		for ba := range bas {
+			relayAddrs = append(relayAddrs, strings.TrimSpace(ba))
+		}
+	}
+
 	p2pm := &P2PManager{
-		daemon:          false,
-		public:          false,
-		relay:           false,
-		streamSemaphore: make(chan struct{}, 10), // Allow max 10 concurrent streams
-		activeStreams:   make(map[string]time.Time),
-		bootstrapAddrs: []string{
-			"/ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			"/ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			//"/ip4/159.65.253.245/tcp/30613/ws/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
-			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			//"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-		},
-		relayAddrs: []string{
-			"/ip4/159.65.253.245/tcp/30609/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			"/ip4/159.65.253.245/udp/30611/quic-v1/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			//"/ip4/159.65.253.245/tcp/30613/ws/p2p/QmRTYiSwrh4y5UozzTS5pors1jHPqsSSh7Sfd6dJ8kCgzF",
-			//"/ip4/95.180.109.240/tcp/30609/p2p/QmSeoLQWMu48JGa2kj8bSvMrv59Rhkp2AveX3Yhf95ySeH",
-			"/ip4/167.86.116.185/udp/30611/quic-v1/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/167.86.116.185/tcp/30609/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			//"/ip4/167.86.116.185/tcp/30613/ws/p2p/QmPpcuRSHmrjT2EEoHXhU5YT2zV9wF5N9LWuhPJofAhtci",
-			"/ip4/85.237.211.221/udp/30611/quic-v1/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			"/ip4/85.237.211.221/tcp/30609/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-			//"/ip4/85.237.211.221/tcp/30613/ws/p2p/QmaZffJXMWB1ifXP1c7U34NsgUZBSaA5QhXBwp269efHX9",
-		},
+		daemon:             false,
+		public:             false,
+		relay:              false,
+		streamSemaphore:    make(chan struct{}, 10), // Allow max 10 concurrent streams
+		activeStreams:      make(map[string]time.Time),
+		bootstrapAddrs:     bootstrapAddrs,
+		relayAddrs:         relayAddrs,
 		topicNames:         []string{LOOKUP_SERVICE},
 		completeTopicNames: []string{},
 		topicsSubscribed:   make(map[string]*pubsub.Topic),
