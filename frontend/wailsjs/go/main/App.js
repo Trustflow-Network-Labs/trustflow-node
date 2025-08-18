@@ -54,6 +54,10 @@ export function NotifyFrontendReady() {
   return window['go']['main']['App']['NotifyFrontendReady']();
 }
 
+export function PeerId() {
+  return window['go']['main']['App']['PeerId']();
+}
+
 export function RemoveWorkflow(arg1) {
   return window['go']['main']['App']['RemoveWorkflow'](arg1);
 }
@@ -64,6 +68,10 @@ export function RemoveWorkflowJob(arg1) {
 
 export function RemoveWorkflowJobInterfacePeer(arg1, arg2) {
   return window['go']['main']['App']['RemoveWorkflowJobInterfacePeer'](arg1, arg2);
+}
+
+export function SearchServices(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SearchServices'](arg1, arg2, arg3, arg4);
 }
 
 export function SetServiceCardGUIProps(arg1, arg2, arg3) {

@@ -1,4 +1,4 @@
-import { FindServices, FindPeerServices } from '../../../../wailsjs/go/main/App'
+import { PeerId, FindServices, FindPeerServices, SearchServices } from '../../../../wailsjs/go/main/App'
 
 import { useMainStore } from '../../../stores/main.js'
 
@@ -47,18 +47,20 @@ const computed = {
     routingPeers() {
 		return MainStore.getRoutingPeers
     },
+    async peerId() {
+		return await PeerId()
+    },
 }
 
 const watch = {
     topicPeers: {
-        handler() {
-            this.topicPeersSelectOptions()
+        async handler() {
+            await this.topicPeersSelectOptions()
         },
         immediate: false,
         deep: true,
     },
     serviceOffer() {
-        console.log(this.serviceOffer)
         this.serviceOffers.push(this.serviceOffer)
     },
     searchServicesWindowMinimized() {
@@ -75,21 +77,25 @@ const watch = {
     },
 }
 
-const mounted = function() {
-    this.topicPeersSelectOptions()
+const mounted = async function() {
+    await this.topicPeersSelectOptions()
 }
 
 const methods = {
-    topicPeersSelectOptions() {
+    async topicPeersSelectOptions() {
+        const hostId = await this.peerId
+        if (this.topicPeers.indexOf(hostId) == -1)
+            this.topicPeers.unshift(hostId)
         this.connectedTopicPeers = this.topicPeers.map((peer) => {
             return {
-                "peerShortName": this.shorten(peer, 6, 6),
+                "peerShortName": (peer == hostId) ? this.shorten(peer, 6, 6) + " [self]" : this.shorten(peer, 6, 6),
                 "peerId": peer,
+                "self": peer == hostId,
             }
         })
     },
-    onSelectNodesShow() {
-        this.topicPeersSelectOptions()
+    async onSelectNodesShow() {
+        await this.topicPeersSelectOptions()
     },
     toggleSearchServiceTypes(event) {
         this.$refs["menu"].toggle(event)
@@ -113,18 +119,57 @@ const methods = {
     },
     async findServices({item}){
         this.serviceOffers.length = 0
-        switch (this.selectedTopicPeers.length) {
+        const hostId = await this.peerId
+
+        // Remote + local services lookup
+        const totalPeers = this.topicPeers.length
+        const selectedPeers = this.selectedTopicPeers.length
+        switch (selectedPeers) {
             case 0:
+            case totalPeers:
                 // Braodcast message
                 await FindServices(this.searchServicesPhrases, item.id)
+                // Local services lookup
+                await SearchServices(this.searchServicesPhrases, item.id, 0, 10)
+                break
+            case 1:
+                const selectedPeerId = this.selectedTopicPeers[0].peerId
+                if (selectedPeerId != hostId) {
+                    // Remote peer
+                    const err = await FindPeerServices(this.searchServicesPhrases, item.id, selectedPeerId)
+                }
+                else {
+                    // Self
+                    await SearchServices(this.searchServicesPhrases, item.id, 0, 10)
+                }
+                break
+            case totalPeers-1:
+                const selectedPeerIds = this.selectedTopicPeers.map((peer) => {return peer.peerId})
+                if (selectedPeerIds.indexOf(hostId) == -1) {
+                    // Broadcast message (all peers but host are selected)
+                    const err = await FindServices(this.searchServicesPhrases, item.id)
+                }
+                else {
+                    // Mixed, remote lookup and local services search
+                    await this.searchAndLookupServices({item})
+                }
                 break
             default:
+                await this.searchAndLookupServices({item})
+        }
+    },
+    async searchAndLookupServices({item}) {
+        const hostId = await this.peerId
+        for (let index = 0; index < this.selectedTopicPeers.length; index++) {
+            const peer = this.selectedTopicPeers[index]
+            if (peer.peerId == hostId) {
+                // Local services lookup
+                await SearchServices(this.searchServicesPhrases, item.id, 0, 10)
+            }
+            else {
                 // Send message to peers
-                for (let index = 0; index < this.selectedTopicPeers.length; index++) {
-                    const peer = this.selectedTopicPeers[index]
-                    const err = await FindPeerServices(this.searchServicesPhrases, item.id, peer.peerId)
-                    console.log(err) // TODO, print err
-                }
+                const err = await FindPeerServices(this.searchServicesPhrases, item.id, peer.peerId)
+            }
         }
     },
 	dragStartFunc(event, service) {

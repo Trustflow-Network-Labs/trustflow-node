@@ -29,11 +29,15 @@ export function ListWorkflows(arg1:number,arg2:number):Promise<main.ListWorkflow
 
 export function NotifyFrontendReady():Promise<void>;
 
+export function PeerId():Promise<string>;
+
 export function RemoveWorkflow(arg1:number):Promise<void>;
 
 export function RemoveWorkflowJob(arg1:number):Promise<void>;
 
 export function RemoveWorkflowJobInterfacePeer(arg1:number,arg2:number):Promise<void>;
+
+export function SearchServices(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
 export function SetServiceCardGUIProps(arg1:number,arg2:number,arg3:number):Promise<void>;
 

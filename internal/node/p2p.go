@@ -62,6 +62,7 @@ type P2PManager struct {
 	ps                    *pubsub.PubSub
 	idht                  *dht.IpfsDHT
 	h                     host.Host
+	PeerId                peer.ID
 	ctx                   context.Context
 	tcm                   *TopicAwareConnectionManager
 	DB                    *sql.DB
@@ -460,6 +461,9 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 			return err
 		}
 	}
+
+	// Set peer ID prop
+	p2pm.PeerId = hst.ID()
 
 	// Set up identify service
 	_, err = identify.NewIDService(hst)

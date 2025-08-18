@@ -273,6 +273,11 @@ func (a *App) StopNode() error {
 	return nil
 }
 
+// Host peer Id
+func (a *App) PeerId() string {
+	return a.p2pm.PeerId.String()
+}
+
 // Find services
 func (a *App) FindServices(searchPhrases string, serviceType string) error {
 	return a.sm.LookupRemoteService(searchPhrases, serviceType)
@@ -281,6 +286,26 @@ func (a *App) FindServices(searchPhrases string, serviceType string) error {
 // Find remote node/peer services
 func (a *App) FindPeerServices(searchPhrases string, serviceType string, peerId string) error {
 	return a.p2pm.RequestServiceCatalogue(searchPhrases, serviceType, peerId)
+}
+
+// Search local node/peer services
+func (a *App) SearchServices(searchPhrases string, serviceType string, offset uint32, limit uint32) error {
+	var serviceServices node_types.SearchService = node_types.SearchService{
+		Phrases: searchPhrases,
+		Type:    serviceType,
+		Active:  true,
+	}
+
+	services, err := a.sm.SearchServices(serviceServices, offset, limit)
+	if err != nil {
+		return err
+	}
+
+	for _, service := range services {
+		runtime.EventsEmit(a.ctx, "serviceofferlog-event", service)
+	}
+
+	return nil
 }
 
 // Get workflow grid props
