@@ -11,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/peer"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
@@ -159,16 +160,19 @@ func (tarps *TopicAwareRelayPeerSource) discoverRelaysForTopic(ctx context.Conte
 	
 	// Create DHT key for this topic's relay services
 	relayKey := tarps.createRelayServiceKey(topic)
-	cid, err := cid.Cast([]byte(relayKey))
+	
+	// Create proper CID from relay key hash
+	hash, err := mh.Sum([]byte(relayKey), mh.SHA2_256, -1)
 	if err != nil {
 		tarps.lm.Log("error", 
-			fmt.Sprintf("Failed to create CID for relay key: %v", err), 
+			fmt.Sprintf("Failed to create hash for relay key: %v", err), 
 			"relay-discovery")
 		return []RelayServiceInfo{}
 	}
+	relayCID := cid.NewCidV1(cid.Raw, hash)
 	
 	// Query DHT for relay service providers
-	providers, err := tarps.dht.FindProviders(ctx, cid)
+	providers, err := tarps.dht.FindProviders(ctx, relayCID)
 	if err != nil {
 		tarps.lm.Log("error", 
 			fmt.Sprintf("DHT FindProviders failed for topic %s: %v", topic, err), 

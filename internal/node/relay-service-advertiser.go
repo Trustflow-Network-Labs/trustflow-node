@@ -8,6 +8,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/adgsm/trustflow-node/internal/utils"
 )
 
@@ -161,13 +162,16 @@ func (rsa *RelayServiceAdvertiser) advertiseService(ctx context.Context) error {
 func (rsa *RelayServiceAdvertiser) advertiseForTopic(ctx context.Context, topic string) error {
 	// Create DHT key for this topic's relay services
 	relayKey := fmt.Sprintf("/trustflow/relay-service/%s", topic)
-	cid, err := cid.Cast([]byte(relayKey))
+	
+	// Create proper CID from relay key hash
+	hash, err := mh.Sum([]byte(relayKey), mh.SHA2_256, -1)
 	if err != nil {
-		return fmt.Errorf("failed to create CID for relay key: %w", err)
+		return fmt.Errorf("failed to create hash for relay key: %w", err)
 	}
+	relayCID := cid.NewCidV1(cid.Raw, hash)
 	
 	// Advertise as a provider for this topic's relay services
-	err = rsa.dht.Provide(ctx, cid, true)
+	err = rsa.dht.Provide(ctx, relayCID, true)
 	if err != nil {
 		return fmt.Errorf("failed to provide relay service for topic %s: %w", topic, err)
 	}

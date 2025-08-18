@@ -62,3 +62,12 @@ func RandomString(length int) string {
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
+
+// CreateCIDFromString creates a proper CID v1 (SHA-256) from a string key (used for DHT operations)
+func CreateCIDFromString(key string) (cid.Cid, error) {
+	hash, err := mh.Sum([]byte(key), mh.SHA2_256, -1)
+	if err != nil {
+		return cid.Cid{}, fmt.Errorf("failed to create hash: %w", err)
+	}
+	return cid.NewCidV1(cid.Raw, hash), nil
+}
