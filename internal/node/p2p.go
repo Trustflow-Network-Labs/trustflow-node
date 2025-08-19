@@ -248,6 +248,36 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 		}
 	}()
 
+	// Start service offers cache cleanup periodic task
+	cacheCleanupInterval := 30 * time.Minute // Clean up every 30 minutes
+	if val, exists := p2pm.cm.GetConfig("cache_cleanup_interval"); exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			cacheCleanupInterval = duration
+		}
+	}
+	
+	cacheCleanupTicker := time.NewTicker(cacheCleanupInterval)
+	p2pm.cronWg.Add(1)
+	go func() {
+		defer p2pm.cronWg.Done()
+		defer cacheCleanupTicker.Stop()
+
+		p2pm.Lm.Log("info", fmt.Sprintf("Started cache cleanup every %v", cacheCleanupInterval), "p2p")
+
+		for {
+			select {
+			case <-cacheCleanupTicker.C:
+				p2pm.cleanupCaches()
+			case <-p2pm.cronStopChan:
+				p2pm.Lm.Log("info", "Stopped cache cleanup periodic task", "p2p")
+				return
+			case <-p2pm.ctx.Done():
+				p2pm.Lm.Log("info", "Context cancelled, stopping cache cleanup", "p2p")
+				return
+			}
+		}
+	}()
+
 	p2pm.Lm.Log("info", "Started all P2P periodic tasks", "p2p")
 	return nil
 }
@@ -293,11 +323,73 @@ func (p2pm *P2PManager) cleanupStaleStreams() {
 	}
 }
 
+// cleanupCaches performs periodic cleanup of various caches to prevent memory leaks
+func (p2pm *P2PManager) cleanupCaches() {
+	// Service Offers Cache cleanup
+	cacheTTL := 1 * time.Hour // Default: expire after 1 hour
+	if val, exists := p2pm.cm.GetConfig("service_cache_ttl"); exists {
+		if duration, err := time.ParseDuration(val); err == nil {
+			cacheTTL = duration
+		}
+	}
+	
+	// Get count before cleanup for logging
+	initialCount := len(p2pm.sc.ServiceOffers)
+	p2pm.sc.PruneExpired(cacheTTL)
+	finalCount := len(p2pm.sc.ServiceOffers)
+	
+	if initialCount > finalCount {
+		p2pm.Lm.Log("info", 
+			fmt.Sprintf("Cleaned up %d expired service offers (%d -> %d)", 
+				initialCount-finalCount, initialCount, finalCount), 
+			"p2p")
+	}
+	
+	// Add other cache cleanups here as needed
+	// For example, if there are other caches that need periodic cleanup
+}
+
 // GetActiveStreamsCount returns the current number of active streams for monitoring
 func (p2pm *P2PManager) GetActiveStreamsCount() int {
 	p2pm.streamsMutex.RLock()
 	defer p2pm.streamsMutex.RUnlock()
 	return len(p2pm.activeStreams)
+}
+
+// GetServiceCacheCount returns the current number of cached service offers for monitoring
+func (p2pm *P2PManager) GetServiceCacheCount() int {
+	p2pm.sc.Lock()
+	defer p2pm.sc.Unlock()
+	return len(p2pm.sc.ServiceOffers)
+}
+
+// GetMemoryUsageInfo returns a diagnostic summary for memory leak monitoring
+func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
+	info := make(map[string]int)
+	
+	// Active streams count
+	info["active_streams"] = p2pm.GetActiveStreamsCount()
+	
+	// Service offers cache count  
+	info["service_offers"] = p2pm.GetServiceCacheCount()
+	
+	// Connection manager cache counts
+	if p2pm.tcm != nil {
+		info["topic_peers"] = len(p2pm.tcm.topicPeers)
+		info["routing_peers"] = len(p2pm.tcm.routingPeers)
+		info["peer_stats_cache"] = p2pm.tcm.peerStatsCache.Len()
+	}
+	
+	// Relay traffic monitor
+	if p2pm.relayTrafficMonitor != nil {
+		info["relay_circuits"] = len(p2pm.relayTrafficMonitor.activeCircuits)
+	}
+	
+	// Worker pool utilization
+	info["stream_workers_available"] = cap(p2pm.streamSemaphore) - len(p2pm.streamSemaphore)
+	info["stream_workers_busy"] = len(p2pm.streamSemaphore)
+	
+	return info
 }
 
 // Get ticker intervals from config (no cron parsing needed)
@@ -1345,7 +1437,18 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	accepted := p2pm.streamProposalAssessment(streamData.Type)
 	if accepted {
 		p2pm.streamAccepted(s)
-		go p2pm.receivedStream(s, streamData)
+		// Use bounded worker pool instead of unbounded goroutines
+		select {
+		case p2pm.streamSemaphore <- struct{}{}:
+			go func() {
+				defer func() { <-p2pm.streamSemaphore }()
+				p2pm.receivedStream(s, streamData)
+			}()
+		default:
+			// Worker pool full, reject stream to prevent memory exhaustion
+			p2pm.Lm.Log("warn", "Stream processing worker pool full, rejecting stream "+s.ID(), "p2p")
+			s.Reset()
+		}
 	} else {
 		s.Reset()
 	}
