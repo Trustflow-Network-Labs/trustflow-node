@@ -1450,7 +1450,10 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 			s.Reset()
 		}
 	} else {
-		s.Reset()
+		// Stream rejected by local policy - close gracefully instead of reset
+		if err := s.Close(); err != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 	}
 }
 
@@ -1691,6 +1694,21 @@ func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uin
 
 func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_types.StreamData) ([]byte, error) {
 	var data []byte
+	
+	// Safety limits to prevent memory exhaustion attacks
+	maxChunkSize := uint64(10 * 1024 * 1024)    // 10MB max per chunk
+	maxTotalSize := uint64(100 * 1024 * 1024)   // 100MB max total
+	if val, exists := p2pm.cm.GetConfig("max_chunk_size_mb"); exists {
+		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
+			maxChunkSize = size * 1024 * 1024
+		}
+	}
+	if val, exists := p2pm.cm.GetConfig("max_stream_size_mb"); exists {
+		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
+			maxTotalSize = size * 1024 * 1024
+		}
+	}
+
 	for {
 		// Receive chunk size
 		var chunkSize uint64
@@ -1705,6 +1723,20 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 
 		if chunkSize == 0 {
 			break
+		}
+
+		// Validate chunk size
+		if chunkSize > maxChunkSize {
+			err := fmt.Errorf("chunk size %d exceeds maximum allowed %d bytes", chunkSize, maxChunkSize)
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			return nil, err
+		}
+
+		// Check total size limit
+		if uint64(len(data))+chunkSize > maxTotalSize {
+			err := fmt.Errorf("total stream size would exceed maximum allowed %d bytes", maxTotalSize)
+			p2pm.Lm.Log("error", err.Error(), "p2p")
+			return nil, err
 		}
 
 		chunk := make([]byte, chunkSize)
@@ -1835,7 +1867,12 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 	message := fmt.Sprintf("Receiving ended %s", s.ID())
 	p2pm.Lm.Log("debug", message, "p2p")
 
-	s.Reset()
+	// Proper stream cleanup - Close instead of Reset for normal completion
+	if err := s.Close(); err != nil {
+		p2pm.Lm.Log("warn", fmt.Sprintf("Failed to close stream %s: %v", s.ID(), err), "p2p")
+		// Only reset if close fails
+		s.Reset()
+	}
 }
 
 // Received file from remote peer
