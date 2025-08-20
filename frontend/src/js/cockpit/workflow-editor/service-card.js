@@ -23,13 +23,21 @@ const computed = {
 	},
 	themeVariety() {
 		return MainStore.getThemeVariety
-	}
+	},
+    isData() {
+        return this.workflowJob.workflow_job_base.service_type == 'DATA'
+    },
+    isFunction() {
+        return this.workflowJob.workflow_job_base.service_type == 'DOCKER EXECUTION ENVIRONMENT'
+            || this.workflowJob.workflow_job_base.service_type == 'STANDALONE EXECUTABLE'
+    },
 }
 
 const watch = {
 }
 
 const mounted = function() {
+    console.log(this.serviceCardId, this.service, this.workflowJob)
 }
 
 const methods = {

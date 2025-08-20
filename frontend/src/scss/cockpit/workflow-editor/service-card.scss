@@ -1,4 +1,5 @@
 .common-cockpit-workflow-editor-service-card {
+    --tf-data-color: rgb(205, 81, 36);
     --tf-function-color: #4060c3;
 
     position: absolute;
@@ -62,7 +63,7 @@
             white-space: nowrap;
 
             &.data {
-                background-color: rgba(205, 81, 36, 1);
+                background-color: var(--tf-data-color);
             }
 
             &.function {
@@ -130,6 +131,41 @@
         &:after {
             transform: translate(-50%, -50%) rotate(225deg);
             right: -40px;
+        }
+
+        .card-rip-connector {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 5px solid;
+            border-color: transparent;
+            border-radius: 50%;
+
+            &.left {
+                left: -20px;
+            }
+
+            &.right {
+                right: -20px;
+            }
+
+            &.not-allowed {
+                border-color: #fff !important;
+                background: #fff;
+            }
+        }
+    }
+
+    &:hover {
+        .card-rip {
+            .card-rip-connector {
+                &.allowed.data {
+                    border-color: var(--tf-data-color);
+                }
+                &.allowed.function {
+                    border-color: var(--tf-function-color);
+                }
+            }
         }
     }
 

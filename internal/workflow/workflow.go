@@ -455,7 +455,7 @@ func (wm *WorkflowManager) GetWorkflowJob(id int64) (node_types.WorkflowJob, err
 	for rows.Next() {
 		var serviceInterface node_types.ServiceInterface
 		err := rows.Scan(&serviceInterface.InterfaceId, &serviceInterface.WorkflowJobId,
-			&serviceInterface.InterfaceType, &serviceInterface.InterfaceType)
+			&serviceInterface.InterfaceType, &serviceInterface.Path)
 		if err != nil {
 			wm.lm.Log("error", err.Error(), "workflow")
 			return workflowJob, err
