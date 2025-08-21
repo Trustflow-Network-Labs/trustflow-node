@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -75,12 +76,15 @@ type P2PManager struct {
 	connectionMaintTicker *time.Ticker
 	cronStopChan          chan struct{}
 	cronWg                sync.WaitGroup
-	streamSemaphore       chan struct{}              // Limit concurrent stream processing
-	activeStreams         map[string]time.Time       // Track active streams for cleanup
-	streamsMutex          sync.RWMutex               // Protect activeStreams map
-	relayTrafficMonitor   *RelayTrafficMonitor       // Monitor relay traffic for billing
-	relayPeerSource       *TopicAwareRelayPeerSource // Discover relay peers dynamically
-	relayAdvertiser       *RelayServiceAdvertiser    // Advertise our relay service
+	streamSemaphore       chan struct{}                // Limit concurrent stream processing
+	activeStreams         map[string]time.Time         // Track active streams for cleanup
+	streamsMutex          sync.RWMutex                 // Protect activeStreams map
+	resourceTracker       *utils.ResourceTracker       // Memory leak prevention
+	cleanupManager        *utils.CleanupManager        // Automatic cleanup
+	memoryMonitor         *utils.MemoryPressureMonitor // Memory pressure monitoring
+	relayTrafficMonitor   *RelayTrafficMonitor         // Monitor relay traffic for billing
+	relayPeerSource       *TopicAwareRelayPeerSource   // Discover relay peers dynamically
+	relayAdvertiser       *RelayServiceAdvertiser      // Advertise our relay service
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -144,17 +148,61 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		p2pm.ctx = ctx
 	}
 
+	// Initialize memory leak prevention components
+	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm)
+	p2pm.cleanupManager = utils.NewCleanupManager(p2pm.ctx, lm)
+
+	// Create memory pressure monitor (trigger cleanup at 85% memory usage)
+	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(85.0, p2pm.cleanupManager, lm)
+	p2pm.memoryMonitor.Start(30 * time.Second) // Check every 30 seconds
+
+	// Register P2P cleanup functions
+	p2pm.cleanupManager.RegisterCleanup("p2p-streams", func() error {
+		p2pm.cleanupOldStreams()
+		return nil
+	})
+
+	// Start periodic cleanup routine
+	go p2pm.startPeriodicCleanup()
+
 	return p2pm
 }
 
 func (p2pm *P2PManager) Close() error {
+	p2pm.Lm.Log("info", "Starting P2P manager shutdown with memory leak prevention", "p2p")
+
+	// Stop memory pressure monitor
+	if p2pm.memoryMonitor != nil {
+		p2pm.memoryMonitor.Stop()
+	}
+
+	// Run final cleanup before shutdown
+	if p2pm.cleanupManager != nil {
+		cleanupErrors := p2pm.cleanupManager.Shutdown()
+		if len(cleanupErrors) > 0 {
+			p2pm.Lm.Log("warn", fmt.Sprintf("Cleanup errors during shutdown: %v", cleanupErrors), "p2p")
+		}
+	}
+
+	// Shutdown resource tracker
+	if p2pm.resourceTracker != nil {
+		if err := p2pm.resourceTracker.Shutdown(); err != nil {
+			p2pm.Lm.Log("warn", fmt.Sprintf("Resource tracker shutdown error: %v", err), "p2p")
+		}
+	}
+
+	// Force garbage collection before closing resources
+	utils.ForceGC()
+
 	// Close DB connection
 	if err := p2pm.DB.Close(); err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return err
 	}
+
 	// Close logs
 	if p2pm.Lm != nil {
+		p2pm.Lm.Log("info", "P2P manager shutdown completed", "p2p")
 		return p2pm.Lm.Close()
 	}
 	return nil
@@ -255,7 +303,7 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 			cacheCleanupInterval = duration
 		}
 	}
-	
+
 	cacheCleanupTicker := time.NewTicker(cacheCleanupInterval)
 	p2pm.cronWg.Add(1)
 	go func() {
@@ -332,19 +380,19 @@ func (p2pm *P2PManager) cleanupCaches() {
 			cacheTTL = duration
 		}
 	}
-	
+
 	// Get count before cleanup for logging
 	initialCount := len(p2pm.sc.ServiceOffers)
 	p2pm.sc.PruneExpired(cacheTTL)
 	finalCount := len(p2pm.sc.ServiceOffers)
-	
+
 	if initialCount > finalCount {
-		p2pm.Lm.Log("info", 
-			fmt.Sprintf("Cleaned up %d expired service offers (%d -> %d)", 
-				initialCount-finalCount, initialCount, finalCount), 
+		p2pm.Lm.Log("info",
+			fmt.Sprintf("Cleaned up %d expired service offers (%d -> %d)",
+				initialCount-finalCount, initialCount, finalCount),
 			"p2p")
 	}
-	
+
 	// Add other cache cleanups here as needed
 	// For example, if there are other caches that need periodic cleanup
 }
@@ -366,29 +414,29 @@ func (p2pm *P2PManager) GetServiceCacheCount() int {
 // GetMemoryUsageInfo returns a diagnostic summary for memory leak monitoring
 func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
 	info := make(map[string]int)
-	
+
 	// Active streams count
 	info["active_streams"] = p2pm.GetActiveStreamsCount()
-	
-	// Service offers cache count  
+
+	// Service offers cache count
 	info["service_offers"] = p2pm.GetServiceCacheCount()
-	
+
 	// Connection manager cache counts
 	if p2pm.tcm != nil {
 		info["topic_peers"] = len(p2pm.tcm.topicPeers)
 		info["routing_peers"] = len(p2pm.tcm.routingPeers)
 		info["peer_stats_cache"] = p2pm.tcm.peerStatsCache.Len()
 	}
-	
+
 	// Relay traffic monitor
 	if p2pm.relayTrafficMonitor != nil {
 		info["relay_circuits"] = len(p2pm.relayTrafficMonitor.activeCircuits)
 	}
-	
+
 	// Worker pool utilization
 	info["stream_workers_available"] = cap(p2pm.streamSemaphore) - len(p2pm.streamSemaphore)
 	info["stream_workers_busy"] = len(p2pm.streamSemaphore)
-	
+
 	return info
 }
 
@@ -1012,7 +1060,16 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 }
 
 func (p2pm *P2PManager) DiscoverPeers() {
+	const maxDiscoveredPeers = 50 // Limit memory growth
 	var discoveredPeers []peer.AddrInfo
+
+	// Track discovery operation
+	discoveryID := fmt.Sprintf("discovery-%d", time.Now().Unix())
+	p2pm.resourceTracker.TrackResourceWithCleanup(discoveryID, utils.ResourceConnection, func() error {
+		p2pm.Lm.Log("debug", "Peer discovery cleanup completed", "p2p")
+		return nil
+	})
+	defer p2pm.resourceTracker.ReleaseResource(discoveryID)
 
 	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
 
@@ -1033,12 +1090,39 @@ func (p2pm *P2PManager) DiscoverPeers() {
 			if peer.ID == "" || peer.ID == p2pm.h.ID() {
 				continue
 			}
-			discoveredPeers = append(discoveredPeers, peer)
+
+			// Check if we already have this peer
+			found := false
+			for _, existing := range discoveredPeers {
+				if existing.ID == peer.ID {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				discoveredPeers = append(discoveredPeers, peer)
+
+				// Prevent unbounded memory growth
+				if len(discoveredPeers) >= maxDiscoveredPeers {
+					p2pm.Lm.Log("warn", fmt.Sprintf("Discovery limit reached (%d peers), stopping", maxDiscoveredPeers), "p2p")
+					break
+				}
+			}
+		}
+
+		// Break outer loop if limit reached
+		if len(discoveredPeers) >= maxDiscoveredPeers {
+			break
 		}
 	}
 
+	p2pm.Lm.Log("info", fmt.Sprintf("Discovered %d peers for connection attempts", len(discoveredPeers)), "p2p")
+
 	// Connect to peers asynchronously
-	go p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+	if len(discoveredPeers) > 0 {
+		go p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+	}
 }
 
 // Monitor connection health and reconnect (cron)
@@ -1162,23 +1246,40 @@ func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int,
 	var mu sync.Mutex
 	var connectedPeers []peer.AddrInfo
 
-	// Use a worker pool pattern
+	// Use proper worker pool with job queue
 	maxWorkers := 20
+	peerChan := make(chan peer.AddrInfo, len(peers))
+
+	// Send peers to job queue
+	for _, peer := range peers {
+		peerChan <- peer
+	}
+	close(peerChan)
 
 	var wg sync.WaitGroup
 
-	// Start workers
+	// Start workers that consume from job queue
 	for range maxWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			for _, peer := range peers {
+			for peer := range peerChan {
+				// Track connection attempt
+				connID := fmt.Sprintf("connect-%s", peer.ID.String())
+				p2pm.resourceTracker.TrackResourceWithCleanup(connID, utils.ResourceConnection, func() error {
+					p2pm.Lm.Log("debug", fmt.Sprintf("Connection attempt cleanup: %s", peer.ID.String()), "p2p")
+					return nil
+				})
+
 				if err := p2pm.ConnectNodeWithRetry(p2pm.ctx, peer, maxRetries, baseDelay); err == nil {
 					mu.Lock()
 					connectedPeers = append(connectedPeers, peer)
 					mu.Unlock()
 				}
+
+				// Release resource tracking
+				p2pm.resourceTracker.ReleaseResource(connID)
 			}
 		}()
 	}
@@ -1373,7 +1474,9 @@ func (p2pm *P2PManager) streamProposal(
 	// Send stream data
 	if err := binary.Write(s, binary.BigEndian, streamData); err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 		return err
 	}
 	message := fmt.Sprintf("Stream proposal type %d has been sent in stream %s", streamData.Type, s.ID())
@@ -1426,7 +1529,10 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	err := binary.Read(s, binary.BigEndian, &streamData)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
+		return
 	}
 
 	message := fmt.Sprintf("Received stream data type %d from %s in stream %s",
@@ -1441,7 +1547,17 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		select {
 		case p2pm.streamSemaphore <- struct{}{}:
 			go func() {
-				defer func() { <-p2pm.streamSemaphore }()
+				defer func() {
+					<-p2pm.streamSemaphore
+				}()
+
+				// Register stream with resource tracker for monitoring only
+				p2pm.resourceTracker.TrackResourceWithCleanup(streamID, utils.ResourceStream, func() error {
+					p2pm.Lm.Log("debug", fmt.Sprintf("Resource tracker cleanup for stream %s", streamID), "p2p")
+					return nil // Don't close here, let receivedStream handle it properly
+				})
+				defer p2pm.resourceTracker.ReleaseResource(streamID)
+
 				p2pm.receivedStream(s, streamData)
 			}()
 		default:
@@ -1525,7 +1641,9 @@ func (p2pm *P2PManager) streamAccepted(s network.Stream) {
 	err := binary.Write(s, binary.BigEndian, data)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 	}
 
 	message := fmt.Sprintf("Sent TFREADY successfully in stream %s", s.ID())
@@ -1550,7 +1668,9 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	s.SetReadDeadline(time.Time{}) // Clear deadline
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 		return err
 	}
 
@@ -1558,7 +1678,9 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	if !bytes.Equal(expected[:], ready[:]) {
 		err := errors.New("did not get expected TFREADY signal")
 		p2pm.Lm.Log("error", err.Error(), "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 		return err
 	}
 
@@ -1585,21 +1707,27 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 		b, err := json.Marshal(data)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			s.Reset()
+			if closeErr := s.Close(); closeErr != nil {
+				s.Reset() // Fallback to reset if close fails
+			}
 			return err
 		}
 
 		err = p2pm.sendStreamChunks(b, pointer, chunkSize, s)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			s.Reset()
+			if closeErr := s.Close(); closeErr != nil {
+				s.Reset() // Fallback to reset if close fails
+			}
 			return err
 		}
 	case *[]byte:
 		err = p2pm.sendStreamChunks(*v, pointer, chunkSize, s)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			s.Reset()
+			if closeErr := s.Close(); closeErr != nil {
+				s.Reset() // Fallback to reset if close fails
+			}
 			return err
 		}
 	case *os.File:
@@ -1611,7 +1739,7 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 		}()
 
 		buffer := utils.P2PBufferPool.Get()
-		defer utils.P2PBufferPool.Put(&buffer)
+		defer utils.P2PBufferPool.Put(buffer)
 
 		writer := utils.GlobalWriterPool.Get(s)
 		defer utils.GlobalWriterPool.Put(writer)
@@ -1623,7 +1751,9 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 					break
 				}
 				p2pm.Lm.Log("error", err.Error(), "p2p")
-				s.Reset()
+				if closeErr := s.Close(); closeErr != nil {
+					s.Reset() // Fallback to reset if close fails
+				}
 				return err
 			}
 
@@ -1633,14 +1763,18 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 			s.SetWriteDeadline(time.Time{})
 			if err != nil {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
-				s.Reset()
+				if closeErr := s.Close(); closeErr != nil {
+					s.Reset() // Fallback to reset if close fails
+				}
 				return err
 			}
 		}
 
 		if err = writer.Flush(); err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
-			s.Reset()
+			if closeErr := s.Close(); closeErr != nil {
+				s.Reset() // Fallback to reset if close fails
+			}
 			return err
 		}
 
@@ -1650,7 +1784,9 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	default:
 		msg := fmt.Sprintf("Data type %v is not allowed in this context (streaming data)", v)
 		p2pm.Lm.Log("error", msg, "p2p")
-		s.Reset()
+		if closeErr := s.Close(); closeErr != nil {
+			s.Reset() // Fallback to reset if close fails
+		}
 		return err
 	}
 
@@ -1661,43 +1797,47 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 }
 
 func (p2pm *P2PManager) sendStreamChunks(b []byte, pointer uint64, chunkSize uint64, s network.Stream) error {
-	for {
-		if len(b)-int(pointer) < int(chunkSize) {
-			chunkSize = uint64(len(b) - int(pointer))
+	// Use buffered writer for better performance and memory management
+	return utils.SafeWriterOperation(s, func(writer *bufio.Writer) error {
+		for {
+			if len(b)-int(pointer) < int(chunkSize) {
+				chunkSize = uint64(len(b) - int(pointer))
+			}
+
+			err := binary.Write(writer, binary.BigEndian, chunkSize)
+			if err != nil {
+				p2pm.Lm.Log("error", err.Error(), "p2p")
+				return err
+			}
+			message := fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", chunkSize, s.ID())
+			p2pm.Lm.Log("debug", message, "p2p")
+
+			if chunkSize == 0 {
+				break
+			}
+
+			err = binary.Write(writer, binary.BigEndian, (b)[pointer:pointer+chunkSize])
+			if err != nil {
+				p2pm.Lm.Log("error", err.Error(), "p2p")
+				return err
+			}
+			message = fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", len((b)[pointer:pointer+chunkSize]), s.ID())
+			p2pm.Lm.Log("debug", message, "p2p")
+
+			pointer += chunkSize
 		}
 
-		err := binary.Write(s, binary.BigEndian, chunkSize)
-		if err != nil {
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-			return err
-		}
-		message := fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", chunkSize, s.ID())
-		p2pm.Lm.Log("debug", message, "p2p")
-
-		if chunkSize == 0 {
-			break
-		}
-
-		err = binary.Write(s, binary.BigEndian, (b)[pointer:pointer+chunkSize])
-		if err != nil {
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-			return err
-		}
-		message = fmt.Sprintf("Chunk [%d bytes] successfully sent in stream %s", len((b)[pointer:pointer+chunkSize]), s.ID())
-		p2pm.Lm.Log("debug", message, "p2p")
-
-		pointer += chunkSize
-
-	}
-	return nil
+		// Ensure data is flushed
+		return writer.Flush()
+	})
 }
 
 func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_types.StreamData) ([]byte, error) {
 	var data []byte
-	
+
 	// Safety limits to prevent memory exhaustion attacks
-	maxChunkSize := uint64(10 * 1024 * 1024)    // 10MB max per chunk
-	maxTotalSize := uint64(100 * 1024 * 1024)   // 100MB max total
+	maxChunkSize := uint64(10 * 1024 * 1024)  // 10MB max per chunk
+	maxTotalSize := uint64(100 * 1024 * 1024) // 100MB max total
 	if val, exists := p2pm.cm.GetConfig("max_chunk_size_mb"); exists {
 		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
 			maxChunkSize = size * 1024 * 1024
@@ -1748,6 +1888,11 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 			return nil, err
 		}
 
+		// Update resource tracker that stream is still active
+		if len(data)%1048576 == 0 { // Update every 1MB received
+			p2pm.resourceTracker.UpdateLastUsed(s.ID())
+		}
+
 		message = fmt.Sprintf("Received chunk [%d bytes] of type %d from %s", len(chunk), streamData.Type, s.ID())
 		p2pm.Lm.Log("debug", message, "p2p")
 
@@ -1759,6 +1904,12 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 }
 
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
+	streamID := s.ID()
+	// Update resource tracker that stream is being actively used
+	p2pm.resourceTracker.UpdateLastUsed(streamID)
+
+	// Add small delay to prevent race conditions with resource tracker
+	time.Sleep(10 * time.Millisecond)
 	// Determine local and remote peer Ids
 	localPeerId := s.Conn().LocalPeer()
 	remotePeerId := s.Conn().RemotePeer()
@@ -1769,7 +1920,10 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		// Prepare to read back the data
 		data, err := p2pm.receiveStreamChunks(s, streamData)
 		if err != nil {
-			s.Reset()
+			p2pm.Lm.Log("error", fmt.Sprintf("Failed to receive stream chunks: %v", err), "p2p")
+			if closeErr := s.Close(); closeErr != nil {
+				s.Reset() // Fallback to reset if close fails
+			}
 			return
 		}
 
@@ -1781,73 +1935,76 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		case 13:
 			// Received a Service Catalogue Request from the remote peer
 			if err := p2pm.serviceCatalogueRequestReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.Lm.Log("error", fmt.Sprintf("Service catalogue request processing failed: %v", err), "p2p")
+				if closeErr := s.Close(); closeErr != nil {
+					s.Reset() // Fallback to reset if close fails
+				}
 				return
 			}
 		case 0:
 			// Received a Service Offer from the remote peer
 			if err := p2pm.serviceOfferReceived(data, localPeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Service offer processing failed", err)
 				return
 			}
 		case 1:
 			// Received Job Run Request from remote peer
 			if err := p2pm.jobRunRequestReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 4:
 			// Received Service Request from remote peer
 			if err := p2pm.serviceRequestReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 5:
 			// Received Service Response from remote peer
 			if err := p2pm.serviceResponseReceived(data); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 6:
 			// Received Job Run Response from remote peer
 			if err := p2pm.jobRunResponseReceived(data); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 7:
 			// Received Job Run Status Update from remote peer
 			if err := p2pm.jobRunStatusUpdateReceived(data); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 8:
 			// Received Job Run Status Request from remote peer
 			if err := p2pm.jobRunStatusRequestReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 9:
 			// Received Job Data Acknowledgement Receipt from remote peer
 			if err := p2pm.jobDataAcknowledgementReceiptReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 10:
 			// Received Job Data Request from remote peer
 			if err := p2pm.jobDataRequestReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 11:
 			// Received Service Request Cancelation from remote peer
 			if err := p2pm.serviceRequestCancellationReceived(data, remotePeerId); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		case 12:
 			// Received Service Request Cancellation Response from remote peer
 			if err := p2pm.serviceRequestCancellationResponseReceived(data); err != nil {
-				s.Reset()
+				p2pm.handleStreamError(s, "Stream processing failed", err)
 				return
 			}
 		}
@@ -1856,7 +2013,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 	case 3:
 		// Received file from remote peer
 		if err := p2pm.fileReceived(s, remotePeerId, streamData); err != nil {
-			s.Reset()
+			p2pm.handleStreamError(s, "File reception failed", err)
 			return
 		}
 	default:
@@ -1936,7 +2093,7 @@ func (p2pm *P2PManager) fileReceived(
 	defer utils.GlobalReaderPool.Put(reader)
 
 	buf := utils.P2PBufferPool.Get()
-	defer utils.P2PBufferPool.Put(&buf)
+	defer utils.P2PBufferPool.Put(buf)
 
 	for {
 		n, err := reader.Read(buf)
@@ -2883,4 +3040,53 @@ func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {
 	}
 
 	return pID, nil
+}
+
+// cleanupOldStreams removes old/stale streams from tracking
+func (p2pm *P2PManager) cleanupOldStreams() {
+	p2pm.streamsMutex.Lock()
+	defer p2pm.streamsMutex.Unlock()
+
+	cutoff := time.Now().Add(-30 * time.Minute) // Remove streams older than 30 minutes
+	for streamID, createdAt := range p2pm.activeStreams {
+		if createdAt.Before(cutoff) {
+			delete(p2pm.activeStreams, streamID)
+			p2pm.Lm.Log("debug", fmt.Sprintf("Cleaned up old stream tracking: %s", streamID), "p2p")
+		}
+	}
+}
+
+// handleStreamError handles stream errors with graceful close or reset fallback
+func (p2pm *P2PManager) handleStreamError(s network.Stream, message string, err error) {
+	p2pm.Lm.Log("error", fmt.Sprintf("%s: %v", message, err), "p2p")
+	if closeErr := s.Close(); closeErr != nil {
+		s.Reset() // Fallback to reset if close fails
+	}
+}
+
+// startPeriodicCleanup runs periodic cleanup tasks
+func (p2pm *P2PManager) startPeriodicCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p2pm.ctx.Done():
+			return
+		case <-ticker.C:
+			// Clean up old resources
+			if cleaned := p2pm.resourceTracker.CleanupOldResources(30 * time.Minute); cleaned > 0 {
+				p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d old resources", cleaned), "p2p")
+			}
+
+			// Clean up old stream tracking
+			p2pm.cleanupOldStreams()
+
+			// Log resource statistics
+			stats := p2pm.resourceTracker.GetResourceStats()
+			if len(stats) > 0 {
+				p2pm.Lm.Log("debug", fmt.Sprintf("Resource stats: %+v", stats), "p2p")
+			}
+		}
+	}
 }

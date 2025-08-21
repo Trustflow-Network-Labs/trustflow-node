@@ -30,9 +30,13 @@ func (bp *BufferPool) Get() []byte {
 }
 
 // Put returns a buffer to the pool
-func (bp *BufferPool) Put(buf *[]byte) {
-	// Only return buffers of the correct size
-	if len(*buf) == bp.bufSize {
+func (bp *BufferPool) Put(buf []byte) {
+	// Only return buffers of the correct size and reset them
+	if len(buf) == bp.bufSize {
+		// Clear the buffer contents to prevent data leaks
+		for i := range buf {
+			buf[i] = 0
+		}
 		bp.pool.Put(buf)
 	}
 }
@@ -111,3 +115,24 @@ var (
 	GlobalWriterPool = NewWriterPool()
 	GlobalReaderPool = NewReaderPool()
 )
+
+// SafeBufferOperation provides a safe way to use pooled buffers with automatic cleanup
+func SafeBufferOperation(pool *BufferPool, operation func([]byte) error) error {
+	buf := pool.Get()
+	defer pool.Put(buf)
+	return operation(buf)
+}
+
+// SafeWriterOperation provides a safe way to use pooled writers with automatic cleanup  
+func SafeWriterOperation(w io.Writer, operation func(*bufio.Writer) error) error {
+	writer := GlobalWriterPool.Get(w)
+	defer GlobalWriterPool.Put(writer)
+	return operation(writer)
+}
+
+// SafeReaderOperation provides a safe way to use pooled readers with automatic cleanup
+func SafeReaderOperation(r io.Reader, operation func(*bufio.Reader) error) error {
+	reader := GlobalReaderPool.Get(r)
+	defer GlobalReaderPool.Put(reader)
+	return operation(reader)
+}
