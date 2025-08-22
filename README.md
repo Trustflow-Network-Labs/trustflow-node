@@ -3,7 +3,7 @@
 
 > **Powering the decentralized backend of tomorrow.**
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -28,7 +28,7 @@ It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifia
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.24+
 - Docker
 - SQLite database
 
@@ -37,11 +37,15 @@ It orchestrates decentralized Docker and WASM runtimes, enabling robust, verifia
 ```bash
 git clone https://github.com/Trustflow-Network-Labs/trustflow-node.git
 cd trustflow-node
-# CLI
+
+# CLI build
 CGO_ENABLED=0 go build -o ./trustflow-node ./internal/cli.go
-# Wails GUI
+
+# Wails GUI development (hot reload)
 wails dev
-# end
+
+# Wails GUI production build
+wails build
 ```
 
 ### Configuration
@@ -112,7 +116,7 @@ See the [LICENSE](LICENSE) file for details.
 
 The following diagrams illustrate examples of end-to-end ecological monitoring workflows—starting with decentralized data integration for pollinator species management in agroecosystems, and extending to satellite-based deforestation estimation.
 
-- Ddecentralized data integration for pollinator species management in agroecosystems
+- Decentralized data integration for pollinator species management in agroecosystems
 
 ![Trustflow Workflow](./trustflow_workflow_example_1.png)
 
