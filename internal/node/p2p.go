@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -155,6 +157,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Create memory pressure monitor (trigger cleanup at 85% memory usage)
 	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(85.0, p2pm.cleanupManager, lm)
 	p2pm.memoryMonitor.Start(30 * time.Second) // Check every 30 seconds
+	
+	// Initialize context tracking for memory leak detection
+	utils.InitializeContextTracking(lm)
 
 	// Register P2P cleanup functions
 	p2pm.cleanupManager.RegisterCleanup("p2p-streams", func() error {
@@ -701,6 +706,15 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 		return err
 	}
 
+	// Start pprof server for memory profiling and heap metrics
+	pprofPort := p2pm.cm.GetConfigWithDefault("pprof_port", "6060")
+	go func() {
+		p2pm.Lm.Log("info", fmt.Sprintf("Starting pprof server on port %s", pprofPort), "pprof")
+		if err := http.ListenAndServe(":"+pprofPort, nil); err != nil {
+			p2pm.Lm.Log("warn", fmt.Sprintf("pprof server failed: %v", err), "pprof")
+		}
+	}()
+
 	return nil
 }
 
@@ -1182,7 +1196,7 @@ func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) error {
 		return nil // Consider this as success
 	}
 
-	connCtx, cancel := context.WithTimeout(p2pm.ctx, 10*time.Second)
+	connCtx, cancel := utils.TrackContextWithTimeout(p2pm.ctx, 10*time.Second, "node_connection")
 	err = p2pm.h.Connect(connCtx, p)
 	cancel()
 
@@ -1351,12 +1365,13 @@ func StreamData[T any](
 		return err
 	}
 
-	// Timeout context
-	//	if t == 2 || t == 3 {
+	// Timeout context with tracking
 	if t == 3 {
-		ctx, cancel = context.WithTimeout(p2pm.ctx, 5*time.Hour) // Allow loner periods, TODO put in config
+		// File transfers - use tracked context for 5-hour timeout
+		ctx, cancel = utils.TrackContextWithTimeout(p2pm.ctx, 5*time.Hour, "file_transfer")
 	} else {
-		ctx, cancel = context.WithTimeout(p2pm.ctx, 1*time.Minute)
+		// Other operations - 1 minute timeout
+		ctx, cancel = utils.TrackContextWithTimeout(p2pm.ctx, 1*time.Minute, "stream_operation")
 	}
 	defer cancel()
 
@@ -1487,7 +1502,7 @@ func (p2pm *P2PManager) streamProposal(
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	// Create timeout context for the entire stream processing
-	ctx, cancel := context.WithTimeout(p2pm.ctx, 15*time.Minute) // TODO, put in configs
+	ctx, cancel := utils.TrackContextWithTimeout(p2pm.ctx, 15*time.Minute, "proposal_response")
 	defer cancel()
 
 	// Set reasonable timeouts to prevent indefinite blocking without closing the stream prematurely

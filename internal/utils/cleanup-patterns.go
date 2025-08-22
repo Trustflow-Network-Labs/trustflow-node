@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"runtime"
 	"sync"
 	"time"
@@ -11,11 +12,11 @@ import (
 
 // CleanupManager provides automatic resource cleanup patterns
 type CleanupManager struct {
-	mu          sync.RWMutex
+	mu           sync.RWMutex
 	cleanupFuncs map[string]func() error
-	ctx         context.Context
-	cancel      context.CancelFunc
-	logger      Logger
+	ctx          context.Context
+	cancel       context.CancelFunc
+	logger       Logger
 }
 
 // NewCleanupManager creates a new cleanup manager
@@ -63,9 +64,7 @@ func (cm *CleanupManager) RunCleanup(id string) error {
 func (cm *CleanupManager) RunAllCleanups() []error {
 	cm.mu.Lock()
 	funcs := make(map[string]func() error)
-	for id, f := range cm.cleanupFuncs {
-		funcs[id] = f
-	}
+	maps.Copy(funcs, cm.cleanupFuncs)
 	cm.cleanupFuncs = make(map[string]func() error)
 	cm.mu.Unlock()
 
@@ -101,7 +100,7 @@ func WithCleanup(cleanup func() error, operation func() error) error {
 func WithTimeout(timeout time.Duration, cleanup func() error, operation func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	return WithCleanup(cleanup, func() error {
 		return operation(ctx)
 	})
@@ -144,23 +143,23 @@ func (s *StreamCleanupWrapper) Write(p []byte) (n int, err error) {
 func (s *StreamCleanupWrapper) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.closed {
 		return nil
 	}
-	
+
 	s.closed = true
-	
+
 	// Close stream first
 	err := s.stream.Close()
-	
+
 	// Run cleanup
 	if s.cleanup != nil {
 		if cleanupErr := s.cleanup(); cleanupErr != nil && err == nil {
 			err = cleanupErr
 		}
 	}
-	
+
 	return err
 }
 
@@ -177,7 +176,7 @@ type MemoryPressureMonitor struct {
 // NewMemoryPressureMonitor creates a memory pressure monitor
 func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logger Logger) *MemoryPressureMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	monitor := &MemoryPressureMonitor{
 		thresholdPercent: thresholdPercent,
 		cleanupManager:   cm,
@@ -185,14 +184,14 @@ func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logg
 		cancel:           cancel,
 		logger:           logger,
 	}
-	
+
 	return monitor
 }
 
 // Start begins monitoring memory pressure
 func (m *MemoryPressureMonitor) Start(interval time.Duration) {
 	m.ticker = time.NewTicker(interval)
-	
+
 	go func() {
 		defer m.ticker.Stop()
 		for {
@@ -217,26 +216,26 @@ func (m *MemoryPressureMonitor) Stop() {
 func (m *MemoryPressureMonitor) checkMemoryPressure() {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	// Calculate memory usage percentage (rough estimate)
 	heapInUse := float64(memStats.HeapInuse)
 	heapSys := float64(memStats.HeapSys)
-	
+
 	if heapSys > 0 {
 		usagePercent := (heapInUse / heapSys) * 100
-		
+
 		if usagePercent > m.thresholdPercent {
 			if m.logger != nil {
-				m.logger.Log("warn", 
-					fmt.Sprintf("High memory pressure detected: %.2f%% (threshold: %.2f%%)", 
-						usagePercent, m.thresholdPercent), 
+				m.logger.Log("warn",
+					fmt.Sprintf("High memory pressure detected: %.2f%% (threshold: %.2f%%)",
+						usagePercent, m.thresholdPercent),
 					"memory-monitor")
 			}
-			
+
 			// Trigger cleanup
 			runtime.GC()
 			runtime.GC() // Double GC for better cleanup
-			
+
 			// Could also trigger specific cleanups here
 			// m.cleanupManager.RunAllCleanups()
 		}
@@ -246,12 +245,12 @@ func (m *MemoryPressureMonitor) checkMemoryPressure() {
 // AutoCleanupContext provides automatic cleanup when context is cancelled
 func AutoCleanupContext(parentCtx context.Context, cleanupFunc func()) context.Context {
 	ctx, cancel := context.WithCancel(parentCtx)
-	
+
 	go func() {
 		<-ctx.Done()
 		cleanupFunc()
 	}()
-	
+
 	// Return a context that when cancelled, will trigger cleanup
 	return &cleanupContext{Context: ctx, cancel: cancel}
 }
@@ -269,7 +268,7 @@ func (c *cleanupContext) Done() <-chan struct{} {
 func ForceGC() runtime.MemStats {
 	runtime.GC()
 	runtime.GC() // Run twice for better cleanup
-	
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	return memStats
