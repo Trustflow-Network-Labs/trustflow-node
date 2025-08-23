@@ -42,7 +42,8 @@
 **/.keystore
 **/*.db
 **/*.db*
-**/trustflow-node*
+**/trustflow-node
+**/trustflow-node.exe
 **/*.exe
 **/local_storage/
 **/build/
