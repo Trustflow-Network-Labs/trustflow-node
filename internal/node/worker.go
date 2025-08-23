@@ -26,20 +26,24 @@ type WorkerManager struct {
 	p2pm    *P2PManager
 	ctx     context.Context
 	cancel  context.CancelFunc
+	goroutineTracker *GoroutineTracker // Global goroutine tracking
 }
 
 func NewWorkerManager(p2pManager *P2PManager) *WorkerManager {
 	ctx, cancel := context.WithCancel(p2pManager.ctx)
 
 	wm := &WorkerManager{
-		workers: make(map[int64]*Worker),
-		p2pm:    p2pManager,
-		ctx:     ctx,
-		cancel:  cancel,
+		workers:          make(map[int64]*Worker),
+		p2pm:            p2pManager,
+		ctx:             ctx,
+		cancel:          cancel,
+		goroutineTracker: p2pManager.GetGoroutineTracker(),
 	}
 
-	// Start cleanup routine
-	go wm.periodicCleanup()
+	// Start cleanup routine with critical priority
+	if !wm.goroutineTracker.SafeStartCritical("worker-cleanup", wm.periodicCleanup) {
+		wm.p2pm.Lm.Log("error", "CRITICAL: Failed to start worker cleanup routine - system may leak memory!", "worker")
+	}
 
 	return wm
 }
@@ -151,7 +155,9 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 	w.isRunning = true
 	w.mu.Unlock()
 
-	go func() {
+	// Use global goroutine tracker for worker execution
+	tracker := p2pm.GetGoroutineTracker()
+	if !tracker.SafeStart(fmt.Sprintf("worker-%d", w.ID), func() {
 		defer func() {
 			msg := fmt.Sprintf("Worker %d: Stopping...\n", w.ID)
 			p2pm.Lm.Log("info", msg, "worker")
@@ -168,22 +174,18 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 
 		// Set initial job status to RUNNING
 		jm.UpdateJobStatus(w.ID, "RUNNING")
-		w.sendStatusUpdateAsync(jm, "RUNNING")
+		w.sendStatusUpdate(jm, "RUNNING")
 
 		// Get an error channel from the pool to reduce allocations
 		errCh := utils.GlobalErrorChannelPool.Get()
 		defer utils.GlobalErrorChannelPool.Put(errCh)
 
-		// Start job execution in separate goroutine
+		// Execute the job directly with timeout
+		jobDone := make(chan error, 1)
 		go func() {
 			// Execute the job and send result to error channel
 			jobErr := jm.StartJob(w.ID)
-			select {
-			case errCh <- jobErr:
-				// Successfully sent result
-			case <-w.ctx.Done():
-				// Context cancelled, don't send
-			}
+			jobDone <- jobErr
 		}()
 
 		select {
@@ -193,9 +195,9 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 
 			// Set job status to COMPLETED
 			jm.UpdateJobStatus(w.ID, "COMPLETED")
-			w.sendStatusUpdateAsync(jm, "COMPLETED")
+			w.sendStatusUpdate(jm, "COMPLETED")
 
-		case err := <-errCh:
+		case err := <-jobDone:
 			
 			if err != nil {
 				msg := fmt.Sprintf("Worker %d: Job error: %v\n", w.ID, err)
@@ -204,14 +206,21 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 				if retry < maxRetries-1 {
 					// Set job status to READY for retry
 					jm.UpdateJobStatus(w.ID, "READY")
-					w.sendStatusUpdateAsync(jm, "READY")
+					w.sendStatusUpdate(jm, "READY")
 				} else {
 					// Set job status to ERRORED - no more retries
 					jm.logAndEmitJobError(w.ID, err)
 				}
 			}
 		}
-	}()
+	}) {
+		// Failed to start due to goroutine limit
+		p2pm.Lm.Log("warn", fmt.Sprintf("Failed to start worker %d due to goroutine limit", w.ID), "worker")
+		w.mu.Lock()
+		w.isRunning = false
+		w.mu.Unlock()
+		return fmt.Errorf("failed to start worker %d: goroutine limit exceeded", w.ID)
+	}
 
 	return nil
 }
@@ -227,9 +236,8 @@ func (w *Worker) IsRunning() bool {
 	return w.isRunning
 }
 
-// sendStatusUpdateAsync sends status updates without blocking
-// Uses a bounded goroutine to prevent goroutine leaks
-func (w *Worker) sendStatusUpdateAsync(jm *JobManager, status string) {
+// sendStatusUpdate sends status updates with timeout but no extra goroutines
+func (w *Worker) sendStatusUpdate(jm *JobManager, status string) {
 	select {
 	case <-w.ctx.Done():
 		// Context cancelled, don't send update
@@ -237,27 +245,30 @@ func (w *Worker) sendStatusUpdateAsync(jm *JobManager, status string) {
 	default:
 	}
 
-	// Use a goroutine with timeout to prevent blocking indefinitely
-	go func() {
-		// Create a timeout context for the status update
-		ctx, cancel := context.WithTimeout(w.ctx, time.Second*10)
-		defer cancel()
+	// Create a timeout context for the status update
+	ctx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
+	defer cancel()
 
-		// Create a channel to signal completion
-		done := make(chan struct{})
-		
-		go func() {
-			defer close(done)
-			jm.StatusUpdate(w.ID, status)
-		}()
+	// Use a single goroutine with timeout and global tracking
+	done := make(chan error, 1)
+	tracker := jm.p2pm.GetGoroutineTracker()
+	if !tracker.SafeStart(fmt.Sprintf("status-update-worker-%d", w.ID), func() {
+		err := jm.StatusUpdate(w.ID, status)
+		done <- err
+	}) {
+		// Failed to start status update due to limit, send error
+		done <- fmt.Errorf("status update goroutine limit exceeded")
+	}
 
-		// Wait for completion or timeout
-		select {
-		case <-done:
-			// Status update completed successfully
-		case <-ctx.Done():
-			// Timeout or context cancelled
-			// Log but don't block worker execution
+	// Wait for completion or timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			// Log error but don't fail worker
+			jm.p2pm.Lm.Log("warn", fmt.Sprintf("Worker %d status update failed: %v", w.ID, err), "worker")
 		}
-	}()
+	case <-ctx.Done():
+		// Timeout or context cancelled - log but continue
+		jm.p2pm.Lm.Log("warn", fmt.Sprintf("Worker %d status update timeout", w.ID), "worker")
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 type PIDManager struct {
@@ -86,12 +87,34 @@ func (p *PIDManager) StopProcess(pid int) error {
 	}
 
 	if runtime.GOOS == "windows" {
-		// On Windows
+		// On Windows, Kill() is the only option
 		return process.Kill()
 	} else {
-		// On Unix-like systems
-		//return process.Signal(syscall.SIGKILL)
-		// Or for graceful termination:
-		return process.Signal(syscall.SIGTERM)
+		// On Unix-like systems, try graceful termination first
+		err = process.Signal(syscall.SIGTERM)
+		if err != nil {
+			return err
+		}
+
+		// Wait for graceful termination (5 seconds grace period)
+		gracePeriod := 5 * time.Second
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.After(gracePeriod)
+
+		for {
+			select {
+			case <-timeout:
+				// Grace period expired, force kill
+				return process.Signal(syscall.SIGKILL)
+			case <-ticker.C:
+				// Check if process still exists
+				err := process.Signal(syscall.Signal(0)) // Signal 0 checks existence
+				if err != nil {
+					// Process has terminated
+					return nil
+				}
+			}
+		}
 	}
 }

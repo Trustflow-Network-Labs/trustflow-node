@@ -73,7 +73,7 @@ var nodeCmd = &cobra.Command{
 		ctx := cmd.Context()
 		p2pManager := node.NewP2PManager(ctx, ui.CLI{}, cm)
 		defer p2pManager.Close()
-		p2pManager.Start(port, daemon, public, relay)
+		err = p2pManager.Start(port, daemon, public, relay)
 		if err != nil {
 			fmt.Printf("⚠️ Can not start p2p node:\n%v\n", err)
 		}

@@ -33,18 +33,128 @@ type JobManager struct {
 	statusUpdateTicker *time.Ticker
 	tickerStopChan     chan struct{}
 	tickerWg           sync.WaitGroup
+	statusUpdatePool   chan func()  // Pool for status update functions
+	
+	// Goroutine pool for job execution
+	jobExecutionPool   chan func()    // Pool for job execution functions
+	workerPool         chan chan func() // Worker pool dispatcher
+	goroutineTracker   *GoroutineTracker // Global goroutine tracking
 }
 
 func NewJobManager(p2pm *P2PManager) *JobManager {
-	return &JobManager{
-		db:   p2pm.DB,
-		lm:   p2pm.Lm,
-		sm:   NewServiceManager(p2pm),
-		wm:   NewWorkerManager(p2pm),
-		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm),
-		p2pm: p2pm,
-		tm:   utils.NewTextManager(),
-		vm:   utils.NewValidatorManager(p2pm.cm),
+	jm := &JobManager{
+		db:               p2pm.DB,
+		lm:               p2pm.Lm,
+		sm:               NewServiceManager(p2pm),
+		wm:               NewWorkerManager(p2pm),
+		dm:               repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm),
+		p2pm:             p2pm,
+		tm:               utils.NewTextManager(),
+		vm:               utils.NewValidatorManager(p2pm.cm),
+		statusUpdatePool: make(chan func(), 10), // Buffer 10 status updates
+		jobExecutionPool: make(chan func(), 50), // Buffer 50 job executions
+		workerPool:       make(chan chan func(), 10), // 10 workers max
+		goroutineTracker: p2pm.GetGoroutineTracker(), // Global goroutine tracking
+	}
+	
+	// Start status update worker
+	jm.startStatusUpdateWorker()
+	
+	// Start job execution workers
+	jm.startJobExecutionWorkers(10)
+	
+	return jm
+}
+
+// startJobExecutionWorkers starts multiple workers to process job executions
+func (jm *JobManager) startJobExecutionWorkers(numWorkers int) {
+	for i := 0; i < numWorkers; i++ {
+		workChan := make(chan func())
+		jm.tickerWg.Add(1)
+		workerID := i // Capture loop variable
+		
+		// Use global goroutine tracker for job execution workers
+		if !jm.goroutineTracker.SafeStart(fmt.Sprintf("job-exec-worker-%d", workerID), func() {
+			defer jm.tickerWg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					jm.lm.Log("error", fmt.Sprintf("Job execution worker %d panic recovered: %v", workerID, r), "jobs")
+				}
+			}()
+			
+			jm.lm.Log("debug", fmt.Sprintf("Job execution worker %d started", workerID), "jobs")
+			
+			// Register worker
+			jm.workerPool <- workChan
+			
+			for {
+				select {
+				case execFunc := <-workChan:
+					// Execute the job function
+					execFunc()
+					// Re-register for next work
+					jm.workerPool <- workChan
+				case <-jm.tickerStopChan:
+					jm.lm.Log("debug", fmt.Sprintf("Job execution worker %d stopping", workerID), "jobs")
+					return
+				case <-jm.p2pm.ctx.Done():
+					jm.lm.Log("debug", fmt.Sprintf("Job execution worker %d stopping (context done)", workerID), "jobs")
+					return
+				}
+			}
+		}) {
+			jm.lm.Log("warn", fmt.Sprintf("Failed to start job execution worker %d due to goroutine limit", workerID), "jobs")
+			jm.tickerWg.Done() // Decrement since SafeStart failed
+		}
+	}
+}
+
+// startStatusUpdateWorker starts a single worker to process status updates
+func (jm *JobManager) startStatusUpdateWorker() {
+	jm.tickerWg.Add(1)
+	if !jm.goroutineTracker.SafeStartCritical("status-update-worker", func() {
+		defer jm.tickerWg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				jm.lm.Log("error", fmt.Sprintf("Status update worker panic recovered: %v", r), "jobs")
+			}
+		}()
+		
+		jm.lm.Log("debug", "Status update worker started", "jobs")
+		
+		for {
+			select {
+			case updateFunc := <-jm.statusUpdatePool:
+				// Execute the status update function
+				updateFunc()
+			case <-jm.tickerStopChan:
+				jm.lm.Log("debug", "Status update worker stopping", "jobs")
+				return
+			case <-jm.p2pm.ctx.Done():
+				jm.lm.Log("debug", "Status update worker stopping (context done)", "jobs")
+				return
+			}
+		}
+	}) {
+		jm.lm.Log("error", "CRITICAL: Failed to start status update worker - job status may not be updated!", "jobs")
+		jm.tickerWg.Done() // Decrement since SafeStart failed
+	}
+}
+
+// sendStatusUpdateAsync queues a status update for async processing
+func (jm *JobManager) sendStatusUpdateAsync(jobId int64, status string) {
+	updateFunc := func() {
+		if err := jm.StatusUpdate(jobId, status); err != nil {
+			jm.lm.Log("error", fmt.Sprintf("Status update failed for job %d: %v", jobId, err), "jobs")
+		}
+	}
+	
+	select {
+	case jm.statusUpdatePool <- updateFunc:
+		// Queued successfully
+	default:
+		// Pool full, drop update to prevent goroutine explosion
+		jm.lm.Log("warn", fmt.Sprintf("Status update pool full, dropping update for job %d", jobId), "jobs")
 	}
 }
 
@@ -114,8 +224,74 @@ func (jm *JobManager) StartPeriodicTasks() error {
 func (jm *JobManager) StopPeriodicTasks() {
 	if jm.tickerStopChan != nil {
 		close(jm.tickerStopChan)
-		jm.tickerWg.Wait() // Wait for all goroutines to finish
-		jm.lm.Log("info", "Stopped all job periodic tasks", "jobs")
+		jm.tickerWg.Wait() // Wait for all goroutines to finish (including status update worker)
+		
+		// Clean up pools
+		if jm.statusUpdatePool != nil {
+			close(jm.statusUpdatePool)
+		}
+		if jm.jobExecutionPool != nil {
+			close(jm.jobExecutionPool)
+		}
+		if jm.workerPool != nil {
+			close(jm.workerPool)
+		}
+		
+		jm.lm.Log("info", "Stopped all job periodic tasks and status update worker", "jobs")
+	}
+}
+
+// submitJobExecution submits a job execution to the worker pool
+func (jm *JobManager) submitJobExecution(jobId int64, maxRetries int, backOff time.Duration) {
+	execFunc := func() {
+		err := jm.doWithRetry("run job", context.Background(), jobId, maxRetries, backOff)
+		if err != nil {
+			jm.lm.Log("error", fmt.Sprintf("Job execution failed for job %d: %v", jobId, err), "jobs")
+		}
+	}
+	
+	select {
+	case workerChan := <-jm.workerPool:
+		// Send work to available worker
+		select {
+		case workerChan <- execFunc:
+			// Work submitted successfully
+		default:
+			// Worker busy, re-queue worker and try later
+			jm.workerPool <- workerChan
+			// Drop the job to prevent goroutine explosion
+			jm.lm.Log("warn", fmt.Sprintf("Job execution pool busy, dropping job %d", jobId), "jobs")
+		}
+	default:
+		// No workers available, drop job to prevent goroutine explosion
+		jm.lm.Log("warn", fmt.Sprintf("No workers available, dropping job %d execution", jobId), "jobs")
+	}
+}
+
+// submitDockerOutputJob submits a docker output job to the worker pool
+func (jm *JobManager) submitDockerOutputJob(jobId int64, maxRetries int, backOff time.Duration) {
+	execFunc := func() {
+		err := jm.doWithRetry("send docker output", context.Background(), jobId, maxRetries, backOff)
+		if err != nil {
+			jm.lm.Log("error", fmt.Sprintf("Docker output job failed for job %d: %v", jobId, err), "jobs")
+		}
+	}
+	
+	select {
+	case workerChan := <-jm.workerPool:
+		// Send work to available worker
+		select {
+		case workerChan <- execFunc:
+			// Work submitted successfully
+		default:
+			// Worker busy, re-queue worker and try later
+			jm.workerPool <- workerChan
+			// Drop the job to prevent goroutine explosion
+			jm.lm.Log("warn", fmt.Sprintf("Docker output job pool busy, dropping job %d", jobId), "jobs")
+		}
+	default:
+		// No workers available, drop job to prevent goroutine explosion
+		jm.lm.Log("warn", fmt.Sprintf("No workers available, dropping docker output job %d", jobId), "jobs")
 	}
 }
 
@@ -843,8 +1019,9 @@ func (jm *JobManager) ProcessQueue() {
 		return
 	}
 	backOff := time.Duration(initialBackoff) * time.Second
+	// Submit jobs to worker pool instead of creating unlimited goroutines
 	for _, id := range idsNone {
-		go jm.doWithRetry("run job", context.Background(), id, maxRetries, backOff)
+		jm.submitJobExecution(id, maxRetries, backOff)
 	}
 }
 
@@ -1070,13 +1247,8 @@ func (jm *JobManager) logAndEmitJobError(jobId int64, err error) {
 		jm.lm.Log("error", err1.Error(), "jobs")
 	}
 
-	// Send job status update to remote node
-	go func() {
-		err := jm.StatusUpdate(jobId, "ERRORED")
-		if err != nil {
-			jm.lm.Log("error", err.Error(), "jobs")
-		}
-	}()
+	// Send job status update to remote node via worker pool
+	jm.sendStatusUpdateAsync(jobId, "ERRORED")
 }
 
 func (jm *JobManager) StatusUpdate(jobId int64, status string) error {
@@ -1333,7 +1505,8 @@ func (jm *JobManager) dockerExecutionJob(job node_types.Job) error {
 		return err
 	}
 	backOff := time.Duration(initialBackoff) * time.Second
-	go jm.doWithRetry("send docker output", context.Background(), job.Id, maxRetries, backOff)
+	// Submit docker output job to worker pool
+	jm.submitDockerOutputJob(job.Id, maxRetries, backOff)
 
 	return nil
 }
