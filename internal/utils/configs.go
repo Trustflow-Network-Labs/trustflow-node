@@ -8,8 +8,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed configs
@@ -153,4 +155,92 @@ func (cm *ConfigManager) ReloadConfig(path string) error {
 	cm.configs = newConfigs
 
 	return nil
+}
+
+// GetConfigDuration parses a duration string from config with default fallback
+func (cm *ConfigManager) GetConfigDuration(key string, defaultValue time.Duration) time.Duration {
+	valueStr := cm.GetConfigWithDefault(key, defaultValue.String())
+	duration, err := time.ParseDuration(valueStr)
+	if err != nil {
+		fmt.Printf("Invalid duration '%s' for key '%s', using default %v\n", valueStr, key, defaultValue)
+		return defaultValue
+	}
+	return duration
+}
+
+// GetConfigInt parses an integer from config with validation
+func (cm *ConfigManager) GetConfigInt(key string, defaultValue int, min int, max int) int {
+	valueStr := cm.GetConfigWithDefault(key, fmt.Sprintf("%d", defaultValue))
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		fmt.Printf("Invalid integer '%s' for key '%s', using default %d\n", valueStr, key, defaultValue)
+		return defaultValue
+	}
+	if value < min || value > max {
+		fmt.Printf("Value %d for key '%s' out of range [%d, %d], using default %d\n", value, key, min, max, defaultValue)
+		return defaultValue
+	}
+	return value
+}
+
+// GetConfigInt64 parses an int64 from config with validation
+func (cm *ConfigManager) GetConfigInt64(key string, defaultValue int64, min int64, max int64) int64 {
+	valueStr := cm.GetConfigWithDefault(key, fmt.Sprintf("%d", defaultValue))
+	value, err := strconv.ParseInt(valueStr, 10, 64)
+	if err != nil {
+		fmt.Printf("Invalid int64 '%s' for key '%s', using default %d\n", valueStr, key, defaultValue)
+		return defaultValue
+	}
+	if value < min || value > max {
+		fmt.Printf("Value %d for key '%s' out of range [%d, %d], using default %d\n", value, key, min, max, defaultValue)
+		return defaultValue
+	}
+	return value
+}
+
+// GetConfigFloat64 parses a float64 from config with validation
+func (cm *ConfigManager) GetConfigFloat64(key string, defaultValue float64, min float64, max float64) float64 {
+	valueStr := cm.GetConfigWithDefault(key, fmt.Sprintf("%.1f", defaultValue))
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		fmt.Printf("Invalid float '%s' for key '%s', using default %.1f\n", valueStr, key, defaultValue)
+		return defaultValue
+	}
+	if value < min || value > max {
+		fmt.Printf("Value %.1f for key '%s' out of range [%.1f, %.1f], using default %.1f\n", value, key, min, max, defaultValue)
+		return defaultValue
+	}
+	return value
+}
+
+// GetConfigBytes parses a byte size from config (supports units like KB, MB, GB)
+func (cm *ConfigManager) GetConfigBytes(key string, defaultValue int64) int64 {
+	valueStr := cm.GetConfigWithDefault(key, fmt.Sprintf("%d", defaultValue))
+	
+	// Try to parse as plain number first
+	if value, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
+		return value
+	}
+	
+	// Parse with units (case insensitive)
+	valueStr = strings.ToLower(strings.TrimSpace(valueStr))
+	
+	multipliers := map[string]int64{
+		"b":  1,
+		"kb": 1024,
+		"mb": 1024 * 1024,
+		"gb": 1024 * 1024 * 1024,
+	}
+	
+	for suffix, multiplier := range multipliers {
+		if strings.HasSuffix(valueStr, suffix) {
+			numStr := strings.TrimSuffix(valueStr, suffix)
+			if num, err := strconv.ParseFloat(numStr, 64); err == nil {
+				return int64(num * float64(multiplier))
+			}
+		}
+	}
+	
+	fmt.Printf("Invalid byte size '%s' for key '%s', using default %d\n", valueStr, key, defaultValue)
+	return defaultValue
 }

@@ -142,11 +142,11 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		daemon:             false,
 		public:             false,
 		relay:              false,
-		streamWorkerPool:   make(chan chan streamJob, 10), // Pool of 10 workers
-		streamWorkers:      make([]chan streamJob, 0, 10), // Pre-allocate slice for 10 workers
+		streamWorkerPool:   make(chan chan streamJob, cm.GetConfigInt("stream_worker_pool_size", 10, 1, 100)),
+		streamWorkers:      make([]chan streamJob, 0, cm.GetConfigInt("stream_worker_pool_size", 10, 1, 100)),
 		activeStreams:      make(map[string]time.Time),
 		closingStreams:     make(map[string]bool),
-		maxGoroutines:      200, // Allow maximum 200 goroutines (30 critical + 170 regular)
+		maxGoroutines:      int64(cm.GetConfigInt("max_goroutines", 200, 50, 1000)),
 		bootstrapAddrs:     bootstrapAddrs,
 		relayAddrs:         relayAddrs,
 		topicNames:         []string{LOOKUP_SERVICE},
@@ -176,12 +176,19 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm)
 	p2pm.cleanupManager = utils.NewCleanupManager(p2pm.ctx, lm)
 
-	// Create memory pressure monitor (trigger cleanup at 85% memory usage)
-	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(85.0, p2pm.cleanupManager, lm)
-	p2pm.memoryMonitor.Start(30 * time.Second) // Check every 30 seconds
+	// Create memory pressure monitor with configurable threshold
+	memoryThreshold := cm.GetConfigFloat64("memory_pressure_threshold", 85.0, 50.0, 95.0)
+	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, p2pm.cleanupManager, lm)
+	
+	// Start memory monitoring with configurable interval
+	monitorInterval := cm.GetConfigDuration("memory_monitor_interval", 30*time.Second)
+	p2pm.memoryMonitor.Start(monitorInterval)
 
 	// Initialize context tracking for memory leak detection
 	utils.InitializeContextTracking(lm)
+	
+	// Initialize buffer pools with configuration values
+	utils.InitializeBufferPools(cm)
 
 	// Register P2P cleanup functions
 	p2pm.cleanupManager.RegisterCleanup("p2p-streams", func() error {
@@ -343,8 +350,9 @@ func (p2pm *P2PManager) processStreamJob(job streamJob) {
 
 // submitStreamJob submits a stream job to the worker pool with timeout
 func (p2pm *P2PManager) submitStreamJob(job streamJob) bool {
-	// Try to get a worker with short timeout to reduce rejections
-	timeout := time.NewTimer(50 * time.Millisecond) // 50ms timeout
+	// Try to get a worker with configurable timeout to reduce rejections
+	dispatchTimeout := p2pm.cm.GetConfigDuration("stream_dispatch_timeout", 50*time.Millisecond)
+	timeout := time.NewTimer(dispatchTimeout)
 	defer timeout.Stop()
 
 	select {
@@ -567,13 +575,8 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 		}
 	}()
 
-	// Start stream cleanup periodic task
-	streamCleanupInterval := 1 * time.Minute // Clean up every minute
-	if val, exists := p2pm.cm.GetConfig("stream_cleanup_interval"); exists {
-		if duration, err := time.ParseDuration(val); err == nil {
-			streamCleanupInterval = duration
-		}
-	}
+	// Start stream cleanup periodic task with configurable interval
+	streamCleanupInterval := p2pm.cm.GetConfigDuration("stream_cleanup_interval", 1*time.Minute)
 
 	streamCleanupTicker := time.NewTicker(streamCleanupInterval)
 	p2pm.cronWg.Add(1)
@@ -597,13 +600,8 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 		}
 	}()
 
-	// Start service offers cache cleanup periodic task
-	cacheCleanupInterval := 30 * time.Minute // Clean up every 30 minutes
-	if val, exists := p2pm.cm.GetConfig("cache_cleanup_interval"); exists {
-		if duration, err := time.ParseDuration(val); err == nil {
-			cacheCleanupInterval = duration
-		}
-	}
+	// Start service offers cache cleanup periodic task with configurable interval
+	cacheCleanupInterval := p2pm.cm.GetConfigDuration("cache_cleanup_interval", 30*time.Minute)
 
 	cacheCleanupTicker := time.NewTicker(cacheCleanupInterval)
 	p2pm.cronWg.Add(1)
@@ -664,12 +662,7 @@ func (p2pm *P2PManager) cleanupStreamWorkers() {
 
 // cleanupStaleStreams removes streams that have been active for too long
 func (p2pm *P2PManager) cleanupStaleStreams() {
-	maxStreamAge := 10 * time.Minute // Default max age for streams
-	if val, exists := p2pm.cm.GetConfig("max_stream_age"); exists {
-		if duration, err := time.ParseDuration(val); err == nil {
-			maxStreamAge = duration
-		}
-	}
+	maxStreamAge := p2pm.cm.GetConfigDuration("max_stream_age", 10*time.Minute)
 
 	p2pm.streamsMutex.Lock()
 	defer p2pm.streamsMutex.Unlock()
@@ -697,12 +690,7 @@ func (p2pm *P2PManager) cleanupStaleStreams() {
 // cleanupCaches performs periodic cleanup of various caches to prevent memory leaks
 func (p2pm *P2PManager) cleanupCaches() {
 	// Service Offers Cache cleanup
-	cacheTTL := 1 * time.Hour // Default: expire after 1 hour
-	if val, exists := p2pm.cm.GetConfig("service_cache_ttl"); exists {
-		if duration, err := time.ParseDuration(val); err == nil {
-			cacheTTL = duration
-		}
-	}
+	cacheTTL := p2pm.cm.GetConfigDuration("cache_ttl", 1*time.Hour)
 
 	// Get count before cleanup for logging
 	initialCount := len(p2pm.sc.ServiceOffers)

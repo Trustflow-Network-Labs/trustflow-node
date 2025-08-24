@@ -65,3 +65,76 @@ peer_discovery_interval = 5m
 connection_health_interval = 2m
 process_job_queue_interval = 30s
 job_status_update_interval = 1m
+
+[performance]
+# Worker Pool Sizes (conservative for production)
+stream_worker_pool_size = 8
+job_worker_pool_size = 8
+job_execution_pool_size = 30
+job_status_update_pool_size = 8
+
+# Goroutine Limits
+max_goroutines = 150
+critical_goroutine_reserve = 25
+
+# Buffer Sizes (in bytes)
+p2p_buffer_size = 65536
+file_buffer_size = 32768
+small_buffer_size = 4096
+hash_buffer_size = 4096
+relay_buffer_size = 131072
+
+# Buffer Pool Limits (smaller for production)
+p2p_buffer_pool_max_size = 20
+file_buffer_pool_max_size = 30
+small_buffer_pool_max_size = 75
+default_buffer_pool_max_size = 75
+large_buffer_pool_max_size = 30
+medium_buffer_pool_max_size = 50
+
+[monitoring]
+# Time Intervals (more conservative for production)
+memory_monitor_interval = 45s
+stream_cleanup_interval = 2m
+cache_cleanup_interval = 15m
+connection_evaluation_period = 3m
+connection_cleanup_interval = 5m
+peer_evaluation_interval = 2m
+relay_advertise_interval = 5m
+relay_traffic_log_interval = 60s
+resource_cleanup_interval = 3m
+
+# Thresholds and Limits
+memory_pressure_threshold = 75.0
+max_stream_age = 5m
+cache_ttl = 30m
+peer_data_stale_threshold = 1h
+resource_cleanup_threshold = 15m
+
+[network]
+# Connection Settings (more aggressive timeouts for production)
+stream_dispatch_timeout = 30ms
+peer_connection_max_retries = 2
+peer_connection_backoff_base = 3s
+max_discovered_peers = 30
+peer_evaluation_queue_size = 50
+connection_event_buffer_size = 300
+
+# Relay Settings
+max_active_circuits = 500
+relay_circuit_data_limit = 1073741824
+relay_circuit_duration = 30m
+
+# Transfer Limits
+max_chunk_size_mb = 5
+max_total_size_mb = 50
+
+[context]
+# Context Audit Settings
+context_audit_max_age = 3m
+context_audit_check_interval = 45s
+
+[ui]
+# Application Window
+app_window_width = 1024
+app_window_height = 768

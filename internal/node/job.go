@@ -51,17 +51,18 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		p2pm:             p2pm,
 		tm:               utils.NewTextManager(),
 		vm:               utils.NewValidatorManager(p2pm.cm),
-		statusUpdatePool: make(chan func(), 10), // Buffer 10 status updates
-		jobExecutionPool: make(chan func(), 50), // Buffer 50 job executions
-		workerPool:       make(chan chan func(), 10), // 10 workers max
+		statusUpdatePool: make(chan func(), p2pm.cm.GetConfigInt("job_status_update_pool_size", 10, 1, 100)),
+		jobExecutionPool: make(chan func(), p2pm.cm.GetConfigInt("job_execution_pool_size", 50, 10, 200)),
+		workerPool:       make(chan chan func(), p2pm.cm.GetConfigInt("job_worker_pool_size", 10, 1, 50)),
 		goroutineTracker: p2pm.GetGoroutineTracker(), // Global goroutine tracking
 	}
 	
 	// Start status update worker
 	jm.startStatusUpdateWorker()
 	
-	// Start job execution workers
-	jm.startJobExecutionWorkers(10)
+	// Start job execution workers with configurable worker count
+	workerCount := p2pm.cm.GetConfigInt("job_worker_pool_size", 10, 1, 50)
+	jm.startJobExecutionWorkers(workerCount)
 	
 	return jm
 }

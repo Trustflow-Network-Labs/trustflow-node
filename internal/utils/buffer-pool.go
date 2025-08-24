@@ -168,19 +168,37 @@ func (rp *ReaderPool) Put(reader *bufio.Reader) {
 
 // Global pools for common buffer sizes
 var (
-	// P2P streaming buffers (81KB) - limit to 25 buffers (~2MB max)
-	P2PBufferPool = NewBufferPoolWithMaxSize(81920, 25)
+	// P2P streaming buffers - initialized with config values
+	P2PBufferPool *BufferPool
 
-	// File copy buffers (32KB) - limit to 50 buffers (~1.6MB max)
-	FileBufferPool = NewBufferPoolWithMaxSize(32*1024, 50)
+	// File copy buffers - initialized with config values  
+	FileBufferPool *BufferPool
 
-	// Small buffers (4KB) - limit to 100 buffers (~400KB max)
-	SmallBufferPool = NewBufferPoolWithMaxSize(4*1024, 100)
+	// Small buffers - initialized with config values
+	SmallBufferPool *BufferPool
 
 	// Writer and reader pools
 	GlobalWriterPool = NewWriterPool()
 	GlobalReaderPool = NewReaderPool()
 )
+
+// InitializeBufferPools initializes buffer pools with configuration values
+func InitializeBufferPools(cm *ConfigManager) {
+	// P2P streaming buffers with configurable size and pool limit
+	p2pBufferSize := int(cm.GetConfigBytes("p2p_buffer_size", 81920))
+	p2pPoolMax := cm.GetConfigInt("p2p_buffer_pool_max_size", 25, 1, 200)
+	P2PBufferPool = NewBufferPoolWithMaxSize(p2pBufferSize, p2pPoolMax)
+
+	// File copy buffers with configurable size and pool limit
+	fileBufferSize := int(cm.GetConfigBytes("file_buffer_size", 32*1024))
+	filePoolMax := cm.GetConfigInt("file_buffer_pool_max_size", 50, 1, 200)
+	FileBufferPool = NewBufferPoolWithMaxSize(fileBufferSize, filePoolMax)
+
+	// Small buffers with configurable size and pool limit
+	smallBufferSize := int(cm.GetConfigBytes("small_buffer_size", 4*1024))
+	smallPoolMax := cm.GetConfigInt("small_buffer_pool_max_size", 100, 1, 300)
+	SmallBufferPool = NewBufferPoolWithMaxSize(smallBufferSize, smallPoolMax)
+}
 
 // SafeBufferOperation provides a safe way to use pooled buffers with automatic cleanup
 func SafeBufferOperation(pool *BufferPool, operation func([]byte) error) error {
