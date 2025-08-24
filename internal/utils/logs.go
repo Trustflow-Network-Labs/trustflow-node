@@ -27,11 +27,11 @@ const (
 
 // LogRotationConfig holds rotation configuration
 type LogRotationConfig struct {
-	MaxSizeMB        int64            // Maximum file size in MB before rotation
-	MaxAge           int              // Maximum days to retain old logs (0 = keep all)
-	MaxBackups       int              // Maximum number of backup files to keep (0 = keep all)
-	TimeInterval     RotationInterval // Time-based rotation interval
-	EnableRotation   bool             // Enable/disable rotation
+	MaxSizeMB      int64            // Maximum file size in MB before rotation
+	MaxAge         int              // Maximum days to retain old logs (0 = keep all)
+	MaxBackups     int              // Maximum number of backup files to keep (0 = keep all)
+	TimeInterval   RotationInterval // Time-based rotation interval
+	EnableRotation bool             // Enable/disable rotation
 }
 
 type LogsManager struct {
@@ -52,11 +52,11 @@ func NewLogsManager(cm *ConfigManager) *LogsManager {
 
 	// Load rotation configuration from config
 	rotationConfig := LogRotationConfig{
-		MaxSizeMB:      parseConfigInt64(cm.GetConfigWithDefault("log_max_size_mb", "100")),     // 100MB default
-		MaxAge:         parseConfigInt(cm.GetConfigWithDefault("log_max_age_days", "30")),       // 30 days default
-		MaxBackups:     parseConfigInt(cm.GetConfigWithDefault("log_max_backups", "10")),        // 10 backups default
+		MaxSizeMB:      parseConfigInt64(cm.GetConfigWithDefault("log_max_size_mb", "100")),         // 100MB default
+		MaxAge:         parseConfigInt(cm.GetConfigWithDefault("log_max_age_days", "30")),           // 30 days default
+		MaxBackups:     parseConfigInt(cm.GetConfigWithDefault("log_max_backups", "10")),            // 10 backups default
 		TimeInterval:   RotationInterval(cm.GetConfigWithDefault("log_rotation_interval", "daily")), // daily default
-		EnableRotation: parseConfigBool(cm.GetConfigWithDefault("log_enable_rotation", "true")), // enabled by default
+		EnableRotation: parseConfigBool(cm.GetConfigWithDefault("log_enable_rotation", "true")),     // enabled by default
 	}
 
 	lm := &LogsManager{
@@ -101,8 +101,14 @@ func (lm *LogsManager) initLogger() error {
 		lm.fileSize = stat.Size()
 	}
 
-	// Configure logger once
-	lm.logger.SetLevel(log.TraceLevel)
+	// Configure logger with configurable log level
+	logLevel := lm.cm.GetConfigWithDefault("log_level", "debug")
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		fmt.Printf("Invalid log level '%s', defaulting to 'info'\n", logLevel)
+		level = log.InfoLevel
+	}
+	lm.logger.SetLevel(level)
 	lm.logger.SetOutput(file)
 	lm.logger.SetFormatter(&log.JSONFormatter{})
 
@@ -177,7 +183,7 @@ func (lm *LogsManager) Close() error {
 // checkAndRotate checks if rotation is needed and performs it
 func (lm *LogsManager) checkAndRotate() {
 	now := time.Now()
-	
+
 	// Check size-based rotation
 	if lm.rotationConfig.MaxSizeMB > 0 && lm.fileSize > lm.rotationConfig.MaxSizeMB*1024*1024 {
 		lm.rotateWithBackup("size")
@@ -205,7 +211,7 @@ func (lm *LogsManager) shouldRotateByTime(now time.Time) bool {
 	}
 
 	modTime := stat.ModTime()
-	
+
 	switch lm.rotationConfig.TimeInterval {
 	case RotationHourly:
 		return now.Hour() != modTime.Hour() || now.Day() != modTime.Day()
@@ -218,7 +224,7 @@ func (lm *LogsManager) shouldRotateByTime(now time.Time) bool {
 	case RotationMonthly:
 		return now.Month() != modTime.Month() || now.Year() != modTime.Year()
 	}
-	
+
 	return false
 }
 
@@ -293,7 +299,7 @@ func (lm *LogsManager) cleanupOldBackups() {
 					continue
 				}
 			}
-			
+
 			backups = append(backups, fileInfo{
 				path:    file,
 				modTime: stat.ModTime(),
@@ -336,6 +342,27 @@ func (lm *LogsManager) UpdateRotationConfig(config LogRotationConfig) {
 	lm.mutex.Lock()
 	defer lm.mutex.Unlock()
 	lm.rotationConfig = config
+}
+
+// SetLogLevel updates the log level at runtime
+func (lm *LogsManager) SetLogLevel(levelStr string) error {
+	level, err := log.ParseLevel(levelStr)
+	if err != nil {
+		return fmt.Errorf("invalid log level '%s': %v", levelStr, err)
+	}
+
+	lm.mutex.Lock()
+	defer lm.mutex.Unlock()
+	lm.logger.SetLevel(level)
+
+	return nil
+}
+
+// GetLogLevel returns the current log level
+func (lm *LogsManager) GetLogLevel() string {
+	lm.mutex.RLock()
+	defer lm.mutex.RUnlock()
+	return lm.logger.GetLevel().String()
 }
 
 /*
