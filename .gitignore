@@ -45,5 +45,7 @@
 **/trustflow-node
 **/trustflow-node.exe
 **/*.exe
+**/*.csv
+**/*.log
 **/local_storage/
 **/build/

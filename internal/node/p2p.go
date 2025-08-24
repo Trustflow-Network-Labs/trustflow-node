@@ -55,7 +55,7 @@ const LOOKUP_SERVICE string = "lookup.service"
 // streamJob represents a stream processing job
 type streamJob struct {
 	stream     network.Stream
-	jobType    string // "proposal" or "message"
+	jobType    string                // "proposal" or "message"
 	streamData node_types.StreamData // Optional stream data for message processing
 }
 
@@ -75,7 +75,7 @@ type P2PManager struct {
 	h                     host.Host
 	PeerId                peer.ID
 	ctx                   context.Context
-	cancel                context.CancelFunc  // Context cancel function for clean shutdown
+	cancel                context.CancelFunc // Context cancel function for clean shutdown
 	tcm                   *TopicAwareConnectionManager
 	DB                    *sql.DB
 	cm                    *utils.ConfigManager
@@ -101,13 +101,13 @@ type P2PManager struct {
 	relayTrafficMonitor   *RelayTrafficMonitor         // Monitor relay traffic for billing
 	relayPeerSource       *TopicAwareRelayPeerSource   // Discover relay peers dynamically
 	relayAdvertiser       *RelayServiceAdvertiser      // Advertise our relay service
-	jobManager           *JobManager                   // Job management - single instance
+	jobManager            *JobManager                  // Job management - single instance
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
 	// Create cancellable context for clean shutdown
 	ctx, cancel := context.WithCancel(ctx)
-	
+
 	// Create a database connection
 	sqlm := database.NewSQLiteManager(cm)
 	db, err := sqlm.CreateConnection()
@@ -146,7 +146,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		streamWorkers:      make([]chan streamJob, 0, 10), // Pre-allocate slice for 10 workers
 		activeStreams:      make(map[string]time.Time),
 		closingStreams:     make(map[string]bool),
-		maxGoroutines:      150, // Allow maximum 150 goroutines (30 critical + 120 regular)
+		maxGoroutines:      200, // Allow maximum 200 goroutines (30 critical + 170 regular)
 		bootstrapAddrs:     bootstrapAddrs,
 		relayAddrs:         relayAddrs,
 		topicNames:         []string{LOOKUP_SERVICE},
@@ -179,7 +179,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Create memory pressure monitor (trigger cleanup at 85% memory usage)
 	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(85.0, p2pm.cleanupManager, lm)
 	p2pm.memoryMonitor.Start(30 * time.Second) // Check every 30 seconds
-	
+
 	// Initialize context tracking for memory leak detection
 	utils.InitializeContextTracking(lm)
 
@@ -243,20 +243,20 @@ func (p2pm *P2PManager) Close() error {
 // initializeStreamWorkers creates and starts the stream worker pool
 func (p2pm *P2PManager) initializeStreamWorkers() {
 	workerCount := 10 // Match the worker pool capacity
-	
+
 	// Create individual worker channels and start workers
 	for i := 0; i < workerCount; i++ {
 		workerChan := make(chan streamJob, 1) // Buffer of 1 for non-blocking dispatch
 		p2pm.streamWorkers = append(p2pm.streamWorkers, workerChan)
-		
+
 		// Add worker channel to the pool
 		p2pm.streamWorkerPool <- workerChan
-		
+
 		// Start persistent worker goroutine
 		p2pm.cronWg.Add(1)
 		go p2pm.streamWorker(i, workerChan)
 	}
-	
+
 	p2pm.Lm.Log("info", fmt.Sprintf("Initialized %d stream workers", workerCount), "p2p")
 }
 
@@ -268,15 +268,15 @@ func (p2pm *P2PManager) streamWorker(workerID int, jobChan chan streamJob) {
 			p2pm.Lm.Log("error", fmt.Sprintf("Stream worker %d panic recovered: %v", workerID, r), "p2p")
 		}
 	}()
-	
+
 	p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d started", workerID), "p2p")
-	
+
 	for {
 		select {
 		case job := <-jobChan:
 			// Process the stream job
 			p2pm.processStreamJob(job)
-			
+
 			// Return worker to pool for next job
 			select {
 			case p2pm.streamWorkerPool <- jobChan:
@@ -288,11 +288,11 @@ func (p2pm *P2PManager) streamWorker(workerID int, jobChan chan streamJob) {
 				p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (context done)", workerID), "p2p")
 				return
 			}
-			
+
 		case <-p2pm.cronStopChan:
 			p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (cronStopChan)", workerID), "p2p")
 			return
-			
+
 		case <-p2pm.ctx.Done():
 			p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (context done)", workerID), "p2p")
 			return
@@ -303,7 +303,7 @@ func (p2pm *P2PManager) streamWorker(workerID int, jobChan chan streamJob) {
 // processStreamJob handles different types of stream jobs
 func (p2pm *P2PManager) processStreamJob(job streamJob) {
 	streamID := job.stream.ID()
-	
+
 	// Check if context is canceled before processing
 	select {
 	case <-p2pm.ctx.Done():
@@ -311,10 +311,10 @@ func (p2pm *P2PManager) processStreamJob(job streamJob) {
 		return
 	default:
 	}
-	
+
 	// Track stream processing start
 	p2pm.Lm.Log("debug", fmt.Sprintf("Processing stream job %s (type: %s)", streamID, job.jobType), "p2p")
-	
+
 	defer func() {
 		if r := recover(); r != nil {
 			p2pm.Lm.Log("error", fmt.Sprintf("Stream job panic recovered for %s: %v", streamID, r), "p2p")
@@ -322,7 +322,7 @@ func (p2pm *P2PManager) processStreamJob(job streamJob) {
 			p2pm.safeCloseStream(job.stream, "panic recovery")
 		}
 	}()
-	
+
 	switch job.jobType {
 	case "proposal":
 		p2pm.streamProposalResponse(job.stream)
@@ -333,7 +333,7 @@ func (p2pm *P2PManager) processStreamJob(job streamJob) {
 			return nil // Don't close here, let receivedStream handle it properly
 		})
 		defer p2pm.resourceTracker.ReleaseResource(streamID)
-		
+
 		p2pm.receivedStream(job.stream, job.streamData)
 	default:
 		p2pm.Lm.Log("warn", fmt.Sprintf("Unknown stream job type: %s", job.jobType), "p2p")
@@ -346,7 +346,7 @@ func (p2pm *P2PManager) submitStreamJob(job streamJob) bool {
 	// Try to get a worker with short timeout to reduce rejections
 	timeout := time.NewTimer(50 * time.Millisecond) // 50ms timeout
 	defer timeout.Stop()
-	
+
 	select {
 	case workerChan := <-p2pm.streamWorkerPool:
 		// Got a worker, submit the job with timeout
@@ -372,13 +372,13 @@ func (p2pm *P2PManager) spawnGoroutine(name string, fn func()) bool {
 		p2pm.Lm.Log("warn", fmt.Sprintf("Goroutine limit reached (%d), rejecting %s", p2pm.maxGoroutines, name), "p2p")
 		return false
 	}
-	
+
 	if atomic.AddInt64(&p2pm.activeGoroutines, 1) > p2pm.maxGoroutines {
 		atomic.AddInt64(&p2pm.activeGoroutines, -1)
 		p2pm.Lm.Log("warn", fmt.Sprintf("Goroutine limit exceeded during spawn, rejecting %s", name), "p2p")
 		return false
 	}
-	
+
 	go func() {
 		defer atomic.AddInt64(&p2pm.activeGoroutines, -1)
 		defer func() {
@@ -388,7 +388,7 @@ func (p2pm *P2PManager) spawnGoroutine(name string, fn func()) bool {
 		}()
 		fn()
 	}()
-	
+
 	return true
 }
 
@@ -402,7 +402,7 @@ func (p2pm *P2PManager) getGoroutineStats() (int64, int64) {
 type GoroutineTracker struct {
 	activeGoroutines *int64
 	maxGoroutines    int64
-	lm              *utils.LogsManager
+	lm               *utils.LogsManager
 }
 
 // GetGoroutineTracker returns a goroutine tracker for use by other components
@@ -410,7 +410,7 @@ func (p2pm *P2PManager) GetGoroutineTracker() *GoroutineTracker {
 	return &GoroutineTracker{
 		activeGoroutines: &p2pm.activeGoroutines,
 		maxGoroutines:    p2pm.maxGoroutines,
-		lm:              p2pm.Lm,
+		lm:               p2pm.Lm,
 	}
 }
 
@@ -431,7 +431,7 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 	if !critical {
 		effectiveLimit = gt.maxGoroutines - 30 // Reserve 30 slots for critical services
 	}
-	
+
 	current := atomic.LoadInt64(gt.activeGoroutines)
 	if current >= effectiveLimit {
 		if critical {
@@ -441,13 +441,13 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 			return false
 		}
 	}
-	
+
 	if atomic.AddInt64(gt.activeGoroutines, 1) > gt.maxGoroutines && !critical {
 		atomic.AddInt64(gt.activeGoroutines, -1)
 		gt.lm.Log("warn", fmt.Sprintf("Global goroutine limit exceeded, rejecting %s", name), "goroutines")
 		return false
 	}
-	
+
 	go func() {
 		defer atomic.AddInt64(gt.activeGoroutines, -1)
 		defer func() {
@@ -457,14 +457,14 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 		}()
 		fn()
 	}()
-	
+
 	return true
 }
 
 // safeCloseStream safely closes a stream with context-aware handling
 func (p2pm *P2PManager) safeCloseStream(stream network.Stream, reason string) {
 	streamID := stream.ID()
-	
+
 	// Check if stream is already being closed
 	p2pm.closingMutex.Lock()
 	if p2pm.closingStreams[streamID] {
@@ -474,7 +474,7 @@ func (p2pm *P2PManager) safeCloseStream(stream network.Stream, reason string) {
 	}
 	p2pm.closingStreams[streamID] = true
 	p2pm.closingMutex.Unlock()
-	
+
 	// Check if context is already canceled before attempting close
 	select {
 	case <-p2pm.ctx.Done():
@@ -498,12 +498,12 @@ func (p2pm *P2PManager) safeCloseStream(stream network.Stream, reason string) {
 			p2pm.Lm.Log("debug", fmt.Sprintf("Stream %s closed gracefully (%s)", streamID, reason), "p2p")
 		}
 	}
-	
+
 	// Clean up tracking
 	p2pm.closingMutex.Lock()
 	delete(p2pm.closingStreams, streamID)
 	p2pm.closingMutex.Unlock()
-	
+
 	p2pm.streamsMutex.Lock()
 	delete(p2pm.activeStreams, streamID)
 	p2pm.streamsMutex.Unlock()
@@ -636,10 +636,10 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 	if p2pm.cronStopChan != nil {
 		close(p2pm.cronStopChan)
 		p2pm.cronWg.Wait() // Wait for all goroutines to finish (including stream workers)
-		
+
 		// Clean up worker pool resources
 		p2pm.cleanupStreamWorkers()
-		
+
 		p2pm.Lm.Log("info", "Stopped all P2P periodic tasks and stream workers", "p2p")
 	}
 }
@@ -650,15 +650,15 @@ func (p2pm *P2PManager) cleanupStreamWorkers() {
 	for _, workerChan := range p2pm.streamWorkers {
 		close(workerChan)
 	}
-	
+
 	// Clear the worker slice
 	p2pm.streamWorkers = p2pm.streamWorkers[:0]
-	
+
 	// Drain the worker pool channel
 	for len(p2pm.streamWorkerPool) > 0 {
 		<-p2pm.streamWorkerPool
 	}
-	
+
 	p2pm.Lm.Log("debug", "Stream worker pool cleanup completed", "p2p")
 }
 
@@ -757,9 +757,9 @@ func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
 	}
 
 	// Worker pool utilization
-	info["stream_workers_available"] = len(p2pm.streamWorkerPool)  // Available workers in pool
-	info["stream_workers_busy"] = cap(p2pm.streamWorkerPool) - len(p2pm.streamWorkerPool)  // Busy workers
-	info["stream_workers_total"] = cap(p2pm.streamWorkerPool)  // Total workers
+	info["stream_workers_available"] = len(p2pm.streamWorkerPool)                         // Available workers in pool
+	info["stream_workers_busy"] = cap(p2pm.streamWorkerPool) - len(p2pm.streamWorkerPool) // Busy workers
+	info["stream_workers_total"] = cap(p2pm.streamWorkerPool)                             // Total workers
 
 	// Goroutine tracking
 	active, max := p2pm.getGoroutineStats()
@@ -964,7 +964,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 			stream:  s,
 			jobType: "proposal",
 		}
-		
+
 		if !p2pm.submitStreamJob(job) {
 			// Worker pool full, handle gracefully
 			p2pm.Lm.Log("warn", "Stream worker pool at capacity, gracefully closing stream "+s.ID(), "p2p")
@@ -1039,7 +1039,7 @@ func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool)
 	tracker := p2pm.GetGoroutineTracker()
 	if !tracker.SafeStartCritical("pprof-server", func() {
 		p2pm.Lm.Log("info", fmt.Sprintf("Starting pprof server on port %s", pprofPort), "pprof")
-		
+
 		// Add retry logic for pprof server startup
 		for retries := 0; retries < 3; retries++ {
 			if err := http.ListenAndServe(":"+pprofPort, nil); err != nil {
@@ -1129,7 +1129,8 @@ func (p2pm *P2PManager) createPublicHost(
 		}
 
 		// Auto-start relay service advertising for public relay nodes
-		go func() {
+		gt := p2pm.GetGoroutineTracker()
+		gt.SafeStart("relay-advertising", func() {
 			// Wait a bit for DHT to bootstrap before advertising
 			time.Sleep(30 * time.Second)
 
@@ -1144,7 +1145,7 @@ func (p2pm *P2PManager) createPublicHost(
 					fmt.Sprintf("🚀 Auto-started relay marketplace advertising for topics: %v", config.Topics),
 					"relay-advertiser")
 			}
-		}()
+		})
 
 		// Relay diagnostics, DEBAG mode
 		//		diagnostics := NewRelayDiagnostics(p2pm)
@@ -1191,7 +1192,8 @@ func (p2pm *P2PManager) createPrivateHost(
 	p2pm.initRelayComponents()
 
 	// Auto-configure relay discovery for private nodes
-	go func() {
+	gt := p2pm.GetGoroutineTracker()
+	gt.SafeStart("relay-discovery-config", func() {
 		// Wait for DHT to bootstrap before configuring relay discovery
 		time.Sleep(30 * time.Second)
 
@@ -1222,7 +1224,7 @@ func (p2pm *P2PManager) createPrivateHost(
 			fmt.Sprintf("🔍 Auto-configured relay discovery: max %d relays, min rating %.1f, max $%.2f/GB",
 				maxRelays, minReputation, maxPricePerGB),
 			"relay-discovery")
-	}()
+	})
 
 	return hst, nil
 }
@@ -1338,13 +1340,13 @@ func (p2pm *P2PManager) createRelayConfigFromNodeConfig() RelayServiceConfig {
 
 func (p2pm *P2PManager) Stop() error {
 	p2pm.Lm.Log("info", "Stopping P2P Manager...", "p2p")
-	
+
 	// Cancel context first to signal all goroutines to stop
 	if p2pm.cancel != nil {
 		p2pm.cancel()
 		p2pm.Lm.Log("info", "Context canceled - signaling all goroutines to stop", "p2p")
 	}
-	
+
 	// Stop periodic tasks
 	p2pm.StopPeriodicTasks()
 
@@ -1376,7 +1378,7 @@ func (p2pm *P2PManager) Stop() error {
 		}
 		p2pm.Lm.Log("info", "Stopped JobManager periodic tasks", "p2p")
 	}
-	
+
 	// Wait for all periodic tasks and workers to stop
 	p2pm.cronWg.Wait()
 	p2pm.Lm.Log("info", "All P2P goroutines stopped", "p2p")
@@ -1635,9 +1637,10 @@ func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int,
 	var wg sync.WaitGroup
 
 	// Start workers that consume from job queue
-	for range maxWorkers {
+	gt := p2pm.GetGoroutineTracker()
+	for i := range maxWorkers {
 		wg.Add(1)
-		go func() {
+		if !gt.SafeStart(fmt.Sprintf("peer-connect-worker-%d", i), func() {
 			defer wg.Done()
 
 			for peer := range peerChan {
@@ -1657,7 +1660,10 @@ func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int,
 				// Release resource tracking
 				p2pm.resourceTracker.ReleaseResource(connID)
 			}
-		}()
+		}) {
+			wg.Done() // If goroutine couldn't start, reduce wait group count
+			p2pm.Lm.Log("warn", fmt.Sprintf("Failed to start peer connection worker %d due to goroutine limit", i), "p2p")
+		}
 	}
 
 	wg.Wait()
@@ -1803,13 +1809,19 @@ func StreamData[T any](
 	proposalDone := make(chan error, 1)
 	streamDone := make(chan error, 1)
 
-	go func() {
-		proposalDone <- p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId, interfaceId)
-	}()
+	gt := p2pm.GetGoroutineTracker()
 
-	go func() {
+	if !gt.SafeStart("stream-proposal", func() {
+		proposalDone <- p2pm.streamProposal(s, sendingPeer255, t, orderingPeer255, workflowId, jobId, interfaceId)
+	}) {
+		return fmt.Errorf("failed to start stream proposal goroutine due to limit")
+	}
+
+	if !gt.SafeStart("stream-send", func() {
 		streamDone <- sendStream(p2pm, s, data)
-	}()
+	}) {
+		return fmt.Errorf("failed to start stream send goroutine due to limit")
+	}
 
 	// Wait for both operations with timeout
 	select {
@@ -1920,14 +1932,14 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	accepted := p2pm.streamProposalAssessment(streamData.Type)
 	if accepted {
 		p2pm.streamAccepted(s)
-		
+
 		// Submit stream job to worker pool instead of creating new goroutine
 		job := streamJob{
 			stream:     s,
 			jobType:    "message",
 			streamData: streamData,
 		}
-		
+
 		if !p2pm.submitStreamJob(job) {
 			// Worker pool full, handle gracefully to prevent "canceled stream" errors
 			p2pm.Lm.Log("warn", "Stream worker pool at capacity, gracefully closing stream "+s.ID(), "p2p")
@@ -2271,7 +2283,7 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 
 func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.StreamData) {
 	streamID := s.ID()
-	
+
 	// Check if context is canceled before processing stream
 	select {
 	case <-p2pm.ctx.Done():
@@ -2279,7 +2291,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		return
 	default:
 	}
-	
+
 	// Update resource tracker that stream is being actively used
 	p2pm.resourceTracker.UpdateLastUsed(streamID)
 

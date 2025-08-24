@@ -82,7 +82,8 @@ func (tarps *TopicAwareRelayPeerSource) PeerSourceFunc() func(ctx context.Contex
 func (tarps *TopicAwareRelayPeerSource) GetPeers(ctx context.Context, num int) <-chan peer.AddrInfo {
 	peerChan := make(chan peer.AddrInfo, num)
 	
-	go func() {
+	gt := tarps.tcm.p2pm.GetGoroutineTracker()
+	if !gt.SafeStart("relay-peer-discovery", func() {
 		defer close(peerChan)
 		
 		// Discover relays for all topics
@@ -122,7 +123,11 @@ func (tarps *TopicAwareRelayPeerSource) GetPeers(ctx context.Context, num int) <
 		tarps.lm.Log("info", 
 			fmt.Sprintf("Provided %d relay peers from %d discovered", count, len(sortedRelays)), 
 			"relay-discovery")
-	}()
+	}) {
+		// If goroutine couldn't start, close channel immediately
+		close(peerChan)
+		tarps.lm.Log("warn", "Failed to start relay peer discovery goroutine due to limit", "relay-discovery")
+	}
 	
 	return peerChan
 }

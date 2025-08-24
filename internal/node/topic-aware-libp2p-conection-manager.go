@@ -113,6 +113,7 @@ type TopicAwareConnectionManager struct {
 	targetTopics []string
 	lm           *utils.LogsManager
 	uiType       string
+	p2pm         *P2PManager // Reference to access goroutine tracker
 
 	// Connection priorities
 	topicPeers     map[peer.ID]bool      // Peers subscribed to our topics
@@ -157,6 +158,7 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		dht:                   p2pm.idht,
 		lm:                    p2pm.Lm,
 		uiType:                uiType,
+		p2pm:                  p2pm,
 		targetTopics:          targetTopics,
 		topicPeers:            make(map[peer.ID]bool),
 		routingPeers:          make(map[peer.ID]float64),
@@ -187,7 +189,8 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 func (tcm *TopicAwareConnectionManager) startPeriodicEvaluation(interval time.Duration) {
 	tcm.evaluationTicker = time.NewTicker(interval)
 
-	go func() {
+	gt := tcm.p2pm.GetGoroutineTracker()
+	gt.SafeStart("tcm-peer-evaluation", func() {
 		defer tcm.evaluationTicker.Stop()
 
 		for {
@@ -203,7 +206,7 @@ func (tcm *TopicAwareConnectionManager) startPeriodicEvaluation(interval time.Du
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop periodic peer evaluation
@@ -215,7 +218,8 @@ func (tcm *TopicAwareConnectionManager) StopPeriodicEvaluation() {
 func (tcm *TopicAwareConnectionManager) startPeriodicCleanup() {
 	tcm.cleanupTicker = time.NewTicker(tcm.cleanupInterval)
 
-	go func() {
+	gt := tcm.p2pm.GetGoroutineTracker()
+	gt.SafeStart("tcm-periodic-cleanup", func() {
 		defer tcm.cleanupTicker.Stop()
 
 		for {
@@ -228,7 +232,7 @@ func (tcm *TopicAwareConnectionManager) startPeriodicCleanup() {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Cleanup stale peer data
@@ -788,7 +792,8 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 	tcm.schedulePeerEvaluation(peerID)
 
 	// Schedule immediate topic check after brief delay for peer to subscribe
-	go func() {
+	gt := tcm.p2pm.GetGoroutineTracker()
+	gt.SafeStart(fmt.Sprintf("tcm-topic-check-%s", peerID.String()[:8]), func() {
 		// Use proper context handling to prevent goroutine leaks
 		ctx, cancel := context.WithTimeout(tcm.ctx, 5*time.Second)
 		defer cancel()
@@ -803,7 +808,7 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 			// Context cancelled, exit goroutine
 			return
 		}
-	}()
+	})
 }
 
 // Handle peer disconnections

@@ -182,11 +182,14 @@ func (w *Worker) Start(p2pm *P2PManager, jm *JobManager, retry, maxRetries int) 
 
 		// Execute the job directly with timeout
 		jobDone := make(chan error, 1)
-		go func() {
+		if !tracker.SafeStart(fmt.Sprintf("worker-job-execution-%d", w.ID), func() {
 			// Execute the job and send result to error channel
 			jobErr := jm.StartJob(w.ID)
 			jobDone <- jobErr
-		}()
+		}) {
+			// If goroutine couldn't start, return error immediately
+			jobDone <- fmt.Errorf("failed to start job execution goroutine due to goroutine limit")
+		}
 
 		select {
 		case <-w.ctx.Done():

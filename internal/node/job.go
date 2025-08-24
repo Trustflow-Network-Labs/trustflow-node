@@ -173,7 +173,7 @@ func (jm *JobManager) StartPeriodicTasks() error {
 	// Start job queue processing periodic task
 	jm.processQueueTicker = time.NewTicker(processQueueInterval)
 	jm.tickerWg.Add(1)
-	go func() {
+	if !jm.goroutineTracker.SafeStartCritical("job-queue-processing", func() {
 		defer jm.tickerWg.Done()
 		defer jm.processQueueTicker.Stop()
 
@@ -191,12 +191,15 @@ func (jm *JobManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	}) {
+		jm.tickerWg.Done() // If goroutine couldn't start, reduce wait group
+		jm.lm.Log("error", "CRITICAL: Failed to start job queue processing due to goroutine limit", "jobs")
+	}
 
 	// Start status update periodic task
 	jm.statusUpdateTicker = time.NewTicker(statusUpdateInterval)
 	jm.tickerWg.Add(1)
-	go func() {
+	if !jm.goroutineTracker.SafeStartCritical("job-status-updates", func() {
 		defer jm.tickerWg.Done()
 		defer jm.statusUpdateTicker.Stop()
 
@@ -214,7 +217,10 @@ func (jm *JobManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	}) {
+		jm.tickerWg.Done() // If goroutine couldn't start, reduce wait group
+		jm.lm.Log("error", "CRITICAL: Failed to start job status updates due to goroutine limit", "jobs")
+	}
 
 	jm.lm.Log("info", "Started all job periodic tasks", "jobs")
 	return nil
