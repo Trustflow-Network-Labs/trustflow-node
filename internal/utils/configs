@@ -23,6 +23,12 @@ database_file = ./trustflow.db
 
 [log]
 logfile = log
+log_level = debug
+log_max_size_mb = 100
+log_max_age_days = 30
+log_max_backups = 10
+log_rotation_interval = daily
+log_enable_rotation = true
 
 [keystore]
 keystore_passphrase = KEYSTORE_PASSPHRASE
@@ -50,6 +56,7 @@ docker_scan_skip = .git, packages, node_modules, .idea, .vscode
 chunk_size = 81920
 pid_path = ./trustflow.pid
 phrase_min_len = 3
+pprof_port = 6060
 
 [cron]
 peer_discovery_interval = 5m
