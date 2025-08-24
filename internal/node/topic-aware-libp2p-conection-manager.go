@@ -302,8 +302,8 @@ func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 	tcm.reevaluateAllPeers()
 	// Use previously completed peers evaluation
 	connStats := tcm.GetConnectionStats()
-	msg := fmt.Sprintf("Connection stats:\nTotal connections: %d\nTopic peers connected: %d\nRouting peers connected: %d\nOther peers connected: %d\n",
-		connStats["total"], connStats["topic_peers"], connStats["routing_peers"], connStats["other_peers"])
+	msg := fmt.Sprintf("Connection stats => Total connections: %d, Topic peers connected: %d, Routing peers connected: %d.",
+		connStats["total"], connStats["topic_peers"], connStats["routing_peers"])
 	tcm.lm.Log("debug", msg, "libp2p-events")
 }
 
@@ -913,8 +913,6 @@ func (tcm *TopicAwareConnectionManager) GetConnectionStats() map[string]int {
 		}
 	}
 	stats["routing_peers"] = connectedRoutingPeers
-
-	stats["other_peers"] = stats["total"] - (stats["topic_peers"] + stats["routing_peers"])
 
 	return stats
 }

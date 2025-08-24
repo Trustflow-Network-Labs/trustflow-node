@@ -168,9 +168,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		UI:                 ui,
 	}
 
-	if ctx != nil {
-		p2pm.ctx = ctx
-	}
+	p2pm.ctx = ctx
 
 	// Initialize memory leak prevention components
 	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm)
@@ -179,14 +177,14 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Create memory pressure monitor with configurable threshold
 	memoryThreshold := cm.GetConfigFloat64("memory_pressure_threshold", 85.0, 50.0, 95.0)
 	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, p2pm.cleanupManager, lm)
-	
+
 	// Start memory monitoring with configurable interval
 	monitorInterval := cm.GetConfigDuration("memory_monitor_interval", 30*time.Second)
 	p2pm.memoryMonitor.Start(monitorInterval)
 
 	// Initialize context tracking for memory leak detection
 	utils.InitializeContextTracking(lm)
-	
+
 	// Initialize buffer pools with configuration values
 	utils.InitializeBufferPools(cm)
 
@@ -196,8 +194,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		return nil
 	})
 
-	// Start periodic cleanup routine with critical priority (uses spawnGoroutine which is already critical)
-	if !p2pm.spawnGoroutine("periodic-cleanup", p2pm.startPeriodicCleanup) {
+	// Start periodic cleanup routine with critical priority
+	gt := p2pm.GetGoroutineTracker()
+	if !gt.SafeStartCritical("periodic-cleanup", p2pm.startPeriodicCleanup) {
 		p2pm.Lm.Log("error", "CRITICAL: Failed to start P2P cleanup routine - system may leak memory!", "p2p")
 	}
 
@@ -373,33 +372,6 @@ func (p2pm *P2PManager) submitStreamJob(job streamJob) bool {
 	}
 }
 
-// spawnGoroutine safely spawns a goroutine with tracking and limits
-func (p2pm *P2PManager) spawnGoroutine(name string, fn func()) bool {
-	current := atomic.LoadInt64(&p2pm.activeGoroutines)
-	if current >= p2pm.maxGoroutines {
-		p2pm.Lm.Log("warn", fmt.Sprintf("Goroutine limit reached (%d), rejecting %s", p2pm.maxGoroutines, name), "p2p")
-		return false
-	}
-
-	if atomic.AddInt64(&p2pm.activeGoroutines, 1) > p2pm.maxGoroutines {
-		atomic.AddInt64(&p2pm.activeGoroutines, -1)
-		p2pm.Lm.Log("warn", fmt.Sprintf("Goroutine limit exceeded during spawn, rejecting %s", name), "p2p")
-		return false
-	}
-
-	go func() {
-		defer atomic.AddInt64(&p2pm.activeGoroutines, -1)
-		defer func() {
-			if r := recover(); r != nil {
-				p2pm.Lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "p2p")
-			}
-		}()
-		fn()
-	}()
-
-	return true
-}
-
 // getGoroutineStats returns current goroutine statistics
 func (p2pm *P2PManager) getGoroutineStats() (int64, int64) {
 	active := atomic.LoadInt64(&p2pm.activeGoroutines)
@@ -532,7 +504,8 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 	// Start peer discovery periodic task
 	p2pm.peerDiscoveryTicker = time.NewTicker(peerDiscoveryInterval)
 	p2pm.cronWg.Add(1)
-	go func() {
+	gt := p2pm.GetGoroutineTracker()
+	gt.SafeStart("peer-discovery-ticker", func() {
 		defer p2pm.cronWg.Done()
 		defer p2pm.peerDiscoveryTicker.Stop()
 
@@ -550,12 +523,12 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	})
 
 	// Start connection maintenance periodic task
 	p2pm.connectionMaintTicker = time.NewTicker(connectionHealthInterval)
 	p2pm.cronWg.Add(1)
-	go func() {
+	gt.SafeStart("connection-maintenance", func() {
 		defer p2pm.cronWg.Done()
 		defer p2pm.connectionMaintTicker.Stop()
 
@@ -573,14 +546,14 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	})
 
 	// Start stream cleanup periodic task with configurable interval
 	streamCleanupInterval := p2pm.cm.GetConfigDuration("stream_cleanup_interval", 1*time.Minute)
 
 	streamCleanupTicker := time.NewTicker(streamCleanupInterval)
 	p2pm.cronWg.Add(1)
-	go func() {
+	gt.SafeStart("stream-cleanup", func() {
 		defer p2pm.cronWg.Done()
 		defer streamCleanupTicker.Stop()
 
@@ -598,14 +571,14 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	})
 
 	// Start service offers cache cleanup periodic task with configurable interval
 	cacheCleanupInterval := p2pm.cm.GetConfigDuration("cache_cleanup_interval", 30*time.Minute)
 
 	cacheCleanupTicker := time.NewTicker(cacheCleanupInterval)
 	p2pm.cronWg.Add(1)
-	go func() {
+	gt.SafeStart("cache-cleanup", func() {
 		defer p2pm.cronWg.Done()
 		defer cacheCleanupTicker.Stop()
 
@@ -623,7 +596,7 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 				return
 			}
 		}
-	}()
+	})
 
 	p2pm.Lm.Log("info", "Started all P2P periodic tasks", "p2p")
 	return nil
@@ -639,14 +612,15 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 		default:
 			close(p2pm.cronStopChan)
 		}
-		
+
 		// Wait for all goroutines to finish with timeout
 		done := make(chan struct{})
-		go func() {
+		gt := p2pm.GetGoroutineTracker()
+		gt.SafeStart("stop-waitgroup", func() {
 			p2pm.cronWg.Wait()
 			close(done)
-		}()
-		
+		})
+
 		select {
 		case <-done:
 			p2pm.Lm.Log("info", "All goroutines stopped gracefully", "p2p")
@@ -1007,7 +981,8 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	}
 	p2pm.tcm = tcm
 
-	go func() {
+	gt := p2pm.GetGoroutineTracker()
+	gt.SafeStart("topic-subscription", func() {
 		p2pm.subscriptions = p2pm.subscriptions[:0]
 		for _, completeTopicName := range p2pm.completeTopicNames {
 			sub, topic, err := p2pm.joinSubscribeTopic(p2pm.ctx, p2pm.ps, completeTopicName)
@@ -1022,10 +997,10 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 			// Attach the notifiee to the host's network
 			p2pm.h.Network().Notify(notifyManager)
 		}
-	}()
+	})
 
 	// Start topics aware peer discovery with goroutine tracking
-	if !p2pm.spawnGoroutine("peer-discovery", p2pm.DiscoverPeers) {
+	if !gt.SafeStart("peer-discovery", p2pm.DiscoverPeers) {
 		p2pm.Lm.Log("warn", "Failed to start peer discovery due to goroutine limit", "p2p")
 	}
 
@@ -1038,7 +1013,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 
 	// Start relay billing logger if relay is enabled
 	if p2pm.relay && p2pm.relayTrafficMonitor != nil {
-		if !p2pm.spawnGoroutine("relay-billing", func() { p2pm.StartRelayBillingLogger(p2pm.ctx) }) {
+		if !gt.SafeStart("relay-billing", func() { p2pm.StartRelayBillingLogger(p2pm.ctx) }) {
 			p2pm.Lm.Log("warn", "Failed to start relay billing logger due to goroutine limit", "p2p")
 		}
 	}
@@ -1401,11 +1376,12 @@ func (p2pm *P2PManager) Stop() error {
 
 	// Wait for all periodic tasks and workers to stop with timeout
 	done := make(chan struct{})
-	go func() {
+	gt := p2pm.GetGoroutineTracker()
+	gt.SafeStart("waitgroup-completion", func() {
 		p2pm.cronWg.Wait()
 		close(done)
-	}()
-	
+	})
+
 	select {
 	case <-done:
 		p2pm.Lm.Log("info", "All P2P goroutines stopped", "p2p")
@@ -1460,7 +1436,8 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 	}
 
 	// Connect to bootstrap peers with goroutine tracking
-	if !p2pm.spawnGoroutine("bootstrap-connect", func() { p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second) }) {
+	gt := p2pm.GetGoroutineTracker()
+	if !gt.SafeStart("bootstrap-connect", func() { p2pm.ConnectNodesAsync(bootstrapPeers, 3, 2*time.Second) }) {
 		p2pm.Lm.Log("warn", "Failed to start bootstrap connection due to goroutine limit", "p2p")
 	}
 
@@ -1527,9 +1504,18 @@ func (p2pm *P2PManager) DiscoverPeers() {
 
 	p2pm.Lm.Log("info", fmt.Sprintf("Discovered %d peers for connection attempts", len(discoveredPeers)), "p2p")
 
+	// Log memory usage info
+	memInfo := p2pm.GetMemoryUsageInfo()
+	if len(memInfo) > 0 {
+		p2pm.Lm.Log("info", fmt.Sprintf("Memory usage: %+v", memInfo), "p2p")
+	}
+
 	// Connect to peers asynchronously
 	if len(discoveredPeers) > 0 {
-		go p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+		gt := p2pm.GetGoroutineTracker()
+		gt.SafeStart("connect-discovered-peers", func() {
+			p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+		})
 	}
 }
 
@@ -3498,6 +3484,7 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			if len(stats) > 0 {
 				p2pm.Lm.Log("debug", fmt.Sprintf("Resource stats: %+v", stats), "p2p")
 			}
+
 		}
 	}
 }
