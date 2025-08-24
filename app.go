@@ -220,7 +220,7 @@ func (a *App) StartNode(port uint16, relay bool) {
 	a.stopChanMutex.Unlock()
 
 	// Start p2p node
-	err = a.p2pm.Start(port, false, public, relay)
+	err = a.p2pm.Start(a.ctx, port, false, public, relay)
 	if err != nil {
 		msg := fmt.Sprintf("⚠️ Can not start p2p node:\n%v\n", err)
 		runtime.EventsEmit(a.ctx, "syslog-event", msg)

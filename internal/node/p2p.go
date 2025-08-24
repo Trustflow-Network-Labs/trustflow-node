@@ -632,13 +632,33 @@ func (p2pm *P2PManager) StartPeriodicTasks() error {
 // Stop all P2P periodic tasks
 func (p2pm *P2PManager) StopPeriodicTasks() {
 	if p2pm.cronStopChan != nil {
-		close(p2pm.cronStopChan)
-		p2pm.cronWg.Wait() // Wait for all goroutines to finish (including stream workers)
+		select {
+		case <-p2pm.cronStopChan:
+			// Channel already closed
+			return
+		default:
+			close(p2pm.cronStopChan)
+		}
+		
+		// Wait for all goroutines to finish with timeout
+		done := make(chan struct{})
+		go func() {
+			p2pm.cronWg.Wait()
+			close(done)
+		}()
+		
+		select {
+		case <-done:
+			p2pm.Lm.Log("info", "All goroutines stopped gracefully", "p2p")
+		case <-time.After(5 * time.Second):
+			p2pm.Lm.Log("warn", "Timeout waiting for goroutines to stop, proceeding with cleanup", "p2p")
+		}
 
 		// Clean up worker pool resources
 		p2pm.cleanupStreamWorkers()
 
 		p2pm.Lm.Log("info", "Stopped all P2P periodic tasks and stream workers", "p2p")
+		p2pm.cronStopChan = nil // Prevent future close attempts
 	}
 }
 
@@ -646,7 +666,12 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 func (p2pm *P2PManager) cleanupStreamWorkers() {
 	// Close all individual worker channels
 	for _, workerChan := range p2pm.streamWorkers {
-		close(workerChan)
+		select {
+		case <-workerChan:
+			// Channel already closed
+		default:
+			close(workerChan)
+		}
 	}
 
 	// Clear the worker slice
@@ -799,13 +824,17 @@ func (p2pm *P2PManager) WaitForHostReady(interval time.Duration, maxAttempts int
 }
 
 // Start p2p node
-func (p2pm *P2PManager) Start(port uint16, daemon bool, public bool, relay bool) error {
+func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, public bool, relay bool) error {
 	p2pm.daemon = daemon
 	p2pm.public = public
 	p2pm.relay = relay
 
-	if p2pm.ctx == nil {
-		p2pm.ctx = context.Background()
+	// Use the provided context (needed for Wails GUI runtime calls)
+	p2pm.ctx = ctx
+
+	// Reinitialize stream workers if they were shut down
+	if len(p2pm.streamWorkers) == 0 {
+		p2pm.initializeStreamWorkers()
 	}
 
 	blacklistManager, err := blacklist_node.NewBlacklistNodeManager(p2pm.DB, p2pm.UI, p2pm.Lm)
@@ -1333,6 +1362,9 @@ func (p2pm *P2PManager) Stop() error {
 	if p2pm.cancel != nil {
 		p2pm.cancel()
 		p2pm.Lm.Log("info", "Context canceled - signaling all goroutines to stop", "p2p")
+		// Reset context and cancel function for future starts
+		p2pm.ctx = nil
+		p2pm.cancel = nil
 	}
 
 	// Stop periodic tasks
@@ -1367,9 +1399,19 @@ func (p2pm *P2PManager) Stop() error {
 		p2pm.Lm.Log("info", "Stopped JobManager periodic tasks", "p2p")
 	}
 
-	// Wait for all periodic tasks and workers to stop
-	p2pm.cronWg.Wait()
-	p2pm.Lm.Log("info", "All P2P goroutines stopped", "p2p")
+	// Wait for all periodic tasks and workers to stop with timeout
+	done := make(chan struct{})
+	go func() {
+		p2pm.cronWg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		p2pm.Lm.Log("info", "All P2P goroutines stopped", "p2p")
+	case <-time.After(5 * time.Second):
+		p2pm.Lm.Log("warn", "Timeout waiting for remaining P2P goroutines, proceeding with shutdown", "p2p")
+	}
 
 	return nil
 }

@@ -82,6 +82,15 @@ func (tarps *TopicAwareRelayPeerSource) PeerSourceFunc() func(ctx context.Contex
 func (tarps *TopicAwareRelayPeerSource) GetPeers(ctx context.Context, num int) <-chan peer.AddrInfo {
 	peerChan := make(chan peer.AddrInfo, num)
 	
+	// Check for nil pointers to prevent panics during node restart
+	if tarps.tcm == nil || tarps.tcm.p2pm == nil {
+		if tarps.lm != nil {
+			tarps.lm.Log("warning", "TopicAwareConnectionManager or P2PManager is nil during relay peer discovery", "relay-discovery")
+		}
+		close(peerChan)
+		return peerChan
+	}
+	
 	gt := tarps.tcm.p2pm.GetGoroutineTracker()
 	if !gt.SafeStart("relay-peer-discovery", func() {
 		defer close(peerChan)
