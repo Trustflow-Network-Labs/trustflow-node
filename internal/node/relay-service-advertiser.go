@@ -62,8 +62,14 @@ func (rsa *RelayServiceAdvertiser) StartAdvertising(ctx context.Context, config 
 	
 	rsa.isActive = true
 	
-	// Start advertisement goroutine
-	go rsa.advertisementLoop(ctx)
+	// Start advertisement goroutine with tracking
+	tracker := rsa.p2pm.GetGoroutineTracker()
+	if !tracker.SafeStart("relay-service-advertisement", func() {
+		rsa.advertisementLoop(ctx)
+	}) {
+		rsa.lm.Log("error", "Failed to start relay service advertisement due to goroutine limit", "relay-advertiser")
+		return fmt.Errorf("failed to start advertisement goroutine")
+	}
 	
 	rsa.lm.Log("info", 
 		fmt.Sprintf("🚀 Started advertising relay service for topics %v at $%.3f/GB", 

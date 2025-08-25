@@ -136,18 +136,23 @@ func (p2pm *P2PManager) StartRelayBillingLogger(ctx context.Context) {
 		},
 	)
 	
-	// Start periodic logging
-	go p2pm.relayTrafficMonitor.StartPeriodicLogging(ctx, func(records []RelayTrafficRecord) {
-		totalTraffic := int64(0)
-		for _, record := range records {
-			totalTraffic += record.BytesIngress + record.BytesEgress
-		}
-		
-		if totalTraffic > 0 {
-			p2pm.Lm.Log("info", 
-				fmt.Sprintf("Relay billing summary: %d active circuits, %d total bytes", 
-					len(records), totalTraffic), 
-				"relay-billing")
-		}
-	})
+	// Start periodic logging with goroutine tracking
+	tracker := p2pm.GetGoroutineTracker()
+	if !tracker.SafeStart("relay-traffic-periodic-logging", func() {
+		p2pm.relayTrafficMonitor.StartPeriodicLogging(ctx, func(records []RelayTrafficRecord) {
+			totalTraffic := int64(0)
+			for _, record := range records {
+				totalTraffic += record.BytesIngress + record.BytesEgress
+			}
+			
+			if totalTraffic > 0 {
+				p2pm.Lm.Log("info", 
+					fmt.Sprintf("Relay billing summary: %d active circuits, %d total bytes", 
+						len(records), totalTraffic), 
+					"relay-billing")
+			}
+		})
+	}) {
+		p2pm.Lm.Log("error", "Failed to start relay traffic periodic logging due to goroutine limit", "relay-billing")
+	}
 }

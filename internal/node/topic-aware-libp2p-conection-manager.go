@@ -945,9 +945,16 @@ func (tcm *TopicAwareConnectionManager) Shutdown() {
 
 // Start worker pool for peer evaluation
 func (tcm *TopicAwareConnectionManager) startWorkerPool(numWorkers int) {
+	tracker := tcm.p2pm.GetGoroutineTracker()
 	for i := range numWorkers {
 		tcm.workerPool.Add(1)
-		go tcm.peerEvaluationWorker(i)
+		workerID := i // Capture loop variable
+		if !tracker.SafeStart(fmt.Sprintf("peer-evaluation-worker-%d", workerID), func() {
+			tcm.peerEvaluationWorker(workerID)
+		}) {
+			tcm.lm.Log("error", fmt.Sprintf("Failed to start peer evaluation worker %d due to goroutine limit", workerID), "connection-manager")
+			tcm.workerPool.Done() // Decrement since SafeStart failed
+		}
 	}
 }
 
