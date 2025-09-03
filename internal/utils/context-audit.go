@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// GoroutineTracker interface for tracking goroutines
+type GoroutineTracker interface {
+	SafeStart(name string, fn func()) bool
+	SafeStartCritical(name string, fn func()) bool
+}
+
 // ContextTracker helps identify potential context leaks and long-lived contexts
 type ContextTracker struct {
 	contexts     map[string]*ContextInfo
@@ -18,6 +24,7 @@ type ContextTracker struct {
 	ticker       *time.Ticker
 	ctx          context.Context
 	cancel       context.CancelFunc
+	gt           GoroutineTracker // For tracking goroutines
 }
 
 // ContextInfo stores information about tracked contexts
@@ -31,7 +38,7 @@ type ContextInfo struct {
 }
 
 // NewContextTracker creates a new context tracker
-func NewContextTracker(logger Logger) *ContextTracker {
+func NewContextTracker(logger Logger, gt GoroutineTracker) *ContextTracker {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	tracker := &ContextTracker{
@@ -41,10 +48,16 @@ func NewContextTracker(logger Logger) *ContextTracker {
 		checkInterval: 30 * time.Second,       // Check every 30 seconds
 		ctx:           ctx,
 		cancel:        cancel,
+		gt:            gt,                     // Store goroutine tracker
 	}
 	
-	// Start monitoring goroutine
-	tracker.startMonitoring()
+	// Start monitoring goroutine with tracking
+	if gt != nil {
+		tracker.startMonitoring()
+	} else {
+		// Fallback for when gt is nil (backward compatibility)
+		tracker.startMonitoringUntracked()
+	}
 	
 	return tracker
 }
@@ -70,8 +83,19 @@ func (ct *ContextTracker) TrackContext(ctx context.Context, description string, 
 		Active:      true,
 	}
 	
-	// Monitor context completion
-	go ct.monitorContext(ctx, id)
+	// Monitor context completion with proper tracking
+	if ct.gt != nil {
+		if !ct.gt.SafeStart(fmt.Sprintf("context-monitor-%s", id), func() {
+			ct.monitorContext(ctx, id)
+		}) {
+			ct.logger.Log("warn", fmt.Sprintf("Failed to start context monitor goroutine for %s", id), "context-tracker")
+		}
+	} else {
+		// Fallback for backward compatibility
+		go func() {
+			ct.monitorContext(ctx, id)
+		}()
+	}
 	
 	return id
 }
@@ -92,8 +116,29 @@ func (ct *ContextTracker) monitorContext(ctx context.Context, id string) {
 	ct.ReleaseContext(id)
 }
 
-// startMonitoring begins the background monitoring process
+// startMonitoring begins the background monitoring process with proper tracking
 func (ct *ContextTracker) startMonitoring() {
+	ct.ticker = time.NewTicker(ct.checkInterval)
+	
+	if !ct.gt.SafeStart("context-leak-checker", func() {
+		defer ct.ticker.Stop()
+		for {
+			select {
+			case <-ct.ctx.Done():
+				return
+			case <-ct.ticker.C:
+				ct.checkForLeaks()
+			}
+		}
+	}) {
+		ct.logger.Log("warn", "Failed to start context leak checker goroutine", "context-tracker")
+		// Fallback to untracked goroutine if SafeStart fails
+		ct.startMonitoringUntracked()
+	}
+}
+
+// startMonitoringUntracked is a fallback for when goroutine tracking is unavailable
+func (ct *ContextTracker) startMonitoringUntracked() {
 	ct.ticker = time.NewTicker(ct.checkInterval)
 	
 	go func() {
@@ -232,8 +277,8 @@ func (ct *ContextTracker) Shutdown() {
 var GlobalContextTracker *ContextTracker
 
 // InitializeContextTracking initializes global context tracking
-func InitializeContextTracking(logger Logger) {
-	GlobalContextTracker = NewContextTracker(logger)
+func InitializeContextTracking(logger Logger, gt GoroutineTracker) {
+	GlobalContextTracker = NewContextTracker(logger, gt)
 }
 
 // TrackContextWithTimeout is a helper for creating and tracking timeout contexts

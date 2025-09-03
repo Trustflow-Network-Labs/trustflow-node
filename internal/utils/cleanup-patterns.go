@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+
 // CleanupManager provides automatic resource cleanup patterns
 type CleanupManager struct {
 	mu           sync.RWMutex
@@ -171,10 +172,11 @@ type MemoryPressureMonitor struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	logger           Logger
+	gt               GoroutineTracker
 }
 
 // NewMemoryPressureMonitor creates a memory pressure monitor
-func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logger Logger) *MemoryPressureMonitor {
+func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logger Logger, gt GoroutineTracker) *MemoryPressureMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	monitor := &MemoryPressureMonitor{
@@ -183,6 +185,7 @@ func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logg
 		ctx:              ctx,
 		cancel:           cancel,
 		logger:           logger,
+		gt:               gt,
 	}
 
 	return monitor
@@ -192,11 +195,40 @@ func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logg
 func (m *MemoryPressureMonitor) Start(interval time.Duration) {
 	m.ticker = time.NewTicker(interval)
 
+	// Use tracked goroutine if available, fallback to untracked
+	if m.gt != nil {
+		if !m.gt.SafeStart("memory-pressure-monitor", func() {
+			m.logger.Log("debug", "Starting memory pressure monitor goroutine", "memory-pressure-monitor")
+			defer m.ticker.Stop()
+			for {
+				select {
+				case <-m.ctx.Done():
+					m.logger.Log("debug", "Memory pressure monitor goroutine stopped", "memory-pressure-monitor")
+					return
+				case <-m.ticker.C:
+					m.checkMemoryPressure()
+				}
+			}
+		}) {
+			m.logger.Log("warn", "Failed to start memory pressure monitor goroutine", "memory-pressure-monitor")
+			// Fallback to untracked goroutine
+			m.startUntracked()
+		}
+	} else {
+		// Fallback for backward compatibility
+		m.startUntracked()
+	}
+}
+
+// startUntracked is a fallback for when goroutine tracking is unavailable
+func (m *MemoryPressureMonitor) startUntracked() {
 	go func() {
+		m.logger.Log("debug", "Starting memory pressure monitor goroutine (untracked)", "memory-pressure-monitor")
 		defer m.ticker.Stop()
 		for {
 			select {
 			case <-m.ctx.Done():
+				m.logger.Log("debug", "Memory pressure monitor goroutine stopped", "memory-pressure-monitor")
 				return
 			case <-m.ticker.C:
 				m.checkMemoryPressure()
@@ -250,6 +282,34 @@ func AutoCleanupContext(parentCtx context.Context, cleanupFunc func()) context.C
 		<-ctx.Done()
 		cleanupFunc()
 	}()
+
+	// Return a context that when cancelled, will trigger cleanup
+	return &cleanupContext{Context: ctx, cancel: cancel}
+}
+
+// AutoCleanupContextTracked provides automatic cleanup when context is cancelled with goroutine tracking
+func AutoCleanupContextTracked(parentCtx context.Context, cleanupFunc func(), gt GoroutineTracker, contextID string) context.Context {
+	ctx, cancel := context.WithCancel(parentCtx)
+
+	// Use tracked goroutine if available, fallback to untracked
+	if gt != nil {
+		if !gt.SafeStart(fmt.Sprintf("auto-cleanup-%s", contextID), func() {
+			<-ctx.Done()
+			cleanupFunc()
+		}) {
+			// Fallback to untracked goroutine if SafeStart fails
+			go func() {
+				<-ctx.Done()
+				cleanupFunc()
+			}()
+		}
+	} else {
+		// Fallback for backward compatibility
+		go func() {
+			<-ctx.Done()
+			cleanupFunc()
+		}()
+	}
 
 	// Return a context that when cancelled, will trigger cleanup
 	return &cleanupContext{Context: ctx, cancel: cancel}

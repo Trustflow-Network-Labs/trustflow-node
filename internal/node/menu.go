@@ -1625,7 +1625,7 @@ func (mm *MenuManager) addDockerServiceFromGit(name, description, stype string, 
 	}
 
 	// Run docker & build image(s)
-	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm)
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm, mm.p2pm.GetGoroutineTracker())
 	_, images, errors := dockerManager.Run(repoPath, nil, true, "", true, "", "", nil, nil, nil, nil, nil)
 	if errors != nil {
 		for _, err := range errors {
@@ -1709,7 +1709,7 @@ func (mm *MenuManager) addDockerServiceFromRepo(name, description, stype string,
 	}
 
 	// Validate docker image
-	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm)
+	dockerManager := repo.NewDockerManager(ui.CLI{}, mm.lm, mm.p2pm.cm, mm.p2pm.GetGoroutineTracker())
 	cmdOut, err := dockerManager.ValidateImage(pediResult)
 	if err != nil {
 		msg := fmt.Sprintf("\U00002757 Docker image check failed: %v\nOutput: %s", err, string(cmdOut))

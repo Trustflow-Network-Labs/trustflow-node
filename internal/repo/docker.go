@@ -43,17 +43,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type GoroutineTracker interface {
+	SafeStart(name string, fn func()) bool
+	SafeStartCritical(name string, fn func()) bool
+}
+
 type DockerManager struct {
 	lm *utils.LogsManager
 	cm *utils.ConfigManager
 	UI ui.UI
+	gt GoroutineTracker
 }
 
-func NewDockerManager(ui ui.UI, lm *utils.LogsManager, cm *utils.ConfigManager) *DockerManager {
+func NewDockerManager(ui ui.UI, lm *utils.LogsManager, cm *utils.ConfigManager, gt GoroutineTracker) *DockerManager {
 	return &DockerManager{
 		lm: lm,
 		cm: cm,
 		UI: ui,
+		gt: gt,
 	}
 }
 
@@ -707,7 +714,7 @@ func (dm *DockerManager) runService(
 	defer utils.GlobalErrorChannelPool.Put(errChanIn)
 	if inputs != nil {
 		wgIO.Add(1)
-		go func() {
+		if !dm.gt.SafeStart("docker-input-streaming", func() {
 			defer wgIO.Done()
 			var files []*os.File
 			// Convert to buffered readers
@@ -743,7 +750,11 @@ func (dm *DockerManager) runService(
 				return
 			}
 			errChanIn <- nil
-		}()
+		}) {
+			dm.lm.Log("error", "Failed to start docker input streaming goroutine", "docker")
+			wgIO.Done() // Decrement since SafeStart failed
+			errChanIn <- fmt.Errorf("goroutine start failed")
+		}
 	} else {
 		errChanIn <- nil
 	}
@@ -757,7 +768,7 @@ func (dm *DockerManager) runService(
 	errChanOut := utils.GlobalErrorChannelPool.Get()
 	defer utils.GlobalErrorChannelPool.Put(errChanOut)
 	wgIO.Add(1)
-	go func() {
+	if !dm.gt.SafeStart("docker-output-streaming", func() {
 		defer wgIO.Done()
 		var stdoutWriter io.Writer = stdoutFile
 		if outputs != nil {
@@ -802,7 +813,11 @@ func (dm *DockerManager) runService(
 		}
 		dm.lm.Log("debug", fmt.Sprintf("Copied %d bytes to stdout", written), "docker")
 		errChanOut <- nil
-	}()
+	}) {
+		dm.lm.Log("error", "Failed to start docker output streaming goroutine", "docker")
+		wgIO.Done() // Decrement since SafeStart failed
+		errChanOut <- fmt.Errorf("goroutine start failed")
+	}
 
 	if errOut := <-errChanOut; errOut != nil {
 		err := fmt.Errorf("output copy failed: %w", errOut)
@@ -823,7 +838,11 @@ func (dm *DockerManager) runService(
 
 	attachResp.Close()
 
-	go dm.streamLogs(cli, resp.ID, svc.Name)
+	if !dm.gt.SafeStart(fmt.Sprintf("docker-log-stream-%s", svc.Name), func() {
+		dm.streamLogs(cli, resp.ID, svc.Name)
+	}) {
+		dm.lm.Log("warn", fmt.Sprintf("Failed to start log streaming goroutine for container %s", svc.Name), "docker")
+	}
 
 	if svc.HealthCheck != nil {
 		waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -965,7 +984,7 @@ func (dm *DockerManager) Run(
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
+	if !dm.gt.SafeStart("docker-signal-handler", func() {
 		<-sigs
 		dm.lm.Log("info", "Caught signal. Cleaning up...", "docker")
 		stopOptions := container.StopOptions{}
@@ -979,7 +998,9 @@ func (dm *DockerManager) Run(
 		signal.Stop(sigs)
 		close(sigs)
 		os.Exit(0)
-	}()
+	}) {
+		dm.lm.Log("warn", "Failed to start docker signal handler goroutine", "docker")
+	}
 
 	for _, svc := range project.Services {
 		if singleService != "" && svc.Name != ssImageName {
@@ -987,7 +1008,8 @@ func (dm *DockerManager) Run(
 		}
 
 		wg.Add(1)
-		go func(svc composetypes.ServiceConfig) {
+		svcName := svc.Name // Capture loop variable
+		if !dm.gt.SafeStart(fmt.Sprintf("docker-service-%s", svcName), func() {
 			defer wg.Done()
 			var id string
 			var err error
@@ -1082,7 +1104,10 @@ func (dm *DockerManager) Run(
 				errrs = append(errrs, fmt.Errorf("service %s: %w", svc.Name, err))
 				errsMu.Unlock()
 			}
-		}(svc)
+		}) {
+			dm.lm.Log("warn", fmt.Sprintf("Failed to start docker service processing goroutine for %s", svcName), "docker")
+			wg.Done() // Decrement since SafeStart failed
+		}
 	}
 	wg.Wait()
 

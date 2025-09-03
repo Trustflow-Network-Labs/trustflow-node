@@ -20,12 +20,12 @@ type P2PResourceManager struct {
 
 // NewP2PResourceManager creates a new P2P resource manager with memory leak prevention
 func NewP2PResourceManager(ctx context.Context, logger Logger) *P2PResourceManager {
-	resourceTracker := NewResourceTracker(ctx, logger)
+	resourceTracker := NewResourceTracker(ctx, logger, nil) // nil for test compatibility
 	cleanupManager := NewCleanupManager(ctx, logger)
 	channelManager := NewChannelManager(ctx)
 
 	// Create memory pressure monitor (trigger cleanup at 85% memory usage)
-	memoryMonitor := NewMemoryPressureMonitor(85.0, cleanupManager, logger)
+	memoryMonitor := NewMemoryPressureMonitor(85.0, cleanupManager, logger, nil) // nil for test compatibility
 	memoryMonitor.Start(30 * time.Second) // Check every 30 seconds
 
 	return &P2PResourceManager{

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -171,19 +172,19 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	p2pm.ctx = ctx
 
 	// Initialize memory leak prevention components
-	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm)
+	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm, p2pm.GetGoroutineTracker())
 	p2pm.cleanupManager = utils.NewCleanupManager(p2pm.ctx, lm)
 
 	// Create memory pressure monitor with configurable threshold
 	memoryThreshold := cm.GetConfigFloat64("memory_pressure_threshold", 85.0, 50.0, 95.0)
-	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, p2pm.cleanupManager, lm)
+	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, p2pm.cleanupManager, lm, p2pm.GetGoroutineTracker())
 
 	// Start memory monitoring with configurable interval
 	monitorInterval := cm.GetConfigDuration("memory_monitor_interval", 30*time.Second)
 	p2pm.memoryMonitor.Start(monitorInterval)
 
 	// Initialize context tracking for memory leak detection
-	utils.InitializeContextTracking(lm)
+	utils.InitializeContextTracking(lm, p2pm.GetGoroutineTracker())
 
 	// Initialize buffer pools with configuration values
 	utils.InitializeBufferPools(cm)
@@ -250,6 +251,9 @@ func (p2pm *P2PManager) Close() error {
 func (p2pm *P2PManager) initializeStreamWorkers() {
 	workerCount := 10 // Match the worker pool capacity
 
+	// Get goroutine tracker
+	gt := p2pm.GetGoroutineTracker()
+	
 	// Create individual worker channels and start workers
 	for i := 0; i < workerCount; i++ {
 		workerChan := make(chan streamJob, 1) // Buffer of 1 for non-blocking dispatch
@@ -258,9 +262,15 @@ func (p2pm *P2PManager) initializeStreamWorkers() {
 		// Add worker channel to the pool
 		p2pm.streamWorkerPool <- workerChan
 
-		// Start persistent worker goroutine
+		// Start persistent worker goroutine with tracking
 		p2pm.cronWg.Add(1)
-		go p2pm.streamWorker(i, workerChan)
+		workerID := i // Capture loop variable
+		if !gt.SafeStartCritical(fmt.Sprintf("stream-worker-%d", workerID), func() {
+			p2pm.streamWorker(workerID, workerChan)
+		}) {
+			p2pm.Lm.Log("error", fmt.Sprintf("Failed to start stream worker %d", workerID), "p2p")
+			p2pm.cronWg.Done() // Decrement since SafeStart failed
+		}
 	}
 
 	p2pm.Lm.Log("info", fmt.Sprintf("Initialized %d stream workers", workerCount), "p2p")
@@ -1032,16 +1042,51 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	if !tracker.SafeStartCritical("pprof-server", func() {
 		p2pm.Lm.Log("info", fmt.Sprintf("Starting pprof server on port %s", pprofPort), "pprof")
 
-		// Add retry logic for pprof server startup
-		for retries := 0; retries < 3; retries++ {
-			if err := http.ListenAndServe(":"+pprofPort, nil); err != nil {
-				p2pm.Lm.Log("warn", fmt.Sprintf("pprof server failed (attempt %d/3): %v", retries+1, err), "pprof")
-				if retries < 2 {
-					time.Sleep(time.Duration(retries+1) * time.Second) // Exponential backoff
-				}
-			} else {
-				break // Server started successfully
+		// Try multiple ports with proper error handling
+		ports := []string{pprofPort, "6061", "6062"} // Fallback ports
+		var server *http.Server
+		var listener net.Listener
+		var err error
+		
+		for i, port := range ports {
+			// Create server with context for graceful shutdown
+			server = &http.Server{
+				Addr:    ":" + port,
+				Handler: nil, // Use default pprof mux
 			}
+			
+			// Try to listen on this port
+			listener, err = net.Listen("tcp", ":"+port)
+			if err != nil {
+				if i < len(ports)-1 {
+					p2pm.Lm.Log("warn", fmt.Sprintf("pprof port %s unavailable, trying next port: %v", port, err), "pprof")
+					continue
+				} else {
+					p2pm.Lm.Log("error", fmt.Sprintf("All pprof ports failed, last error: %v", err), "pprof")
+					return
+				}
+			}
+			
+			p2pm.Lm.Log("info", fmt.Sprintf("pprof server successfully bound to port %s", port), "pprof")
+			break
+		}
+		
+		// Start server with graceful shutdown handling using tracked goroutine
+		shutdownTracker := p2pm.GetGoroutineTracker()
+		shutdownTracker.SafeStart("pprof-shutdown", func() {
+			<-p2pm.ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := server.Shutdown(shutdownCtx); err != nil {
+				p2pm.Lm.Log("warn", fmt.Sprintf("pprof server shutdown error: %v", err), "pprof")
+			} else {
+				p2pm.Lm.Log("info", "pprof server shutdown gracefully", "pprof")
+			}
+		})
+		
+		// Serve with the pre-established listener
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			p2pm.Lm.Log("error", fmt.Sprintf("pprof server error: %v", err), "pprof")
 		}
 	}) {
 		p2pm.Lm.Log("error", "CRITICAL: Failed to start pprof server due to goroutine limit - monitoring will be limited", "pprof")
@@ -1407,7 +1452,13 @@ func (p2pm *P2PManager) joinSubscribeTopic(cntx context.Context, ps *pubsub.PubS
 
 	p2pm.topicsSubscribed[completeTopicName] = topic
 
-	go p2pm.receivedMessage(cntx, sub)
+	// Start message receiving goroutine with tracking
+	gt := p2pm.GetGoroutineTracker()
+	if !gt.SafeStart(fmt.Sprintf("message-receiver-%s", completeTopicName), func() {
+		p2pm.receivedMessage(cntx, sub)
+	}) {
+		p2pm.Lm.Log("error", fmt.Sprintf("Failed to start message receiver for topic %s", completeTopicName), "p2p")
+	}
 
 	return sub, topic, nil
 }
@@ -1521,6 +1572,8 @@ func (p2pm *P2PManager) DiscoverPeers() {
 
 // Monitor connection health and reconnect (cron)
 func (p2pm *P2PManager) MaintainConnections() {
+	gt := p2pm.GetGoroutineTracker()
+	
 	for _, peerID := range p2pm.h.Network().Peers() {
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
@@ -1532,7 +1585,14 @@ func (p2pm *P2PManager) MaintainConnections() {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				continue
 			}
-			go p2pm.ConnectNodeWithRetry(p2pm.ctx, p, 3, 2*time.Second)
+			
+			// Start reconnection attempt with tracking
+			peer := p // Capture loop variable
+			if !gt.SafeStart(fmt.Sprintf("reconnect-%s", peerID.String()[:8]), func() {
+				p2pm.ConnectNodeWithRetry(p2pm.ctx, peer, 3, 2*time.Second)
+			}) {
+				p2pm.Lm.Log("warn", fmt.Sprintf("Failed to start reconnection goroutine for peer %s", peerID.String()[:8]), "p2p")
+			}
 		}
 	}
 }
@@ -2511,15 +2571,24 @@ func (p2pm *P2PManager) fileReceived(
 		return err
 	}
 
-	// Send acknowledgement receipt
-	go p2pm.sendReceiptAcknowledgement(
-		streamData.WorkflowId,
-		streamData.JobId,
-		streamData.InterfaceId,
-		orderingNodeId,
-		receivingNodeId,
-		remotePeer,
-	)
+	// Send acknowledgement receipt with goroutine tracking
+	gt := p2pm.GetGoroutineTracker()
+	workflowId := streamData.WorkflowId
+	jobId := streamData.JobId
+	interfaceId := streamData.InterfaceId
+	
+	if !gt.SafeStart(fmt.Sprintf("receipt-ack-%d-%d", workflowId, jobId), func() {
+		p2pm.sendReceiptAcknowledgement(
+			workflowId,
+			jobId,
+			interfaceId,
+			orderingNodeId,
+			receivingNodeId,
+			remotePeer,
+		)
+	}) {
+		p2pm.Lm.Log("warn", fmt.Sprintf("Failed to start receipt acknowledgement goroutine for workflow %d job %d", workflowId, jobId), "p2p")
+	}
 
 	err = os.RemoveAll(fpath)
 	if err != nil {

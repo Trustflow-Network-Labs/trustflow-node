@@ -28,7 +28,7 @@ func NewServiceManager(p2pm *P2PManager) *ServiceManager {
 	return &ServiceManager{
 		db:   p2pm.DB,
 		lm:   p2pm.Lm,
-		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm),
+		dm:   repo.NewDockerManager(p2pm.UI, p2pm.Lm, p2pm.cm, p2pm.GetGoroutineTracker()),
 		p2pm: p2pm,
 	}
 }

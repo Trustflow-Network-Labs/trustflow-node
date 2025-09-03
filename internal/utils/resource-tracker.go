@@ -10,13 +10,15 @@ import (
 	"time"
 )
 
+
 // ResourceTracker provides centralized resource management and leak detection
 type ResourceTracker struct {
 	mu        sync.RWMutex
 	resources map[string]*TrackedResource
 	ctx       context.Context
 	cancel    context.CancelFunc
-	logger    Logger // Interface for logging
+	logger    Logger         // Interface for logging
+	gt        GoroutineTracker // For tracking goroutines
 }
 
 // TrackedResource represents a tracked system resource
@@ -46,19 +48,42 @@ type Logger interface {
 }
 
 // NewResourceTracker creates a new resource tracker
-func NewResourceTracker(parentCtx context.Context, logger Logger) *ResourceTracker {
+func NewResourceTracker(parentCtx context.Context, logger Logger, gt GoroutineTracker) *ResourceTracker {
 	ctx, cancel := context.WithCancel(parentCtx)
 	rt := &ResourceTracker{
 		resources: make(map[string]*TrackedResource),
 		ctx:       ctx,
 		cancel:    cancel,
 		logger:    logger,
+		gt:        gt,
 	}
 
-	// Start cleanup goroutine
-	go rt.periodicCleanup()
+	// Start cleanup goroutine with proper tracking
+	if gt != nil {
+		if !gt.SafeStart("resource-tracker-cleanup", func() {
+			rt.logger.Log("debug", "Starting resource tracker periodic cleanup goroutine", "resource-tracker")
+			rt.periodicCleanup()
+			rt.logger.Log("debug", "Resource tracker periodic cleanup goroutine stopped", "resource-tracker")
+		}) {
+			rt.logger.Log("warn", "Failed to start resource tracker cleanup goroutine", "resource-tracker")
+			// Fallback to untracked goroutine
+			rt.startUntracked()
+		}
+	} else {
+		// Fallback for backward compatibility
+		rt.startUntracked()
+	}
 	
 	return rt
+}
+
+// startUntracked is a fallback for when goroutine tracking is unavailable
+func (rt *ResourceTracker) startUntracked() {
+	rt.logger.Log("debug", "Starting resource tracker periodic cleanup goroutine (untracked)", "resource-tracker")
+	go func() {
+		rt.periodicCleanup()
+		rt.logger.Log("debug", "Resource tracker periodic cleanup goroutine stopped", "resource-tracker")
+	}()
 }
 
 // TrackResource registers a resource for tracking and automatic cleanup

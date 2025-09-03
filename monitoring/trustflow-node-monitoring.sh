@@ -183,8 +183,8 @@ get_process_stats() {
     # Clean up listening ports (remove duplicates, ensure single line)
     listening_ports=$(echo "$listening_ports" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//;s/ *$//')
     
-    # Add common pprof ports to the list to check
-    local ports_to_check="6060 8080 9090"
+    # Add common pprof ports to the list to check (including fallback ports)
+    local ports_to_check="6060 6061 6062 8080 9090"
     if [ -n "$listening_ports" ]; then
         ports_to_check="$listening_ports $ports_to_check"
     fi
@@ -196,21 +196,40 @@ get_process_stats() {
         # Skip if not a valid port number
         [[ "$port" =~ ^[0-9]+$ ]] || continue
         
-        # First test if pprof is available at all
-        if ! safe_curl "http://localhost:$port/debug/pprof/" >/dev/null; then
+        # Test both IPv4 and IPv6 endpoints
+        hosts_to_try="localhost [::1]"
+        pprof_host_found=""
+        test_successful=false
+        
+        # DEBUG: Log which port we're testing
+        # echo "DEBUG: Testing port $port" >> "$ERROR_LOG"
+        
+        for host in $hosts_to_try; do
+            # First test if pprof is available at all
+            if safe_curl "http://$host:$port/debug/pprof/" >/dev/null; then
+                pprof_host_found="$host"
+                test_successful=true
+                # DEBUG: Log successful host
+                # echo "DEBUG: Found pprof on $host:$port" >> "$ERROR_LOG"
+                break
+            fi
+        done
+        
+        if [ "$test_successful" = false ]; then
             continue
         fi
         
-        # Try goroutine endpoint
-        if goroutine_data=$(safe_curl "http://localhost:$port/debug/pprof/goroutine?debug=1"); then
-            GOROUTINES=$(echo "$goroutine_data" | head -1 | grep -o '[0-9]\+' | head -1 || echo "0")
+        # Try goroutine endpoint with the working host
+        if goroutine_data=$(safe_curl "http://$pprof_host_found:$port/debug/pprof/goroutine?debug=1"); then
+            # Extract just the number after "total" using awk
+            GOROUTINES=$(echo "$goroutine_data" | head -1 | awk '{print $4}')
             # Validate it's a proper integer
             if [[ "$GOROUTINES" =~ ^[0-9]+$ ]] && [ "$GOROUTINES" -gt 0 ]; then
                 pprof_success=true
                 pprof_port_found="$port"
                 
-                # Try heap endpoint  
-                if heap_data=$(safe_curl "http://localhost:$port/debug/pprof/heap?debug=1"); then
+                # Try heap endpoint with the working host
+                if heap_data=$(safe_curl "http://$pprof_host_found:$port/debug/pprof/heap?debug=1"); then
                     HEAP_ALLOCS=$(echo "$heap_data" | grep "# heap profile:" | grep -o '[0-9]\+ objects' | grep -o '[0-9]\+' | head -1 || echo "0")
                     HEAP_INUSE=$(echo "$heap_data" | grep -E "# HeapInuse = [0-9]+" | grep -o '[0-9]\+' | head -1 || echo "0")
                     
@@ -234,16 +253,16 @@ get_process_stats() {
         errors="${errors}:pprof_failed"
         
         # Log pprof diagnostic info on first failure and periodically (avoid spam)
-        local diag_file="/tmp/pprof_diag_logged_$pid"
+        diag_file="/tmp/pprof_diag_logged_$1"
         if [ ! -f "$diag_file" ] || [ $(($(date +%s) - $(stat -c %Y "$diag_file" 2>/dev/null || echo 0))) -gt 300 ]; then
-            log_warn "pprof unavailable for PID $pid. Checked ports: $ports_to_check. Process listening on: ${listening_ports:-none}"
+            log_warn "pprof unavailable for PID $1. Checked ports: $ports_to_check. Process listening on: ${listening_ports:-none}"
             touch "$diag_file"
         fi
     else
         # Log successful pprof discovery
-        if [ ! -f "/tmp/pprof_success_logged_$pid" ]; then
-            log_info "pprof found on port $pprof_port_found for PID $pid"
-            touch "/tmp/pprof_success_logged_$pid"
+        if [ ! -f "/tmp/pprof_success_logged_$1" ]; then
+            log_info "pprof found on port $pprof_port_found for PID $1"
+            touch "/tmp/pprof_success_logged_$1"
         fi
     fi
     

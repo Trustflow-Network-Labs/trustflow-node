@@ -67,7 +67,7 @@ func TestResourceTracker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	
-	tracker := NewResourceTracker(ctx, test.logger)
+	tracker := NewResourceTracker(ctx, test.logger, nil) // nil for test compatibility
 	defer tracker.Shutdown()
 	
 	// Create and track many resources
@@ -210,7 +210,7 @@ func ExampleMemoryLeakPrevention() {
 	logger := &SimpleLogger{}
 	
 	// 1. Use ResourceTracker for file descriptors
-	tracker := NewResourceTracker(ctx, logger)
+	tracker := NewResourceTracker(ctx, logger, nil) // nil for test compatibility
 	defer tracker.Shutdown()
 	
 	// Track a file
