@@ -1,13 +1,18 @@
 #!/bin/bash
 
 # Improved comprehensive monitoring script
-# Usage: ./trustflow-node-monitoring.sh [app_name] [interval] [max_log_size_mb]
+# Usage: ./trustflow-node-monitoring.sh [app_name] [interval] [max_log_size_mb] [pid]
+# Environment Variables:
+#   ENABLE_GOROUTINE_ANALYSIS=true/false (default: true) - Enable detailed goroutine analysis
+#   ENABLE_PERIODIC_REPORTS=true/false (default: false) - Generate stuck goroutine reports every ~5 minutes
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 APP_NAME=${1:-"trustflow-node"}
 INTERVAL=${2:-30}  # seconds
 MAX_LOG_SIZE_MB=${3:-100}  # MB, rotate logs when exceeded
+ENABLE_GOROUTINE_ANALYSIS=${ENABLE_GOROUTINE_ANALYSIS:-"true"}  # Set to "false" to disable
+ENABLE_PERIODIC_REPORTS=${ENABLE_PERIODIC_REPORTS:-"true"}  # Set to "false" to disable periodic stuck goroutine reports
 LOG_FILE="trustflow-node-metrics-$(date +%Y%m%d_%H%M%S).csv"
 ERROR_LOG="trustflow-node-monitoring-errors.log"
 SCRIPT_PID=$$
@@ -19,7 +24,7 @@ log_info() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: $1" >> "$ERROR_LOG"
     # Only show startup messages on console
     case "$1" in
-        *"Starting enhanced monitoring"*|*"Logging to:"*|*"Error log:"*|*"Interval:"*|*"Max log size:"*|*"Script PID:"*|*"Press Ctrl+C"*|*"pprof_port"*|*"Monitoring stopped"*|*"Total runtime"*)
+        *"Starting enhanced monitoring"*|*"Logging to:"*|*"Error log:"*|*"Interval:"*|*"Max log size:"*|*"Goroutine analysis:"*|*"Periodic reports:"*|*"Script PID:"*|*"Press Ctrl+C"*|*"pprof_port"*|*"Monitoring stopped"*|*"Total runtime"*)
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: $1"
             ;;
     esac
@@ -56,7 +61,7 @@ check_dependencies() {
 
 # Create CSV header
 create_csv_header() {
-    echo "timestamp,pid,cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,errors" > "$LOG_FILE"
+    echo "timestamp,pid,cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors" > "$LOG_FILE"
 }
 
 # Rotate log if too large
@@ -77,6 +82,8 @@ log_info "Logging to: $LOG_FILE"
 log_info "Error log: $ERROR_LOG" 
 log_info "Interval: $INTERVAL seconds"
 log_info "Max log size: $MAX_LOG_SIZE_MB MB"
+log_info "Goroutine analysis: $ENABLE_GOROUTINE_ANALYSIS"
+log_info "Periodic reports: $ENABLE_PERIODIC_REPORTS"
 log_info "Script PID: $SCRIPT_PID"
 log_info "Press Ctrl+C to stop"
 
@@ -135,6 +142,298 @@ safe_curl() {
     return 1
 }
 
+# Check for potentially stuck goroutines using pprof data
+check_stuck_goroutines() {
+    local host=$1
+    local port=$2
+    local pid=$3
+    
+    # Only check every 5th cycle to avoid overhead (every ~2.5 minutes with 30s interval)
+    local cycle_file="/tmp/goroutine_check_cycle_$pid"
+    local cycle_count=0
+    
+    if [ -f "$cycle_file" ]; then
+        cycle_count=$(cat "$cycle_file" 2>/dev/null || echo 0)
+    fi
+    
+    cycle_count=$((cycle_count + 1))
+    echo "$cycle_count" > "$cycle_file"
+    
+    # Only run detailed check every 5th cycle
+    if [ $((cycle_count % 5)) -ne 0 ]; then
+        return 0
+    fi
+    
+    # Get detailed goroutine stack dump
+    local goroutine_stacks
+    if ! goroutine_stacks=$(safe_curl "http://$host:$port/debug/pprof/goroutine?debug=2" 2>/dev/null); then
+        return 1
+    fi
+    
+    # Analyze goroutine patterns for potential issues
+    analyze_goroutine_patterns "$goroutine_stacks" "$pid"
+    
+    # Identify specific stuck goroutines
+    identify_stuck_goroutines "$goroutine_stacks" "$pid"
+}
+
+# Analyze goroutine stack patterns for stuck/problematic goroutines
+analyze_goroutine_patterns() {
+    local stacks="$1"
+    local pid="$2"
+    local analysis_file="/tmp/goroutine_analysis_$pid"
+    
+    # Count different types of goroutines
+    local chan_recv_count=$(echo "$stacks" | grep -c "chan receive" || echo 0)
+    local chan_send_count=$(echo "$stacks" | grep -c "chan send" || echo 0)
+    local network_io_count=$(echo "$stacks" | grep -c -E "(net\..*Read|net\..*Write)" || echo 0)
+    local select_count=$(echo "$stacks" | grep -c "select" || echo 0)
+    local sleep_count=$(echo "$stacks" | grep -c "time\.Sleep" || echo 0)
+    local mutex_count=$(echo "$stacks" | grep -c -E "(sync\..*Lock|sync\..*Wait)" || echo 0)
+    
+    # Look for potentially problematic patterns
+    local stuck_patterns=""
+    
+    # Ensure all counts are integers
+    [[ "$chan_recv_count" =~ ^[0-9]+$ ]] || chan_recv_count=0
+    [[ "$chan_send_count" =~ ^[0-9]+$ ]] || chan_send_count=0
+    [[ "$network_io_count" =~ ^[0-9]+$ ]] || network_io_count=0
+    [[ "$select_count" =~ ^[0-9]+$ ]] || select_count=0
+    [[ "$sleep_count" =~ ^[0-9]+$ ]] || sleep_count=0
+    [[ "$mutex_count" =~ ^[0-9]+$ ]] || mutex_count=0
+    
+    # High number of goroutines waiting on channels might indicate deadlock
+    if [ "$chan_recv_count" -gt 50 ] || [ "$chan_send_count" -gt 50 ]; then
+        stuck_patterns="${stuck_patterns}high_channel_wait:$chan_recv_count/$chan_send_count "
+    fi
+    
+    # Many goroutines sleeping might indicate polling instead of event-driven
+    if [ "$sleep_count" -gt 20 ]; then
+        stuck_patterns="${stuck_patterns}excessive_sleep:$sleep_count "
+    fi
+    
+    # High mutex contention
+    if [ "$mutex_count" -gt 30 ]; then
+        stuck_patterns="${stuck_patterns}mutex_contention:$mutex_count "
+    fi
+    
+    # Log analysis results with timestamps for trend detection
+    local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    local analysis_summary="$current_time|chan_recv:$chan_recv_count|chan_send:$chan_send_count|network_io:$network_io_count|select:$select_count|sleep:$sleep_count|mutex:$mutex_count"
+    
+    # Keep last 20 entries for trend analysis
+    echo "$analysis_summary" >> "$analysis_file"
+    tail -20 "$analysis_file" > "${analysis_file}.tmp" && mv "${analysis_file}.tmp" "$analysis_file"
+    
+    # Alert if problematic patterns detected
+    if [ -n "$stuck_patterns" ]; then
+        log_warn "Potential goroutine issues detected for PID $pid: $stuck_patterns"
+        
+        # Log detailed breakdown
+        log_warn "Goroutine analysis - Chan recv: $chan_recv_count, Send: $chan_send_count, Network I/O: $network_io_count, Sleep: $sleep_count, Mutex: $mutex_count"
+        
+        # Set global variable for CSV output (remove trailing space)
+        GOROUTINE_ISSUES=$(echo "$stuck_patterns" | sed 's/ *$//')
+    fi
+    
+    # Check for trend: increasing goroutine counts over time
+    if [ -f "$analysis_file" ]; then
+        local line_count=$(wc -l < "$analysis_file")
+        if [ "$line_count" -ge 5 ]; then
+            # Get first and last entries to check trend
+            local first_entry=$(head -1 "$analysis_file" | cut -d'|' -f2- | tr '|' ' ')
+            local last_entry=$(tail -1 "$analysis_file" | cut -d'|' -f2- | tr '|' ' ')
+            
+            # Extract total goroutines from patterns (sum of major categories)
+            local first_total=$(echo "$first_entry" | awk -F: '{sum=0; for(i=2;i<=NF;i+=2) sum+=$i} END {print sum}')
+            local last_total=$(echo "$last_entry" | awk -F: '{sum=0; for(i=2;i<=NF;i+=2) sum+=$i} END {print sum}')
+            
+            # Alert if significant increase (>50% growth)
+            if [ "$first_total" -gt 0 ] && [ "$last_total" -gt $((first_total * 150 / 100)) ]; then
+                log_warn "Goroutine growth trend detected for PID $pid: $first_total -> $last_total over recent cycles"
+            fi
+        fi
+    fi
+}
+
+# Identify specific stuck goroutines with detailed analysis
+identify_stuck_goroutines() {
+    local stacks="$1"
+    local pid="$2"
+    local stuck_goroutines_file="/tmp/stuck_goroutines_$pid"
+    local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # Parse goroutine stacks to identify individual goroutines
+    # Each goroutine section starts with "goroutine N [status]: " 
+    local goroutine_sections=""
+    
+    # Split stack dump into individual goroutine sections
+    goroutine_sections=$(echo "$stacks" | awk '
+        BEGIN { section = ""; goroutine_id = ""; status = "" }
+        /^goroutine [0-9]+ \[.*\]:/ { 
+            if (section != "") print section
+            section = $0 "\n"
+            goroutine_id = $2
+            status = $3
+            gsub(/\[|\]:/, "", status)
+        }
+        !/^goroutine [0-9]+ \[.*\]:/ && section != "" { 
+            section = section $0 "\n" 
+        }
+        END { if (section != "") print section }
+    ')
+    
+    # Analyze each goroutine section for stuck patterns
+    local stuck_count=0
+    local deadlock_candidates=""
+    local long_running_candidates=""
+    local resource_leak_candidates=""
+    
+    echo "$goroutine_sections" | while IFS= read -r section; do
+        if [ -z "$section" ]; then continue; fi
+        
+        # Extract goroutine ID and status
+        local gor_id=$(echo "$section" | head -1 | awk '{print $2}')
+        local gor_status=$(echo "$section" | head -1 | awk '{print $3}' | sed 's/\[//g;s/\]://g')
+        
+        # Skip if we can't parse properly
+        [ -z "$gor_id" ] || [ -z "$gor_status" ] && continue
+        
+        # Check for problematic patterns in this specific goroutine
+        local is_stuck=false
+        local stuck_reason=""
+        
+        # Pattern 1: Long-running channel operations (potential deadlock)
+        if [ "$gor_status" = "chan receive" ] || [ "$gor_status" = "chan send" ]; then
+            if echo "$section" | grep -q -E "(runtime\.chanrecv|runtime\.chansend)"; then
+                # Check if it's also waiting on sync primitives (more concerning)
+                if echo "$section" | grep -q -E "(sync\..*Lock|sync\..*Wait)"; then
+                    is_stuck=true
+                    stuck_reason="channel_deadlock_with_sync"
+                    deadlock_candidates="$deadlock_candidates $gor_id:$stuck_reason"
+                else
+                    is_stuck=true
+                    stuck_reason="channel_blocking"
+                    deadlock_candidates="$deadlock_candidates $gor_id:$stuck_reason"
+                fi
+            fi
+        fi
+        
+        # Pattern 2: Long-running network I/O (potential resource leak)
+        if [ "$gor_status" = "IO wait" ] && echo "$section" | grep -q -E "(net\..*Read|net\..*Write)"; then
+            is_stuck=true
+            stuck_reason="network_io_stuck"
+            resource_leak_candidates="$resource_leak_candidates $gor_id:$stuck_reason"
+        fi
+        
+        # Pattern 3: Goroutines stuck in syscalls for too long
+        if [ "$gor_status" = "syscall" ] && echo "$section" | grep -q -E "(os\..*)|syscall\."; then
+            is_stuck=true
+            stuck_reason="syscall_stuck"
+            long_running_candidates="$long_running_candidates $gor_id:$stuck_reason"
+        fi
+        
+        # Pattern 4: Goroutines waiting on mutexes for too long
+        if [ "$gor_status" = "semacquire" ] && echo "$section" | grep -q "sync\."; then
+            is_stuck=true
+            stuck_reason="mutex_contention"
+            deadlock_candidates="$deadlock_candidates $gor_id:$stuck_reason"
+        fi
+        
+        # Pattern 5: Goroutines in select statements that might be stuck
+        if [ "$gor_status" = "select" ] && echo "$section" | grep -q -E "(time\.After|time\.Sleep)"; then
+            # This might be normal, but if there are many, it could indicate polling
+            if echo "$section" | grep -q -E "for\s*\{" || echo "$section" | grep -q -E "time\.Sleep.*ms"; then
+                is_stuck=true
+                stuck_reason="polling_loop"
+                long_running_candidates="$long_running_candidates $gor_id:$stuck_reason"
+            fi
+        fi
+        
+        # Log individual stuck goroutine details
+        if [ "$is_stuck" = true ]; then
+            stuck_count=$((stuck_count + 1))
+            
+            # Log the specific goroutine with truncated stack trace (first 3 lines of stack)
+            local short_stack=$(echo "$section" | head -4 | tail -3 | tr '\n' '; ')
+            log_warn "Stuck goroutine detected: ID=$gor_id status=[$gor_status] reason=$stuck_reason stack_preview: $short_stack"
+            
+            # Save to file for trend analysis
+            echo "$current_time|$gor_id|$gor_status|$stuck_reason|$short_stack" >> "$stuck_goroutines_file"
+        fi
+    done
+    
+    # Summary analysis
+    if [ -n "$deadlock_candidates" ]; then
+        local deadlock_count=$(echo "$deadlock_candidates" | wc -w)
+        log_warn "Potential deadlock: $deadlock_count goroutines in blocking states: $deadlock_candidates"
+    fi
+    
+    if [ -n "$resource_leak_candidates" ]; then
+        local leak_count=$(echo "$resource_leak_candidates" | wc -w) 
+        log_warn "Potential resource leak: $leak_count goroutines stuck in I/O: $resource_leak_candidates"
+    fi
+    
+    if [ -n "$long_running_candidates" ]; then
+        local long_count=$(echo "$long_running_candidates" | wc -w)
+        log_warn "Long-running goroutines: $long_count goroutines in syscalls/loops: $long_running_candidates"
+    fi
+    
+    # Keep only last 50 entries in stuck goroutines log
+    # Keep only last 50 entries in stuck goroutines log
+    if [ -f "$stuck_goroutines_file" ]; then
+        tail -50 "$stuck_goroutines_file" > "${stuck_goroutines_file}.tmp" && mv "${stuck_goroutines_file}.tmp" "$stuck_goroutines_file"
+    fi
+}
+
+# Generate a detailed stuck goroutines report (can be called manually)
+generate_stuck_goroutines_report() {
+    local pid=${1:-$(pgrep -f "trustflow-node" | grep -v "$SCRIPT_PID" | head -1)}
+    
+    if [ -z "$pid" ]; then
+        echo "No trustflow-node process found"
+        return 1
+    fi
+    
+    echo "=== Stuck Goroutines Report for PID $pid ==="
+    echo "Generated at: $(date)"
+    echo
+    
+    local stuck_file="/tmp/stuck_goroutines_$pid"
+    if [ -f "$stuck_file" ]; then
+        echo "Recent stuck goroutines detected:"
+        echo "Time | Goroutine ID | Status | Reason | Stack Preview"
+        echo "------------------------------------------------------------"
+        cat "$stuck_file" | tail -20 | while IFS='|' read -r timestamp gor_id status reason stack; do
+            printf "%-19s | %-12s | %-15s | %-20s | %s\n" "$timestamp" "$gor_id" "$status" "$reason" "${stack:0:60}..."
+        done
+    else
+        echo "No stuck goroutines file found. Monitor may not have detected any issues yet."
+    fi
+    
+    echo
+    echo "=== Current Analysis ==="
+    
+    # Try to get fresh goroutine dump for immediate analysis
+    local port=6060
+    if goroutine_stacks=$(timeout 5 curl -s "http://localhost:$port/debug/pprof/goroutine?debug=2" 2>/dev/null); then
+        echo "Fresh goroutine analysis:"
+        identify_stuck_goroutines "$goroutine_stacks" "$pid" 2>&1 | grep "Stuck goroutine detected" | head -10
+    else
+        echo "Could not retrieve fresh goroutine data from pprof endpoint"
+    fi
+    
+    echo
+    echo "=== Trend Analysis ==="
+    local analysis_file="/tmp/goroutine_analysis_$pid"
+    if [ -f "$analysis_file" ]; then
+        echo "Goroutine pattern trends (last 10 entries):"
+        tail -10 "$analysis_file"
+    else
+        echo "No trend data available yet"
+    fi
+}
+
 get_process_stats() {
     local pid=$1
     local errors=""
@@ -142,7 +441,7 @@ get_process_stats() {
     # Basic process stats with error handling
     if ! PS_STATS=$(ps -p "$pid" -o pcpu,pmem,rss,vsz --no-headers 2>/dev/null); then
         errors="ps_failed"
-        echo "0,0,0,0,0,0,0,0,0,0,0,0,0,0,${errors}"
+        echo "0,0,0,0,0,0,0,0,0,0,0,0,0,0,none,${errors}"
         return 1
     fi
     
@@ -174,6 +473,7 @@ get_process_stats() {
     GOROUTINES=0
     HEAP_ALLOCS=0  
     HEAP_INUSE=0
+    GOROUTINE_ISSUES="none"
     local pprof_success=false
     local pprof_port_found=""
     
@@ -242,6 +542,12 @@ get_process_stats() {
                     [[ "$HEAP_ALLOCS" =~ ^[0-9]+$ ]] || HEAP_ALLOCS=0
                     [[ "$HEAP_INUSE" =~ ^[0-9]+$ ]] || HEAP_INUSE=0
                 fi
+                
+                # Check for stuck goroutines (optional detailed analysis)
+                if [ "$ENABLE_GOROUTINE_ANALYSIS" = "true" ]; then
+                    check_stuck_goroutines "$pprof_host_found" "$port" "$1"
+                fi
+                
                 break
             fi
         fi
@@ -287,7 +593,7 @@ get_process_stats() {
     # Clean up error string
     errors=${errors#:}
     
-    echo "$CPU,$MEM,$RSS,$VSZ,$THREADS,$FD_COUNT,$TCP_CONN,$GOROUTINES,$HEAP_ALLOCS,$HEAP_INUSE_MB,$ACTIVE_STREAMS,$SERVICE_CACHE,$RELAY_CIRCUITS,$SCRIPT_MEMORY_MB,${errors:-none}"
+    echo "$CPU,$MEM,$RSS,$VSZ,$THREADS,$FD_COUNT,$TCP_CONN,$GOROUTINES,$HEAP_ALLOCS,$HEAP_INUSE_MB,$ACTIVE_STREAMS,$SERVICE_CACHE,$RELAY_CIRCUITS,$SCRIPT_MEMORY_MB,$GOROUTINE_ISSUES,${errors:-none}"
 }
 
 # Resource monitoring and alerting
@@ -320,8 +626,8 @@ while true; do
     
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     
-    # Find process with better error handling
-    if ! PID=$(pgrep -f "$APP_NAME" | head -1); then
+    # Find the actual trustflow-node binary process, not scripts
+    if ! PID=$(pgrep -x "$APP_NAME" || pgrep -f "/$APP_NAME$" || pgrep -f "$APP_NAME" | grep -v "monitoring" | grep -v "$$" | head -1); then
         echo "$TIMESTAMP,not_found,0,0,0,0,0,0,0,0,0,0,0,0,0,0,process_not_found" >> "$LOG_FILE"
         printf "\r%s | Process not found" "$(date '+%H:%M:%S')"
         sleep "$INTERVAL"
@@ -347,15 +653,16 @@ while true; do
     if STATS=$(get_process_stats "$PID"); then
         echo "$TIMESTAMP,$PID,$STATS" >> "$LOG_FILE"
         
-        # Parse stats for display and alerts
-        CPU=$(echo "$STATS" | cut -d, -f1)
-        MEM=$(echo "$STATS" | cut -d, -f2) 
-        RSS=$(echo "$STATS" | cut -d, -f3)
-        THREADS=$(echo "$STATS" | cut -d, -f5)
-        FD_COUNT=$(echo "$STATS" | cut -d, -f6)
-        TCP_CONN=$(echo "$STATS" | cut -d, -f7)
-        GOROUTINES=$(echo "$STATS" | cut -d, -f8)
-        ERRORS=$(echo "$STATS" | cut -d, -f15)
+        # Parse stats for display and alerts and clean up any newlines
+        # CSV order: cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors
+        CPU=$(echo "$STATS" | cut -d, -f1 | tr -d '\n\r')
+        MEM=$(echo "$STATS" | cut -d, -f2 | tr -d '\n\r') 
+        RSS=$(echo "$STATS" | cut -d, -f3 | tr -d '\n\r')
+        THREADS=$(echo "$STATS" | cut -d, -f5 | tr -d '\n\r')
+        FD_COUNT=$(echo "$STATS" | cut -d, -f6 | tr -d '\n\r')
+        TCP_CONN=$(echo "$STATS" | cut -d, -f7 | tr -d '\n\r')
+        GOROUTINES=$(echo "$STATS" | cut -d, -f8 | tr -d '\n\r')
+        ERRORS=$(echo "$STATS" | cut -d, -f16 | tr -d '\n\r')
         
         # Resource alerts
         check_resource_alerts "$PID" "$CPU" "$MEM" "$RSS" "$GOROUTINES"
@@ -366,6 +673,32 @@ while true; do
         
         if [ "$ERRORS" != "none" ]; then
             printf " | ERR:%s" "$ERRORS"
+        fi
+        
+        # Force output and ensure line completion
+        printf "\n"; sleep 0.1
+        
+        # Generate periodic stuck goroutine reports if enabled (after display output)
+        if [ "$ENABLE_PERIODIC_REPORTS" = "true" ]; then
+            # Only generate report every 10th cycle to avoid log spam (every ~5 minutes with 30s interval)
+            report_cycle_file="/tmp/report_cycle_$PID"
+            report_cycle_count=0
+            
+            if [ -f "$report_cycle_file" ]; then
+                report_cycle_count=$(cat "$report_cycle_file" 2>/dev/null || echo 0)
+            fi
+            
+            report_cycle_count=$((report_cycle_count + 1))
+            echo "$report_cycle_count" > "$report_cycle_file"
+            
+            # Generate report every 10th cycle
+            if [ $((report_cycle_count % 10)) -eq 0 ]; then
+                # Run in background to avoid blocking the monitoring output
+                {
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Generating periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG"
+                    generate_stuck_goroutines_report "$PID" >> "$ERROR_LOG" 2>&1
+                } &
+            fi
         fi
     else
         log_error "Failed to get process stats for PID $PID"

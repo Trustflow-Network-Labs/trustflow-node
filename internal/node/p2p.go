@@ -15,6 +15,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -388,11 +389,23 @@ func (p2pm *P2PManager) getGoroutineStats() (int64, int64) {
 	return active, p2pm.maxGoroutines
 }
 
+// GoroutineInfo tracks individual goroutine lifecycle
+type GoroutineInfo struct {
+	ID          string
+	Name        string
+	StartTime   time.Time
+	LastPing    time.Time // For heartbeat tracking
+	Critical    bool
+	StackTrace  string    // Stack trace when started
+}
+
 // GoroutineTracker provides global goroutine tracking across all components
 type GoroutineTracker struct {
 	activeGoroutines *int64
 	maxGoroutines    int64
 	lm               *utils.LogsManager
+	mu               sync.RWMutex
+	goroutines       map[string]*GoroutineInfo // Track individual goroutines
 }
 
 // GetGoroutineTracker returns a goroutine tracker for use by other components
@@ -401,6 +414,7 @@ func (p2pm *P2PManager) GetGoroutineTracker() *GoroutineTracker {
 		activeGoroutines: &p2pm.activeGoroutines,
 		maxGoroutines:    p2pm.maxGoroutines,
 		lm:               p2pm.Lm,
+		goroutines:       make(map[string]*GoroutineInfo),
 	}
 }
 
@@ -438,9 +452,35 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 		return false
 	}
 
+	// Generate unique ID and capture stack trace
+	goroutineID := fmt.Sprintf("%s_%d_%d", name, time.Now().UnixNano(), current)
+	stackBuf := make([]byte, 2048)
+	stackLen := runtime.Stack(stackBuf, false)
+	stackTrace := string(stackBuf[:stackLen])
+	
+	// Register goroutine
+	gt.mu.Lock()
+	gt.goroutines[goroutineID] = &GoroutineInfo{
+		ID:         goroutineID,
+		Name:       name,
+		StartTime:  time.Now(),
+		LastPing:   time.Now(),
+		Critical:   critical,
+		StackTrace: stackTrace,
+	}
+	gt.mu.Unlock()
+	
+	gt.lm.Log("debug", fmt.Sprintf("Started goroutine %s (ID: %s)", name, goroutineID), "goroutines")
+
 	go func() {
 		defer atomic.AddInt64(gt.activeGoroutines, -1)
 		defer func() {
+			// Unregister goroutine
+			gt.mu.Lock()
+			delete(gt.goroutines, goroutineID)
+			gt.mu.Unlock()
+			gt.lm.Log("debug", fmt.Sprintf("Ended goroutine %s (ID: %s)", name, goroutineID), "goroutines")
+			
 			if r := recover(); r != nil {
 				gt.lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "goroutines")
 			}
@@ -449,6 +489,88 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 	}()
 
 	return true
+}
+
+// Heartbeat updates the last ping time for a goroutine (optional heartbeat system)
+func (gt *GoroutineTracker) Heartbeat(name string) {
+	gt.mu.Lock()
+	defer gt.mu.Unlock()
+	
+	for _, info := range gt.goroutines {
+		if info.Name == name {
+			info.LastPing = time.Now()
+		}
+	}
+}
+
+// GetStuckGoroutines returns goroutines that have been running longer than maxAge
+func (gt *GoroutineTracker) GetStuckGoroutines(maxAge time.Duration) []*GoroutineInfo {
+	gt.mu.RLock()
+	defer gt.mu.RUnlock()
+	
+	var stuck []*GoroutineInfo
+	cutoff := time.Now().Add(-maxAge)
+	
+	for _, info := range gt.goroutines {
+		if info.StartTime.Before(cutoff) {
+			stuck = append(stuck, info)
+		}
+	}
+	
+	return stuck
+}
+
+// GetGoroutineStats returns current goroutine tracking statistics
+func (gt *GoroutineTracker) GetGoroutineStats() map[string]interface{} {
+	gt.mu.RLock()
+	defer gt.mu.RUnlock()
+	
+	stats := make(map[string]interface{})
+	stats["total_tracked"] = len(gt.goroutines)
+	stats["atomic_count"] = atomic.LoadInt64(gt.activeGoroutines)
+	
+	// Count by type
+	typeCounts := make(map[string]int)
+	criticalCount := 0
+	
+	for _, info := range gt.goroutines {
+		typeCounts[info.Name]++
+		if info.Critical {
+			criticalCount++
+		}
+	}
+	
+	stats["by_type"] = typeCounts
+	stats["critical_count"] = criticalCount
+	
+	return stats
+}
+
+// CheckGoroutineHealth performs health check and logs warnings about stuck goroutines
+func (gt *GoroutineTracker) CheckGoroutineHealth() {
+	// Check for goroutines stuck for more than 30 minutes
+	stuckGoroutines := gt.GetStuckGoroutines(30 * time.Minute)
+	
+	if len(stuckGoroutines) > 0 {
+		gt.lm.Log("warn", fmt.Sprintf("Found %d potentially stuck goroutines", len(stuckGoroutines)), "goroutines")
+		
+		for _, stuck := range stuckGoroutines {
+			age := time.Since(stuck.StartTime)
+			gt.lm.Log("warn", fmt.Sprintf("Stuck goroutine: %s (ID: %s) running for %v", 
+				stuck.Name, stuck.ID, age), "goroutines")
+			
+			// Log stack trace for critical stuck goroutines
+			if stuck.Critical {
+				gt.lm.Log("error", fmt.Sprintf("CRITICAL stuck goroutine %s stack trace:\n%s", 
+					stuck.Name, stuck.StackTrace), "goroutines")
+			}
+		}
+	}
+	
+	// Log general statistics
+	stats := gt.GetGoroutineStats()
+	gt.lm.Log("debug", fmt.Sprintf("Goroutine health check - Tracked: %v, Atomic: %v, By type: %v", 
+		stats["total_tracked"], stats["atomic_count"], stats["by_type"]), "goroutines")
 }
 
 // safeCloseStream safely closes a stream with context-aware handling
@@ -3540,6 +3662,7 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 		case <-p2pm.ctx.Done():
 			return
 		case <-ticker.C:
+			p2pm.Lm.Log("debug", "Running periodic cleanup cycle", "p2p")
 			// Clean up old resources
 			if cleaned := p2pm.resourceTracker.CleanupOldResources(30 * time.Minute); cleaned > 0 {
 				p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d old resources", cleaned), "p2p")
@@ -3547,6 +3670,15 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 
 			// Clean up old stream tracking
 			p2pm.cleanupOldStreams()
+
+			// Force GC after cleanup to reclaim memory
+			memStats := utils.ForceGC()
+			p2pm.Lm.Log("debug", fmt.Sprintf("Post-cleanup memory - HeapInuse: %d MB, NumGC: %d", 
+				memStats.HeapInuse/1024/1024, memStats.NumGC), "p2p")
+
+			// Check goroutine health and log stuck goroutines
+			gt := p2pm.GetGoroutineTracker()
+			gt.CheckGoroutineHealth()
 
 			// Log resource statistics
 			stats := p2pm.resourceTracker.GetResourceStats()
