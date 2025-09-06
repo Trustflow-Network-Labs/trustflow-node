@@ -1009,9 +1009,11 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 
 	maxConnections := 400
 
-	// Create resource manager with moderate limits to prevent memory leaks
-	// For now, use finite limits instead of infinite to control resource usage
+	// Create resource manager with strict limits to prevent memory/goroutine leaks
+	// Use conservative autoscaled limits to control resource usage
 	limits := rcmgr.DefaultLimits.AutoScale()
+	
+	// Use a fixed limiter with autoscaled limits for better control
 	limiter := rcmgr.NewFixedLimiter(limits)
 	resourceManager, err := rcmgr.NewResourceManager(limiter)
 	if err != nil {
@@ -1022,11 +1024,12 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	var hst host.Host
 	if p2pm.public {
 		maxConnections = 800
-		// Configure connection manager for large file transfers
+		// Configure connection manager with stricter limits to prevent goroutine leaks
 		connMgr, err := connmgr.NewConnManager(
-			100,                                  // Low water mark - minimum connections to maintain
-			maxConnections,                       // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+			50,                                    // Low water mark - reduced to limit baseline connections
+			maxConnections,                        // High water mark - maximum connections before pruning  
+			connmgr.WithGracePeriod(30*time.Second), // Shorter grace period for faster cleanup
+			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
 		)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -1038,11 +1041,12 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 			return err
 		}
 	} else {
-		// Configure connection manager for large file transfers
+		// Configure connection manager with stricter limits to prevent goroutine leaks
 		connMgr, err := connmgr.NewConnManager(
-			100,                                  // Low water mark - minimum connections to maintain
-			maxConnections,                       // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(time.Minute), // Grace period before pruning
+			50,                                    // Low water mark - reduced to limit baseline connections
+			maxConnections,                        // High water mark - maximum connections before pruning  
+			connmgr.WithGracePeriod(30*time.Second), // Shorter grace period for faster cleanup
+			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
 		)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -1197,10 +1201,18 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		shutdownTracker := p2pm.GetGoroutineTracker()
 		shutdownTracker.SafeStart("pprof-shutdown", func() {
 			<-p2pm.ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			p2pm.Lm.Log("info", "Shutting down pprof server...", "pprof")
+			
+			// First try graceful shutdown with shorter timeout
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
+			
 			if err := server.Shutdown(shutdownCtx); err != nil {
-				p2pm.Lm.Log("warn", fmt.Sprintf("pprof server shutdown error: %v", err), "pprof")
+				p2pm.Lm.Log("warn", fmt.Sprintf("Graceful pprof server shutdown failed: %v, forcing close", err), "pprof")
+				// Force close the server if graceful shutdown fails
+				if err := server.Close(); err != nil {
+					p2pm.Lm.Log("error", fmt.Sprintf("Force close pprof server failed: %v", err), "pprof")
+				}
 			} else {
 				p2pm.Lm.Log("info", "pprof server shutdown gracefully", "pprof")
 			}
@@ -1597,7 +1609,13 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 		dhtMode = dht.Mode(dht.ModeAuto)
 	}
 
-	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h, dhtMode)
+	// Configure DHT with limits to prevent excessive goroutine creation
+	dhtOpts := []dht.Option{
+		dhtMode,
+		dht.Concurrency(10),                     // Limit concurrent DHT queries to prevent goroutine explosion
+		dht.MaxRecordAge(time.Hour),             // Expire DHT records faster
+	}
+	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h, dhtOpts...)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return nil, errors.New(err.Error())

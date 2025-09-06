@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -15,7 +17,7 @@ import (
 	"github.com/adgsm/trustflow-node/internal/ui"
 	"github.com/adgsm/trustflow-node/internal/utils"
 	"github.com/adgsm/trustflow-node/internal/workflow"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -33,6 +35,8 @@ type App struct {
 	gui               ui.UI
 	stopChan          chan struct{} // Channel to signal node stop from StopNode()
 	stopChanMutex     sync.Mutex    // Protect stopChan access
+	cleanupCtx        context.Context       // Context for cleanup goroutine
+	cleanupCancel     context.CancelFunc    // Cancel function for cleanup
 }
 
 // NewApp creates a new App application struct
@@ -43,12 +47,22 @@ func NewApp() *App {
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
+	// Set runtime limits to prevent goroutine leaks
+	runtime.GOMAXPROCS(runtime.NumCPU()) // Use all available CPUs
+	debug.SetMaxThreads(2000)            // Limit OS threads to prevent resource exhaustion
+	
 	a.ctx = ctx
 	a.channelManager = utils.NewChannelManager(ctx)
 	a.frontendReadyChan = make(chan struct{})
+	
+	// Create separate cancellable context for cleanup goroutine
+	a.cleanupCtx, a.cleanupCancel = context.WithCancel(ctx)
+	
+	// Start periodic cleanup goroutine to manage memory and goroutines
+	go a.startPeriodicCleanup(a.cleanupCtx)
 	a.gui = ui.GUI{
 		PrintFunc: func(msg string) {
-			runtime.EventsEmit(a.ctx, "syslog-event", msg)
+			wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		},
 		ConfirmFunc: func(question string) bool {
 			a.confirmChanMutex.Lock()
@@ -64,7 +78,7 @@ func (a *App) startup(ctx context.Context) {
 			a.confirmChanMutex.Unlock()
 
 			// Send the prompt to frontend
-			runtime.EventsEmit(a.ctx, "sysconfirm-event", question)
+			wailsruntime.EventsEmit(a.ctx, "sysconfirm-event", question)
 
 			// Wait for frontend response (blocks until received)
 			select {
@@ -82,10 +96,10 @@ func (a *App) startup(ctx context.Context) {
 			default:
 				msg = fmt.Sprintf("Unknown application exit code `%d`", code)
 			}
-			runtime.EventsEmit(a.ctx, "exitlog-event", msg)
+			wailsruntime.EventsEmit(a.ctx, "exitlog-event", msg)
 		},
 		ServiceOfferFunc: func(serviceOffer node_types.ServiceOffer) {
-			runtime.EventsEmit(a.ctx, "serviceofferlog-event", serviceOffer)
+			wailsruntime.EventsEmit(a.ctx, "serviceofferlog-event", serviceOffer)
 		},
 	}
 
@@ -100,7 +114,7 @@ func (a *App) startup(ctx context.Context) {
 	select {
 	case <-a.frontendReadyChan:
 		a.CheckAndInstallDependencies()
-		runtime.EventsEmit(a.ctx, "dependenciesready-event", true)
+		wailsruntime.EventsEmit(a.ctx, "dependenciesready-event", true)
 	case <-time.After(10 * time.Second): // Optional timeout
 		fmt.Println("Timeout waiting for frontend readiness")
 	}
@@ -184,23 +198,23 @@ func (a *App) StartNode(port uint16, relay bool) {
 	nodeType, err := a.ntm.GetNodeTypeConfig([]uint16{port})
 	if err != nil {
 		msg := fmt.Sprintf("⚠️ Can not determine node type: %v", err)
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		return
 	} else {
 		msg := fmt.Sprintf("Node type: %s", nodeType.Type)
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		msg = fmt.Sprintf("Local IP: %s", nodeType.LocalIP)
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		msg = fmt.Sprintf("External IP: %s", nodeType.ExternalIP)
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		for port, open := range nodeType.Connectivity {
 			if !open {
 				err = fmt.Errorf("❌ Port %d is not open", port)
-				runtime.EventsEmit(a.ctx, "syslog-event", err.Error())
+				wailsruntime.EventsEmit(a.ctx, "syslog-event", err.Error())
 				return
 			} else {
 				msg = fmt.Sprintf("✅ Port %d is open", port)
-				runtime.EventsEmit(a.ctx, "syslog-event", msg)
+				wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 			}
 		}
 
@@ -209,7 +223,7 @@ func (a *App) StartNode(port uint16, relay bool) {
 
 	if !public && relay {
 		msg := "Private node behind NAT should not be used as a relay."
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 		relay = false
 	}
 
@@ -223,7 +237,7 @@ func (a *App) StartNode(port uint16, relay bool) {
 	err = a.p2pm.Start(a.ctx, port, false, public, relay)
 	if err != nil {
 		msg := fmt.Sprintf("⚠️ Can not start p2p node:\n%v\n", err)
-		runtime.EventsEmit(a.ctx, "syslog-event", msg)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", msg)
 	}
 
 	// Wait for node to become ready
@@ -232,11 +246,11 @@ func (a *App) StartNode(port uint16, relay bool) {
 	if !running {
 		err := fmt.Errorf("⚠️ Host is not running")
 		a.p2pm.Lm.Log("error", err.Error(), "p2p")
-		runtime.EventsEmit(a.ctx, "syslog-event", err.Error())
-		runtime.EventsEmit(a.ctx, "hostrunninglog-event", false)
+		wailsruntime.EventsEmit(a.ctx, "syslog-event", err.Error())
+		wailsruntime.EventsEmit(a.ctx, "hostrunninglog-event", false)
 		return
 	}
-	runtime.EventsEmit(a.ctx, "hostrunninglog-event", true)
+	wailsruntime.EventsEmit(a.ctx, "hostrunninglog-event", true)
 
 	// Add signal handling
 	sigChan := make(chan os.Signal, 1)
@@ -270,6 +284,14 @@ func (a *App) StopNode() error {
 	if err != nil {
 		return err
 	}
+	
+	// Give pprof server and other HTTP connections time to close
+	time.Sleep(500 * time.Millisecond)
+	
+	// Cancel cleanup context after p2p manager stops
+	if a.cleanupCancel != nil {
+		a.cleanupCancel()
+	}
 	return nil
 }
 
@@ -302,7 +324,7 @@ func (a *App) SearchServices(searchPhrases string, serviceType string, offset ui
 	}
 
 	for _, service := range services {
-		runtime.EventsEmit(a.ctx, "serviceofferlog-event", service)
+		wailsruntime.EventsEmit(a.ctx, "serviceofferlog-event", service)
 	}
 
 	return nil
@@ -629,4 +651,31 @@ func (a *App) AddWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterf
 // Remove workflow job interface peer
 func (a *App) RemoveWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInterfacePeerId int64) error {
 	return a.wm.RemoveWorkflowJobInterfacePeer(workflowJobId, workflowJobInterfacePeerId)
+}
+
+// startPeriodicCleanup runs periodic memory and goroutine cleanup to prevent leaks
+func (a *App) startPeriodicCleanup(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute) // Run cleanup every 5 minutes
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			// Force garbage collection to clean up unused memory
+			runtime.GC()
+			
+			// Free OS memory back to the system
+			debug.FreeOSMemory()
+			
+			// Log current goroutine count for monitoring
+			numGoroutines := runtime.NumGoroutine()
+			if numGoroutines > 500 { // Alert if goroutines are high
+				fmt.Printf("[CLEANUP] High goroutine count detected: %d\n", numGoroutines)
+			}
+			
+		case <-ctx.Done():
+			// Context cancelled, stop cleanup
+			return
+		}
+	}
 }

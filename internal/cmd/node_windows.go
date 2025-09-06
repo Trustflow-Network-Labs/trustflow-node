@@ -3,12 +3,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -30,6 +34,15 @@ var nodeCmd = &cobra.Command{
 	Long:    "Start running a p2p node in trustflow network",
 	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		// Set runtime limits to prevent goroutine leaks (CLI mode - Windows)
+		runtime.GOMAXPROCS(runtime.NumCPU()) // Use all available CPUs
+		debug.SetMaxThreads(2000)            // Limit OS threads to prevent resource exhaustion
+		
+		// Start periodic cleanup goroutine for CLI mode
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go startPeriodicCleanup(ctx)
+		
 		var public bool = false
 
 		// Configs manager
@@ -70,7 +83,6 @@ var nodeCmd = &cobra.Command{
 		defer logsManager.Close()
 
 		// P2P Manager
-		ctx := cmd.Context()
 		p2pManager := node.NewP2PManager(ctx, ui.CLI{}, cm)
 		defer p2pManager.Close()
 		err = p2pManager.Start(ctx, port, daemon, public, relay)
@@ -97,6 +109,12 @@ var nodeCmd = &cobra.Command{
 		if err != nil {
 			fmt.Printf("⚠️ Can not stop the node:\n%v\n", err)
 		}
+		
+		// Give pprof server and other HTTP connections time to close
+		time.Sleep(500 * time.Millisecond)
+		
+		// Cancel cleanup context after p2p manager stops
+		cancel()
 	},
 }
 
@@ -231,4 +249,31 @@ func init() {
 
 	stopNodeCmd.Flags().IntVarP(&pid, "pid", "i", 0, "Stop node running as provided process Id")
 	rootCmd.AddCommand(stopNodeCmd)
+}
+
+// startPeriodicCleanup runs periodic memory and goroutine cleanup to prevent leaks (CLI version - Windows)
+func startPeriodicCleanup(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute) // Run cleanup every 5 minutes
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			// Force garbage collection to clean up unused memory
+			runtime.GC()
+			
+			// Free OS memory back to the system
+			debug.FreeOSMemory()
+			
+			// Log current goroutine count for monitoring
+			numGoroutines := runtime.NumGoroutine()
+			if numGoroutines > 500 { // Alert if goroutines are high
+				fmt.Printf("[CLEANUP] High goroutine count detected: %d\n", numGoroutines)
+			}
+			
+		case <-ctx.Done():
+			// Context cancelled, stop cleanup
+			return
+		}
+	}
 }

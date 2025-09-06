@@ -61,7 +61,7 @@ check_dependencies() {
 
 # Create CSV header
 create_csv_header() {
-    echo "timestamp,pid,cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors" > "$LOG_FILE"
+    echo "timestamp,pid,cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,external_goroutines,app_goroutines,libp2p_goroutines,quic_goroutines,dht_goroutines,pubsub_goroutines,net_goroutines,relay_goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors" > "$LOG_FILE"
 }
 
 # Rotate log if too large
@@ -159,22 +159,23 @@ check_stuck_goroutines() {
     cycle_count=$((cycle_count + 1))
     echo "$cycle_count" > "$cycle_file"
     
-    # Only run detailed check every 5th cycle
-    if [ $((cycle_count % 5)) -ne 0 ]; then
-        return 0
-    fi
-    
-    # Get detailed goroutine stack dump
+    # Get detailed goroutine stack dump every cycle for external analysis
     local goroutine_stacks
     if ! goroutine_stacks=$(safe_curl "http://$host:$port/debug/pprof/goroutine?debug=2" 2>/dev/null); then
         return 1
     fi
     
-    # Analyze goroutine patterns for potential issues
-    analyze_goroutine_patterns "$goroutine_stacks" "$pid"
+    # Always analyze external package goroutines for CSV output
+    analyze_external_goroutines "$goroutine_stacks" "$pid"
     
-    # Identify specific stuck goroutines
-    identify_stuck_goroutines "$goroutine_stacks" "$pid"
+    # Run detailed stuck goroutine analysis every 5th cycle to avoid overhead
+    if [ $((cycle_count % 5)) -eq 0 ]; then
+        # Analyze goroutine patterns for potential issues
+        analyze_goroutine_patterns "$goroutine_stacks" "$pid"
+        
+        # Identify specific stuck goroutines
+        identify_stuck_goroutines "$goroutine_stacks" "$pid"
+    fi
 }
 
 # Analyze goroutine stack patterns for stuck/problematic goroutines
@@ -254,6 +255,77 @@ analyze_goroutine_patterns() {
             fi
         fi
     fi
+}
+
+# Analyze external package goroutines to identify third-party goroutine sources
+analyze_external_goroutines() {
+    local stacks="$1"
+    local pid="$2"
+    local external_file="/tmp/external_goroutines_$pid"
+    local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # Count goroutines by counting unique "goroutine N [state]:" headers that have external packages in their stack
+    local libp2p_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /github\.com\/libp2p|libp2p\/go-/) print gr }' | wc -l)
+    local quic_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /quic-go|yamux/) print gr }' | wc -l)
+    local dht_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /kad-dht|dht\./) print gr }' | wc -l)
+    local pubsub_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /pubsub|go-libp2p-pubsub/) print gr }' | wc -l)
+    local net_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /net\/http|crypto\/tls/) print gr }' | wc -l)
+    local runtime_count=$(echo "$stacks" | awk '/^goroutine [0-9]+ \[/ { gr=$0; getline; stack=$0; while(getline && !/^goroutine [0-9]+ \[/) stack=stack"\n"$0; if(stack ~ /runtime\.|internal\/poll|sync\./) print gr }' | wc -l)
+    
+    # Calculate total external goroutines
+    local total_external=$((libp2p_count + quic_count + dht_count + pubsub_count + net_count + runtime_count))
+    
+    # Use the already-parsed goroutine count from the main function
+    # (The detailed pprof output doesn't contain the total in a reliable format)
+    local total_goroutines=$GOROUTINES
+    
+    # Calculate app goroutines (estimated)
+    local app_goroutines=$((total_goroutines - total_external))
+    [ "$app_goroutines" -lt 0 ] && app_goroutines=0
+    
+    # Log detailed breakdown
+    local breakdown="libp2p:$libp2p_count quic:$quic_count dht:$dht_count pubsub:$pubsub_count net:$net_count runtime:$runtime_count"
+    log_info "Goroutine breakdown for PID $pid - Total:$total_goroutines External:$total_external App:$app_goroutines | $breakdown"
+    
+    # Store for trend analysis
+    echo "$current_time|$total_goroutines|$total_external|$app_goroutines|$libp2p_count|$quic_count|$dht_count|$pubsub_count|$net_count|$runtime_count" >> "$external_file"
+    
+    # Keep last 20 entries for trend analysis
+    tail -20 "$external_file" > "${external_file}.tmp" && mv "${external_file}.tmp" "$external_file"
+    
+    # Alert on high external goroutine counts
+    if [ "$libp2p_count" -gt 200 ]; then
+        log_warn "High libp2p goroutine count: $libp2p_count (PID: $pid)"
+    fi
+    
+    if [ "$total_external" -gt 400 ]; then
+        log_warn "High total external goroutines: $total_external (PID: $pid)"
+    fi
+    
+    # Check for external goroutine growth trend
+    if [ -f "$external_file" ]; then
+        local line_count=$(wc -l < "$external_file")
+        if [ "$line_count" -ge 5 ]; then
+            local first_external=$(head -1 "$external_file" | cut -d'|' -f3)
+            local last_external=$(tail -1 "$external_file" | cut -d'|' -f3)
+            
+            # Alert if significant growth (>30% increase)
+            if [ "$first_external" -gt 0 ] && [ "$last_external" -gt $((first_external * 130 / 100)) ]; then
+                local growth_pct=$(((last_external - first_external) * 100 / first_external))
+                log_warn "External goroutine growth detected for PID $pid: $first_external -> $last_external (+$growth_pct%)"
+            fi
+        fi
+    fi
+    
+    # Set global variables for CSV output
+    EXTERNAL_GOROUTINES="$total_external"
+    LIBP2P_GOROUTINES="$libp2p_count"
+    QUIC_GOROUTINES="$quic_count"
+    DHT_GOROUTINES="$dht_count"
+    PUBSUB_GOROUTINES="$pubsub_count"
+    NET_GOROUTINES="$net_count"
+    RELAY_GOROUTINES="$runtime_count"  # Using runtime count for relay/misc category
+    APP_GOROUTINES="$app_goroutines"
 }
 
 # Identify specific stuck goroutines with detailed analysis
@@ -471,6 +543,13 @@ get_process_stats() {
     
     # Enhanced pprof data collection with retry logic
     GOROUTINES=0
+    EXTERNAL_GOROUTINES=0
+    APP_GOROUTINES=0
+    LIBP2P_GOROUTINES=0
+    QUIC_GOROUTINES=0
+    DHT_GOROUTINES=0
+    PUBSUB_GOROUTINES=0
+    NET_GOROUTINES=0
     HEAP_ALLOCS=0  
     HEAP_INUSE=0
     GOROUTINE_ISSUES="none"
@@ -543,6 +622,11 @@ get_process_stats() {
                     [[ "$HEAP_INUSE" =~ ^[0-9]+$ ]] || HEAP_INUSE=0
                 fi
                 
+                # Always get goroutine breakdown for CSV output (lightweight)
+                if goroutine_stacks=$(safe_curl "http://$pprof_host_found:$port/debug/pprof/goroutine?debug=2"); then
+                    analyze_external_goroutines "$goroutine_stacks" "$1"
+                fi
+                
                 # Check for stuck goroutines (optional detailed analysis)
                 if [ "$ENABLE_GOROUTINE_ANALYSIS" = "true" ]; then
                     check_stuck_goroutines "$pprof_host_found" "$port" "$1"
@@ -579,6 +663,13 @@ get_process_stats() {
         HEAP_INUSE_MB=$(awk -v heap="$HEAP_INUSE" 'BEGIN { printf "%.2f", heap / 1048576 }')
     fi
     
+    # Initialize detailed goroutine breakdown variables  
+    QUIC_GOROUTINES=${QUIC_GOROUTINES:-0}
+    DHT_GOROUTINES=${DHT_GOROUTINES:-0}
+    PUBSUB_GOROUTINES=${PUBSUB_GOROUTINES:-0}
+    NET_GOROUTINES=${NET_GOROUTINES:-0}
+    RELAY_GOROUTINES=${RELAY_GOROUTINES:-0}
+    
     # Placeholder for future enhancements
     ACTIVE_STREAMS=0
     SERVICE_CACHE=0  
@@ -593,7 +684,7 @@ get_process_stats() {
     # Clean up error string
     errors=${errors#:}
     
-    echo "$CPU,$MEM,$RSS,$VSZ,$THREADS,$FD_COUNT,$TCP_CONN,$GOROUTINES,$HEAP_ALLOCS,$HEAP_INUSE_MB,$ACTIVE_STREAMS,$SERVICE_CACHE,$RELAY_CIRCUITS,$SCRIPT_MEMORY_MB,$GOROUTINE_ISSUES,${errors:-none}"
+    echo "$CPU,$MEM,$RSS,$VSZ,$THREADS,$FD_COUNT,$TCP_CONN,$GOROUTINES,$EXTERNAL_GOROUTINES,$APP_GOROUTINES,$LIBP2P_GOROUTINES,$QUIC_GOROUTINES,$DHT_GOROUTINES,$PUBSUB_GOROUTINES,$NET_GOROUTINES,$RELAY_GOROUTINES,$HEAP_ALLOCS,$HEAP_INUSE_MB,$ACTIVE_STREAMS,$SERVICE_CACHE,$RELAY_CIRCUITS,$SCRIPT_MEMORY_MB,$GOROUTINE_ISSUES,${errors:-none}"
 }
 
 # Resource monitoring and alerting
@@ -654,7 +745,7 @@ while true; do
         echo "$TIMESTAMP,$PID,$STATS" >> "$LOG_FILE"
         
         # Parse stats for display and alerts and clean up any newlines
-        # CSV order: cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors
+        # CSV order: cpu_percent,mem_percent,rss_mb,vsz_mb,threads,file_descriptors,tcp_connections,goroutines,external_goroutines,app_goroutines,libp2p_goroutines,quic_goroutines,dht_goroutines,pubsub_goroutines,net_goroutines,relay_goroutines,heap_allocs,heap_inuse_mb,active_streams,service_cache,relay_circuits,script_memory_mb,goroutine_issues,errors
         CPU=$(echo "$STATS" | cut -d, -f1 | tr -d '\n\r')
         MEM=$(echo "$STATS" | cut -d, -f2 | tr -d '\n\r') 
         RSS=$(echo "$STATS" | cut -d, -f3 | tr -d '\n\r')
@@ -662,14 +753,22 @@ while true; do
         FD_COUNT=$(echo "$STATS" | cut -d, -f6 | tr -d '\n\r')
         TCP_CONN=$(echo "$STATS" | cut -d, -f7 | tr -d '\n\r')
         GOROUTINES=$(echo "$STATS" | cut -d, -f8 | tr -d '\n\r')
-        ERRORS=$(echo "$STATS" | cut -d, -f16 | tr -d '\n\r')
+        EXTERNAL_GR=$(echo "$STATS" | cut -d, -f9 | tr -d '\n\r')
+        APP_GR=$(echo "$STATS" | cut -d, -f10 | tr -d '\n\r')
+        LIBP2P_GR=$(echo "$STATS" | cut -d, -f11 | tr -d '\n\r')
+        QUIC_GR=$(echo "$STATS" | cut -d, -f12 | tr -d '\n\r')
+        DHT_GR=$(echo "$STATS" | cut -d, -f13 | tr -d '\n\r')
+        PUBSUB_GR=$(echo "$STATS" | cut -d, -f14 | tr -d '\n\r')
+        NET_GR=$(echo "$STATS" | cut -d, -f15 | tr -d '\n\r')
+        RELAY_GR=$(echo "$STATS" | cut -d, -f16 | tr -d '\n\r')
+        ERRORS=$(echo "$STATS" | cut -d, -f24 | tr -d '\n\r')
         
         # Resource alerts
         check_resource_alerts "$PID" "$CPU" "$MEM" "$RSS" "$GOROUTINES"
         
-        # Enhanced display
-        printf "\r%s | PID:%s | CPU:%s%% | MEM:%s%% | RSS:%sMB | T:%s | FD:%s | TCP:%s | GR:%s" \
-            "$(date '+%H:%M:%S')" "$PID" "$CPU" "$MEM" "$RSS" "$THREADS" "$FD_COUNT" "$TCP_CONN" "$GOROUTINES"
+        # Enhanced display with detailed external package breakdown
+        printf "\r%s | PID:%s | CPU:%s%% | MEM:%s%% | RSS:%sMB | T:%s | FD:%s | TCP:%s | GR:%s(E:%s/A:%s|L:%s/Q:%s/D:%s/P:%s/N:%s/R:%s)" \
+            "$(date '+%H:%M:%S')" "$PID" "$CPU" "$MEM" "$RSS" "$THREADS" "$FD_COUNT" "$TCP_CONN" "$GOROUTINES" "$EXTERNAL_GR" "$APP_GR" "$LIBP2P_GR" "$QUIC_GR" "$DHT_GR" "$PUBSUB_GR" "$NET_GR" "$RELAY_GR"
         
         if [ "$ERRORS" != "none" ]; then
             printf " | ERR:%s" "$ERRORS"
