@@ -280,9 +280,23 @@ func (a *App) StopNode() error {
 	}
 	a.stopChanMutex.Unlock()
 
-	err := a.p2pm.Stop()
-	if err != nil {
-		return err
+	// Stop p2p manager with timeout to prevent hanging
+	fmt.Printf("Stopping P2P manager...\n")
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- a.p2pm.Stop()
+	}()
+	
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			fmt.Printf("⚠️ P2P manager stop error: %v\n", err)
+			return err
+		}
+		fmt.Printf("P2P manager stopped successfully\n")
+	case <-time.After(15 * time.Second):
+		fmt.Printf("⚠️ P2P manager stop timeout - force exiting\n")
+		// Continue with cleanup even if stop times out
 	}
 	
 	// Give pprof server and other HTTP connections time to close

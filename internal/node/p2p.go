@@ -82,13 +82,16 @@ type P2PManager struct {
 	DB                    *sql.DB
 	cm                    *utils.ConfigManager
 	Lm                    *utils.LogsManager
+	leakDetector          *utils.LeakDetector
+	cleanupCycleCount     int // Counter for detailed leak reporting frequency
 	wm                    *workflow.WorkflowManager
 	sc                    *node_types.ServiceOffersCache
 	UI                    ui.UI
 	peerDiscoveryTicker   *time.Ticker
 	connectionMaintTicker *time.Ticker
 	cronStopChan          chan struct{}
-	cronWg                sync.WaitGroup
+	cronWg                sync.WaitGroup               // For periodic maintenance tasks
+	streamWorkersWg       sync.WaitGroup               // For stream workers specifically
 	streamWorkerPool      chan chan streamJob          // Pool of worker channels
 	streamWorkers         []chan streamJob             // Individual worker channels
 	activeStreams         map[string]time.Time         // Track active streams for cleanup
@@ -104,6 +107,7 @@ type P2PManager struct {
 	relayPeerSource       *TopicAwareRelayPeerSource   // Discover relay peers dynamically
 	relayAdvertiser       *RelayServiceAdvertiser      // Advertise our relay service
 	jobManager            *JobManager                  // Job management - single instance
+	p2pResourceManager    *utils.P2PResourceManager    // Enhanced resource management with HTTP stats
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -165,6 +169,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		DB:                 db,
 		cm:                 cm,
 		Lm:                 lm,
+		leakDetector:       utils.NewLeakDetector(),
 		wm:                 workflow.NewWorkflowManager(db, lm, cm),
 		sc:                 node_types.NewServiceOffersCache(),
 		UI:                 ui,
@@ -205,15 +210,39 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Initialize stream worker pool
 	p2pm.initializeStreamWorkers()
 
+	// Initialize enhanced P2P resource manager for monitoring and stats
+	p2pm.p2pResourceManager = utils.NewP2PResourceManager(p2pm.ctx, lm)
+
 	return p2pm
 }
 
 func (p2pm *P2PManager) Close() error {
 	p2pm.Lm.Log("info", "Starting P2P manager shutdown with memory leak prevention", "p2p")
 
+	// Cancel context first to signal all goroutines to stop
+	if p2pm.cancel != nil {
+		p2pm.cancel()
+		p2pm.Lm.Log("info", "Context canceled - signaling all goroutines to stop", "p2p")
+		// Reset context and cancel function after final shutdown
+		p2pm.ctx = nil
+		p2pm.cancel = nil
+	}
+
+	// Call Stop() to ensure proper P2P shutdown sequence
+	if err := p2pm.Stop(); err != nil {
+		p2pm.Lm.Log("warn", fmt.Sprintf("Error during P2P stop in Close(): %v", err), "p2p")
+	}
+
 	// Stop memory pressure monitor
 	if p2pm.memoryMonitor != nil {
 		p2pm.memoryMonitor.Stop()
+	}
+
+	// Shutdown enhanced P2P resource manager
+	if p2pm.p2pResourceManager != nil {
+		if err := p2pm.p2pResourceManager.Shutdown(); err != nil {
+			p2pm.Lm.Log("warn", fmt.Sprintf("P2P resource manager shutdown error: %v", err), "p2p")
+		}
 	}
 
 	// Run final cleanup before shutdown
@@ -234,16 +263,41 @@ func (p2pm *P2PManager) Close() error {
 	// Force garbage collection before closing resources
 	utils.ForceGC()
 
-	// Close DB connection
-	if err := p2pm.DB.Close(); err != nil {
-		p2pm.Lm.Log("error", err.Error(), "p2p")
-		return err
+	// Close DB connection with timeout to prevent hanging
+	p2pm.Lm.Log("info", "Closing database connection...", "p2p")
+	dbClosed := make(chan error, 1)
+	go func() {
+		dbClosed <- p2pm.DB.Close()
+	}()
+
+	select {
+	case err := <-dbClosed:
+		if err != nil {
+			p2pm.Lm.Log("error", fmt.Sprintf("Database close error: %v", err), "p2p")
+			return err
+		}
+		p2pm.Lm.Log("info", "Database closed successfully", "p2p")
+	case <-time.After(5 * time.Second):
+		p2pm.Lm.Log("warn", "Database close timeout - proceeding with shutdown", "p2p")
 	}
 
-	// Close logs
+	// Close logs with timeout
 	if p2pm.Lm != nil {
 		p2pm.Lm.Log("info", "P2P manager shutdown completed", "p2p")
-		return p2pm.Lm.Close()
+
+		logsClosed := make(chan error, 1)
+		go func() {
+			logsClosed <- p2pm.Lm.Close()
+		}()
+
+		select {
+		case err := <-logsClosed:
+			return err
+		case <-time.After(3 * time.Second):
+			// Log manager hanging, force exit
+			fmt.Printf("Warning: Log manager close timeout, forcing exit\n")
+			return nil
+		}
 	}
 	return nil
 }
@@ -254,7 +308,7 @@ func (p2pm *P2PManager) initializeStreamWorkers() {
 
 	// Get goroutine tracker
 	gt := p2pm.GetGoroutineTracker()
-	
+
 	// Create individual worker channels and start workers
 	for i := 0; i < workerCount; i++ {
 		workerChan := make(chan streamJob, 1) // Buffer of 1 for non-blocking dispatch
@@ -264,13 +318,13 @@ func (p2pm *P2PManager) initializeStreamWorkers() {
 		p2pm.streamWorkerPool <- workerChan
 
 		// Start persistent worker goroutine with tracking
-		p2pm.cronWg.Add(1)
+		p2pm.streamWorkersWg.Add(1)
 		workerID := i // Capture loop variable
 		if !gt.SafeStartCritical(fmt.Sprintf("stream-worker-%d", workerID), func() {
 			p2pm.streamWorker(workerID, workerChan)
 		}) {
 			p2pm.Lm.Log("error", fmt.Sprintf("Failed to start stream worker %d", workerID), "p2p")
-			p2pm.cronWg.Done() // Decrement since SafeStart failed
+			p2pm.streamWorkersWg.Done() // Decrement since SafeStart failed
 		}
 	}
 
@@ -279,7 +333,7 @@ func (p2pm *P2PManager) initializeStreamWorkers() {
 
 // streamWorker is a persistent goroutine that processes stream jobs
 func (p2pm *P2PManager) streamWorker(workerID int, jobChan chan streamJob) {
-	defer p2pm.cronWg.Done()
+	defer p2pm.streamWorkersWg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			p2pm.Lm.Log("error", fmt.Sprintf("Stream worker %d panic recovered: %v", workerID, r), "p2p")
@@ -391,12 +445,12 @@ func (p2pm *P2PManager) getGoroutineStats() (int64, int64) {
 
 // GoroutineInfo tracks individual goroutine lifecycle
 type GoroutineInfo struct {
-	ID          string
-	Name        string
-	StartTime   time.Time
-	LastPing    time.Time // For heartbeat tracking
-	Critical    bool
-	StackTrace  string    // Stack trace when started
+	ID         string
+	Name       string
+	StartTime  time.Time
+	LastPing   time.Time // For heartbeat tracking
+	Critical   bool
+	StackTrace string // Stack trace when started
 }
 
 // GoroutineTracker provides global goroutine tracking across all components
@@ -457,7 +511,7 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 	stackBuf := make([]byte, 2048)
 	stackLen := runtime.Stack(stackBuf, false)
 	stackTrace := string(stackBuf[:stackLen])
-	
+
 	// Register goroutine
 	gt.mu.Lock()
 	gt.goroutines[goroutineID] = &GoroutineInfo{
@@ -469,7 +523,7 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 		StackTrace: stackTrace,
 	}
 	gt.mu.Unlock()
-	
+
 	gt.lm.Log("debug", fmt.Sprintf("Started goroutine %s (ID: %s)", name, goroutineID), "goroutines")
 
 	go func() {
@@ -480,7 +534,7 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 			delete(gt.goroutines, goroutineID)
 			gt.mu.Unlock()
 			gt.lm.Log("debug", fmt.Sprintf("Ended goroutine %s (ID: %s)", name, goroutineID), "goroutines")
-			
+
 			if r := recover(); r != nil {
 				gt.lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "goroutines")
 			}
@@ -495,7 +549,7 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 func (gt *GoroutineTracker) Heartbeat(name string) {
 	gt.mu.Lock()
 	defer gt.mu.Unlock()
-	
+
 	for _, info := range gt.goroutines {
 		if info.Name == name {
 			info.LastPing = time.Now()
@@ -507,16 +561,16 @@ func (gt *GoroutineTracker) Heartbeat(name string) {
 func (gt *GoroutineTracker) GetStuckGoroutines(maxAge time.Duration) []*GoroutineInfo {
 	gt.mu.RLock()
 	defer gt.mu.RUnlock()
-	
+
 	var stuck []*GoroutineInfo
 	cutoff := time.Now().Add(-maxAge)
-	
+
 	for _, info := range gt.goroutines {
 		if info.StartTime.Before(cutoff) {
 			stuck = append(stuck, info)
 		}
 	}
-	
+
 	return stuck
 }
 
@@ -524,25 +578,25 @@ func (gt *GoroutineTracker) GetStuckGoroutines(maxAge time.Duration) []*Goroutin
 func (gt *GoroutineTracker) GetGoroutineStats() map[string]interface{} {
 	gt.mu.RLock()
 	defer gt.mu.RUnlock()
-	
+
 	stats := make(map[string]interface{})
 	stats["total_tracked"] = len(gt.goroutines)
 	stats["atomic_count"] = atomic.LoadInt64(gt.activeGoroutines)
-	
+
 	// Count by type
 	typeCounts := make(map[string]int)
 	criticalCount := 0
-	
+
 	for _, info := range gt.goroutines {
 		typeCounts[info.Name]++
 		if info.Critical {
 			criticalCount++
 		}
 	}
-	
+
 	stats["by_type"] = typeCounts
 	stats["critical_count"] = criticalCount
-	
+
 	return stats
 }
 
@@ -550,26 +604,26 @@ func (gt *GoroutineTracker) GetGoroutineStats() map[string]interface{} {
 func (gt *GoroutineTracker) CheckGoroutineHealth() {
 	// Check for goroutines stuck for more than 30 minutes
 	stuckGoroutines := gt.GetStuckGoroutines(30 * time.Minute)
-	
+
 	if len(stuckGoroutines) > 0 {
 		gt.lm.Log("warn", fmt.Sprintf("Found %d potentially stuck goroutines", len(stuckGoroutines)), "goroutines")
-		
+
 		for _, stuck := range stuckGoroutines {
 			age := time.Since(stuck.StartTime)
-			gt.lm.Log("warn", fmt.Sprintf("Stuck goroutine: %s (ID: %s) running for %v", 
+			gt.lm.Log("warn", fmt.Sprintf("Stuck goroutine: %s (ID: %s) running for %v",
 				stuck.Name, stuck.ID, age), "goroutines")
-			
+
 			// Log stack trace for critical stuck goroutines
 			if stuck.Critical {
-				gt.lm.Log("error", fmt.Sprintf("CRITICAL stuck goroutine %s stack trace:\n%s", 
+				gt.lm.Log("error", fmt.Sprintf("CRITICAL stuck goroutine %s stack trace:\n%s",
 					stuck.Name, stuck.StackTrace), "goroutines")
 			}
 		}
 	}
-	
+
 	// Log general statistics
 	stats := gt.GetGoroutineStats()
-	gt.lm.Log("debug", fmt.Sprintf("Goroutine health check - Tracked: %v, Atomic: %v, By type: %v", 
+	gt.lm.Log("debug", fmt.Sprintf("Goroutine health check - Tracked: %v, Atomic: %v, By type: %v",
 		stats["total_tracked"], stats["atomic_count"], stats["by_type"]), "goroutines")
 }
 
@@ -745,23 +799,37 @@ func (p2pm *P2PManager) StopPeriodicTasks() {
 			close(p2pm.cronStopChan)
 		}
 
-		// Wait for all goroutines to finish with timeout
-		done := make(chan struct{})
+		// Wait for periodic tasks (cron jobs) to finish first
+		cronDone := make(chan struct{})
 		gt := p2pm.GetGoroutineTracker()
-		gt.SafeStart("stop-waitgroup", func() {
+		gt.SafeStart("stop-cron-waitgroup", func() {
 			p2pm.cronWg.Wait()
-			close(done)
+			close(cronDone)
 		})
 
 		select {
-		case <-done:
-			p2pm.Lm.Log("info", "All goroutines stopped gracefully", "p2p")
-		case <-time.After(5 * time.Second):
-			p2pm.Lm.Log("warn", "Timeout waiting for goroutines to stop, proceeding with cleanup", "p2p")
+		case <-cronDone:
+			p2pm.Lm.Log("info", "All periodic tasks stopped gracefully", "p2p")
+		case <-time.After(3 * time.Second):
+			p2pm.Lm.Log("warn", "Timeout waiting for periodic tasks to stop, proceeding with stream worker cleanup", "p2p")
 		}
 
-		// Clean up worker pool resources
+		// Clean up worker pool resources (signals stream workers to stop)
 		p2pm.cleanupStreamWorkers()
+
+		// Wait for stream workers to finish with separate timeout
+		streamsDone := make(chan struct{})
+		gt.SafeStart("stop-streams-waitgroup", func() {
+			p2pm.streamWorkersWg.Wait()
+			close(streamsDone)
+		})
+
+		select {
+		case <-streamsDone:
+			p2pm.Lm.Log("info", "All stream workers stopped gracefully", "p2p")
+		case <-time.After(5 * time.Second):
+			p2pm.Lm.Log("warn", "Timeout waiting for stream workers to stop, proceeding with shutdown", "p2p")
+		}
 
 		p2pm.Lm.Log("info", "Stopped all P2P periodic tasks and stream workers", "p2p")
 		p2pm.cronStopChan = nil // Prevent future close attempts
@@ -889,6 +957,16 @@ func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
 	return info
 }
 
+// GetEnhancedResourceStats returns detailed resource statistics from P2PResourceManager
+func (p2pm *P2PManager) GetEnhancedResourceStats() map[string]any {
+	if p2pm.p2pResourceManager == nil {
+		return map[string]any{"error": "P2P resource manager not initialized"}
+	}
+
+	// Get detailed stats from the resource manager
+	return p2pm.p2pResourceManager.GetResourceStats()
+}
+
 // Get ticker intervals from config (no cron parsing needed)
 func (p2pm *P2PManager) getTickerIntervals() (time.Duration, time.Duration, error) {
 	// Use simple duration strings in config instead of cron
@@ -1012,7 +1090,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	// Create resource manager with strict limits to prevent memory/goroutine leaks
 	// Use conservative autoscaled limits to control resource usage
 	limits := rcmgr.DefaultLimits.AutoScale()
-	
+
 	// Use a fixed limiter with autoscaled limits for better control
 	limiter := rcmgr.NewFixedLimiter(limits)
 	resourceManager, err := rcmgr.NewResourceManager(limiter)
@@ -1026,9 +1104,9 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		maxConnections = 800
 		// Configure connection manager with stricter limits to prevent goroutine leaks
 		connMgr, err := connmgr.NewConnManager(
-			50,                                    // Low water mark - reduced to limit baseline connections
-			maxConnections,                        // High water mark - maximum connections before pruning  
-			connmgr.WithGracePeriod(30*time.Second), // Shorter grace period for faster cleanup
+			50,             // Low water mark - reduced to limit baseline connections
+			maxConnections, // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(30*time.Second),   // Shorter grace period for faster cleanup
 			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
 		)
 		if err != nil {
@@ -1043,9 +1121,9 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	} else {
 		// Configure connection manager with stricter limits to prevent goroutine leaks
 		connMgr, err := connmgr.NewConnManager(
-			50,                                    // Low water mark - reduced to limit baseline connections
-			maxConnections,                        // High water mark - maximum connections before pruning  
-			connmgr.WithGracePeriod(30*time.Second), // Shorter grace period for faster cleanup
+			50,             // Low water mark - reduced to limit baseline connections
+			maxConnections, // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(30*time.Second),   // Shorter grace period for faster cleanup
 			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
 		)
 		if err != nil {
@@ -1173,14 +1251,66 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		var server *http.Server
 		var listener net.Listener
 		var err error
-		
+
+		// Setup custom mux with both pprof and resource stats endpoints
+		mux := http.NewServeMux()
+
+		// Add pprof endpoints manually since we're using a custom mux
+		mux.HandleFunc("/debug/pprof/", func(w http.ResponseWriter, r *http.Request) {
+			http.DefaultServeMux.ServeHTTP(w, r)
+		})
+
+		// Add resource stats endpoints
+		mux.HandleFunc("/stats/resources", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+
+			// Get basic memory usage info
+			basicStats := p2pm.GetMemoryUsageInfo()
+
+			// Get enhanced resource stats from P2PResourceManager
+			enhancedStats := p2pm.GetEnhancedResourceStats()
+
+			// Combine both sets of statistics
+			combined := map[string]any{
+				"basic":     basicStats,
+				"enhanced":  enhancedStats,
+				"timestamp": time.Now().Format(time.RFC3339),
+			}
+
+			if err := json.NewEncoder(w).Encode(combined); err != nil {
+				p2pm.Lm.Log("error", fmt.Sprintf("Failed to encode resource stats: %v", err), "http-stats")
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
+		})
+
+		// Add goroutine leak report endpoint
+		mux.HandleFunc("/stats/leaks", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			report := p2pm.GetGoroutineLeakReport()
+			w.Write([]byte(report))
+		})
+
+		// Add health check endpoint
+		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+
+			health := map[string]any{
+				"status":         "ok",
+				"host_running":   p2pm.IsHostRunning(),
+				"active_streams": p2pm.GetActiveStreamsCount(),
+				"timestamp":      time.Now().Format(time.RFC3339),
+			}
+
+			json.NewEncoder(w).Encode(health)
+		})
+
 		for i, port := range ports {
 			// Create server with context for graceful shutdown
 			server = &http.Server{
 				Addr:    ":" + port,
-				Handler: nil, // Use default pprof mux
+				Handler: mux, // Use custom mux with stats endpoints
 			}
-			
+
 			// Try to listen on this port
 			listener, err = net.Listen("tcp", ":"+port)
 			if err != nil {
@@ -1192,21 +1322,22 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 					return
 				}
 			}
-			
-			p2pm.Lm.Log("info", fmt.Sprintf("pprof server successfully bound to port %s", port), "pprof")
+
+			p2pm.Lm.Log("info", fmt.Sprintf("HTTP server with pprof and resource stats successfully bound to port %s", port), "pprof")
+			p2pm.Lm.Log("info", fmt.Sprintf("Available endpoints: /debug/pprof/, /stats/resources, /stats/leaks, /health on port %s", port), "pprof")
 			break
 		}
-		
+
 		// Start server with graceful shutdown handling using tracked goroutine
 		shutdownTracker := p2pm.GetGoroutineTracker()
 		shutdownTracker.SafeStart("pprof-shutdown", func() {
 			<-p2pm.ctx.Done()
 			p2pm.Lm.Log("info", "Shutting down pprof server...", "pprof")
-			
+
 			// First try graceful shutdown with shorter timeout
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			
+
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				p2pm.Lm.Log("warn", fmt.Sprintf("Graceful pprof server shutdown failed: %v, forcing close", err), "pprof")
 				// Force close the server if graceful shutdown fails
@@ -1217,7 +1348,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 				p2pm.Lm.Log("info", "pprof server shutdown gracefully", "pprof")
 			}
 		})
-		
+
 		// Serve with the pre-established listener
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			p2pm.Lm.Log("error", fmt.Sprintf("pprof server error: %v", err), "pprof")
@@ -1225,6 +1356,10 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	}) {
 		p2pm.Lm.Log("error", "CRITICAL: Failed to start pprof server due to goroutine limit - monitoring will be limited", "pprof")
 	}
+
+	// Set goroutine leak detection baseline after startup
+	p2pm.leakDetector.SetBaseline()
+	p2pm.Lm.Log("info", fmt.Sprintf("P2P manager started successfully - %s", p2pm.leakDetector.GetCurrentStats()), "p2p")
 
 	return nil
 }
@@ -1512,14 +1647,8 @@ func (p2pm *P2PManager) createRelayConfigFromNodeConfig() RelayServiceConfig {
 func (p2pm *P2PManager) Stop() error {
 	p2pm.Lm.Log("info", "Stopping P2P Manager...", "p2p")
 
-	// Cancel context first to signal all goroutines to stop
-	if p2pm.cancel != nil {
-		p2pm.cancel()
-		p2pm.Lm.Log("info", "Context canceled - signaling all goroutines to stop", "p2p")
-		// Reset context and cancel function for future starts
-		p2pm.ctx = nil
-		p2pm.cancel = nil
-	}
+	// NOTE: Do NOT cancel context here - this is for stop/restart, not shutdown
+	// Context should remain available for potential restart
 
 	// Stop periodic tasks
 	p2pm.StopPeriodicTasks()
@@ -1537,9 +1666,24 @@ func (p2pm *P2PManager) Stop() error {
 		delete(p2pm.topicsSubscribed, key)
 	}
 
-	// Stop p2p node
-	if err := p2pm.h.Close(); err != nil {
-		return err
+	// Stop p2p node with timeout to prevent hanging
+	p2pm.Lm.Log("info", "Closing libp2p host...", "p2p")
+
+	hostClosed := make(chan error, 1)
+	go func() {
+		hostClosed <- p2pm.h.Close()
+	}()
+
+	select {
+	case err := <-hostClosed:
+		if err != nil {
+			p2pm.Lm.Log("error", fmt.Sprintf("Host close error: %v", err), "p2p")
+			return err
+		}
+		p2pm.Lm.Log("info", "libp2p host closed successfully", "p2p")
+	case <-time.After(10 * time.Second):
+		p2pm.Lm.Log("warn", "Host close timeout - force terminating", "p2p")
+		// Don't return error, continue with cleanup
 	}
 
 	// Stop job periodic tasks when shutting down
@@ -1553,19 +1697,48 @@ func (p2pm *P2PManager) Stop() error {
 		p2pm.Lm.Log("info", "Stopped JobManager periodic tasks", "p2p")
 	}
 
-	// Wait for all periodic tasks and workers to stop with timeout
-	done := make(chan struct{})
+	// Wait for all periodic tasks and workers to stop with aggressive timeout
+	p2pm.Lm.Log("info", "Waiting for P2P goroutines to complete...", "p2p")
+
+	// Wait for both periodic tasks and stream workers
+	allDone := make(chan struct{})
 	gt := p2pm.GetGoroutineTracker()
-	gt.SafeStart("waitgroup-completion", func() {
+	gt.SafeStart("all-waitgroups-completion", func() {
+		// Wait for periodic tasks first
 		p2pm.cronWg.Wait()
-		close(done)
+		p2pm.Lm.Log("debug", "All periodic tasks completed", "p2p")
+
+		// Then wait for stream workers
+		p2pm.streamWorkersWg.Wait()
+		p2pm.Lm.Log("debug", "All stream workers completed", "p2p")
+
+		close(allDone)
 	})
 
 	select {
-	case <-done:
-		p2pm.Lm.Log("info", "All P2P goroutines stopped", "p2p")
-	case <-time.After(5 * time.Second):
-		p2pm.Lm.Log("warn", "Timeout waiting for remaining P2P goroutines, proceeding with shutdown", "p2p")
+	case <-allDone:
+		p2pm.Lm.Log("info", "All P2P goroutines stopped gracefully", "p2p")
+	case <-time.After(5 * time.Second): // Increased timeout since we wait for both
+		p2pm.Lm.Log("warn", "Timeout waiting for remaining P2P goroutines, forcing shutdown", "p2p")
+
+		// Capture final goroutine snapshot to identify stuck goroutines
+		if p2pm.leakDetector != nil {
+			finalSnapshot := p2pm.leakDetector.TakeSnapshot()
+			p2pm.Lm.Log("warn", fmt.Sprintf("Final goroutine count at forced shutdown: %d", finalSnapshot.TotalCount), "leak-detector")
+
+			// Log potential stuck goroutines
+			leaks := p2pm.leakDetector.DetectLeaks()
+			if len(leaks) > 0 {
+				p2pm.Lm.Log("error", fmt.Sprintf("SHUTDOWN HANGING due to %d stuck goroutine types:", len(leaks)), "leak-detector")
+				for i, leak := range leaks {
+					if i >= 3 { // Show top 3 worst offenders
+						break
+					}
+					p2pm.Lm.Log("error", fmt.Sprintf("STUCK: %s", leak.String()), "leak-detector")
+				}
+			}
+		}
+		// Force exit - don't wait for goroutines that won't exit
 	}
 
 	return nil
@@ -1612,8 +1785,8 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 	// Configure DHT with limits to prevent excessive goroutine creation
 	dhtOpts := []dht.Option{
 		dhtMode,
-		dht.Concurrency(10),                     // Limit concurrent DHT queries to prevent goroutine explosion
-		dht.MaxRecordAge(time.Hour),             // Expire DHT records faster
+		dht.Concurrency(10),         // Limit concurrent DHT queries to prevent goroutine explosion
+		dht.MaxRecordAge(time.Hour), // Expire DHT records faster
 	}
 	kademliaDHT, err := dht.New(p2pm.ctx, p2pm.h, dhtOpts...)
 	if err != nil {
@@ -1713,7 +1886,7 @@ func (p2pm *P2PManager) DiscoverPeers() {
 // Monitor connection health and reconnect (cron)
 func (p2pm *P2PManager) MaintainConnections() {
 	gt := p2pm.GetGoroutineTracker()
-	
+
 	for _, peerID := range p2pm.h.Network().Peers() {
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
@@ -1725,7 +1898,7 @@ func (p2pm *P2PManager) MaintainConnections() {
 				p2pm.Lm.Log("error", err.Error(), "p2p")
 				continue
 			}
-			
+
 			// Start reconnection attempt with tracking
 			peer := p // Capture loop variable
 			if !gt.SafeStart(fmt.Sprintf("reconnect-%s", peerID.String()[:8]), func() {
@@ -2113,11 +2286,25 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	p2pm.activeStreams[streamID] = time.Now()
 	p2pm.streamsMutex.Unlock()
 
+	// Enhanced resource tracking with P2PResourceManager (non-intrusive)
+	if p2pm.p2pResourceManager != nil {
+		// Just track the stream resource without interfering with processing
+		p2pm.resourceTracker.TrackResourceWithCleanup(streamID, utils.ResourceStream, func() error {
+			p2pm.Lm.Log("debug", fmt.Sprintf("Stream %s tracked by resource manager", streamID), "p2p")
+			return nil
+		})
+	}
+
 	// Ensure stream is removed from tracking when function exits
 	defer func() {
 		p2pm.streamsMutex.Lock()
 		delete(p2pm.activeStreams, streamID)
 		p2pm.streamsMutex.Unlock()
+
+		// Release from resource tracker as well
+		if p2pm.resourceTracker != nil {
+			p2pm.resourceTracker.ReleaseResource(streamID)
+		}
 	}()
 
 	// Check if context is cancelled before processing
@@ -2716,7 +2903,7 @@ func (p2pm *P2PManager) fileReceived(
 	workflowId := streamData.WorkflowId
 	jobId := streamData.JobId
 	interfaceId := streamData.InterfaceId
-	
+
 	if !gt.SafeStart(fmt.Sprintf("receipt-ack-%d-%d", workflowId, jobId), func() {
 		p2pm.sendReceiptAcknowledgement(
 			workflowId,
@@ -3689,21 +3876,81 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			// Clean up old stream tracking
 			p2pm.cleanupOldStreams()
 
+			// Run P2PResourceManager periodic cleanup
+			if p2pm.p2pResourceManager != nil {
+				p2pm.p2pResourceManager.PeriodicCleanup()
+			}
+
 			// Force GC after cleanup to reclaim memory
 			memStats := utils.ForceGC()
-			p2pm.Lm.Log("debug", fmt.Sprintf("Post-cleanup memory - HeapInuse: %d MB, NumGC: %d", 
+			p2pm.Lm.Log("debug", fmt.Sprintf("Post-cleanup memory - HeapInuse: %d MB, NumGC: %d",
 				memStats.HeapInuse/1024/1024, memStats.NumGC), "p2p")
+
+			// Periodic goroutine leak detection with detailed reports
+			if p2pm.leakDetector != nil {
+				// Log basic leak warnings
+				p2pm.leakDetector.LogLeaks(func(level, msg, category string) {
+					p2pm.Lm.Log(level, msg, category)
+				})
+
+				// Generate detailed leak report every 30 minutes (3 cleanup cycles)
+				// Use a simple counter to track cycles
+				if p2pm.cleanupCycleCount == 0 {
+					p2pm.cleanupCycleCount = 1
+				}
+
+				if p2pm.cleanupCycleCount%3 == 0 {
+					report := p2pm.GetGoroutineLeakReport()
+					p2pm.Lm.Log("info", fmt.Sprintf("Detailed goroutine analysis:\n%s", report), "leak-detector")
+				}
+				p2pm.cleanupCycleCount++
+			}
 
 			// Check goroutine health and log stuck goroutines
 			gt := p2pm.GetGoroutineTracker()
 			gt.CheckGoroutineHealth()
 
-			// Log resource statistics
+			// Log basic resource statistics
 			stats := p2pm.resourceTracker.GetResourceStats()
 			if len(stats) > 0 {
-				p2pm.Lm.Log("debug", fmt.Sprintf("Resource stats: %+v", stats), "p2p")
+				p2pm.Lm.Log("debug", fmt.Sprintf("Basic resource stats: %+v", stats), "p2p")
+			}
+
+			// Log enhanced resource statistics every cleanup cycle (10 minutes)
+			enhancedStats := p2pm.GetEnhancedResourceStats()
+			if enhancedStats != nil {
+				p2pm.Lm.Log("info", fmt.Sprintf("Enhanced resource stats: %+v", enhancedStats), "p2p-enhanced")
 			}
 
 		}
 	}
+}
+
+// GetGoroutineLeakReport returns a detailed goroutine leak analysis
+func (p2pm *P2PManager) GetGoroutineLeakReport() string {
+	if p2pm.leakDetector == nil {
+		return "Leak detector not initialized"
+	}
+
+	currentStats := p2pm.leakDetector.GetCurrentStats()
+	leaks := p2pm.leakDetector.DetectLeaks()
+
+	var report strings.Builder
+	report.WriteString("=== GOROUTINE LEAK ANALYSIS ===\n")
+	report.WriteString(currentStats)
+
+	if len(leaks) > 0 {
+		report.WriteString(fmt.Sprintf("\n=== DETECTED LEAKS (%d) ===\n", len(leaks)))
+		for i, leak := range leaks {
+			if i >= 10 { // Limit to top 10 for readability
+				report.WriteString(fmt.Sprintf("... and %d more leaks\n", len(leaks)-i))
+				break
+			}
+			report.WriteString(fmt.Sprintf("%d. %s\n", i+1, leak.String()))
+		}
+	} else {
+		report.WriteString("\n=== NO LEAKS DETECTED ===\n")
+	}
+
+	return report.String()
 }

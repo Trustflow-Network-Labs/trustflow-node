@@ -57,13 +57,7 @@ func NewJobManager(p2pm *P2PManager) *JobManager {
 		goroutineTracker: p2pm.GetGoroutineTracker(), // Global goroutine tracking
 	}
 	
-	// Start status update worker
-	jm.startStatusUpdateWorker()
-	
-	// Start job execution workers with configurable worker count
-	workerCount := p2pm.cm.GetConfigInt("job_worker_pool_size", 10, 1, 50)
-	jm.startJobExecutionWorkers(workerCount)
-	
+	// NOTE: Workers are now started only in StartPeriodicTasks() to avoid duplicates
 	return jm
 }
 
@@ -161,15 +155,22 @@ func (jm *JobManager) sendStatusUpdateAsync(jobId int64, status string) {
 
 // Start all job periodic tasks
 func (jm *JobManager) StartPeriodicTasks() error {
+	// Initialize stop channel first
+	jm.tickerStopChan = make(chan struct{})
+
+	// Start the workers that were previously started in constructor
+	jm.startStatusUpdateWorker()
+	
+	// Start job execution workers with configurable worker count
+	workerCount := jm.p2pm.cm.GetConfigInt("job_worker_pool_size", 10, 1, 50)
+	jm.startJobExecutionWorkers(workerCount)
+
 	// Get ticker intervals from config
 	processQueueInterval, statusUpdateInterval, err := jm.getTickerIntervals()
 	if err != nil {
 		jm.lm.Log("error", fmt.Sprintf("Can not read configs file. (%s)", err.Error()), "jobs")
 		return err
 	}
-
-	// Initialize stop channel
-	jm.tickerStopChan = make(chan struct{})
 
 	// Start job queue processing periodic task
 	jm.processQueueTicker = time.NewTicker(processQueueInterval)
@@ -230,8 +231,30 @@ func (jm *JobManager) StartPeriodicTasks() error {
 // Stop all job periodic tasks
 func (jm *JobManager) StopPeriodicTasks() {
 	if jm.tickerStopChan != nil {
-		close(jm.tickerStopChan)
-		jm.tickerWg.Wait() // Wait for all goroutines to finish (including status update worker)
+		// Safe close - check if channel is already closed
+		select {
+		case <-jm.tickerStopChan:
+			// Channel already closed, nothing to do
+			return
+		default:
+			// Channel open, safe to close
+			close(jm.tickerStopChan)
+			jm.tickerStopChan = nil // Prevent future close attempts
+		}
+		
+		// Wait for all goroutines with timeout to prevent hanging
+		done := make(chan struct{})
+		go func() {
+			jm.tickerWg.Wait() // Wait for all goroutines to finish (including status update worker)
+			close(done)
+		}()
+		
+		select {
+		case <-done:
+			jm.lm.Log("info", "All job workers stopped gracefully", "jobs")
+		case <-time.After(5 * time.Second):
+			jm.lm.Log("warn", "Timeout waiting for job workers to stop, proceeding with cleanup", "jobs")
+		}
 		
 		// Clean up pools
 		if jm.statusUpdatePool != nil {

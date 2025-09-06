@@ -102,9 +102,28 @@ func (nt *NodeTypeManager) getExternalIP() (string, error) {
 		"https://httpbin.org/ip",
 	}
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	// Create HTTP client with disabled connection pooling to prevent UPnP issues
+	transport := &http.Transport{
+		DisableKeepAlives:     true,
+		DisableCompression:    true,
+		MaxIdleConns:          0,
+		MaxIdleConnsPerHost:   0,
+		IdleConnTimeout:       1 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
 	}
+	
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
+	// Ensure transport connections are closed after use
+	defer func() {
+		if transport != nil {
+			transport.CloseIdleConnections()
+		}
+	}()
 
 	for _, service := range services {
 		resp, err := client.Get(service)
@@ -119,6 +138,8 @@ func (nt *NodeTypeManager) getExternalIP() (string, error) {
 		}
 
 		if ipResp.IP != "" {
+			// Force close any remaining connections before returning
+			transport.CloseIdleConnections()
 			return ipResp.IP, nil
 		}
 	}

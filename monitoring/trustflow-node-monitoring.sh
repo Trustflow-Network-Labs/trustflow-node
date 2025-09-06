@@ -2,13 +2,98 @@
 
 # Improved comprehensive monitoring script
 # Usage: ./trustflow-node-monitoring.sh [app_name] [interval] [max_log_size_mb] [pid]
+# Special commands:
+#   ./trustflow-node-monitoring.sh --leak-report     - Generate immediate leak report and exit
+#   ./trustflow-node-monitoring.sh --resource-stats  - Query enhanced resource stats from HTTP endpoints
 # Environment Variables:
 #   ENABLE_GOROUTINE_ANALYSIS=true/false (default: true) - Enable detailed goroutine analysis
-#   ENABLE_PERIODIC_REPORTS=true/false (default: false) - Generate stuck goroutine reports every ~5 minutes
+#   ENABLE_PERIODIC_REPORTS=true/false (default: true) - Generate stuck goroutine reports every ~5 minutes
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
-APP_NAME=${1:-"trustflow-node"}
+# Handle special commands first before parameter assignment
+if [ "${1:-}" = "--leak-report" ]; then
+    SPECIAL_COMMAND="leak-report"
+    APP_NAME="trustflow-node"  # Use default for special commands
+elif [ "${1:-}" = "--resource-stats" ]; then
+    SPECIAL_COMMAND="resource-stats"  
+    APP_NAME="trustflow-node"  # Use default for special commands
+else
+    SPECIAL_COMMAND=""
+    # Default values for normal monitoring
+    APP_NAME=${1:-"trustflow-node"}
+fi
+
+# Handle special commands immediately before any file creation
+if [ "$SPECIAL_COMMAND" = "leak-report" ]; then
+    echo "Generating goroutine leak report for $APP_NAME..."
+    # Find the process
+    if PID=$(pgrep -x "$APP_NAME" || pgrep -f "/$APP_NAME$" || pgrep -f "$APP_NAME" | grep -v "monitoring" | grep -v "$$" | head -1); then
+        echo "Found process PID: $PID"
+        # Include required functions inline to avoid dependencies
+        show_leak_report() {
+            local pid=$1
+            echo
+            echo "=== GOROUTINE LEAK ANALYSIS ==="
+            echo "=== CURRENT GOROUTINE ANALYSIS ==="
+            echo "Analyzing current goroutine patterns..."
+            
+            # Try to get goroutine data from pprof
+            if goroutine_data=$(timeout 5 curl -s "http://localhost:6060/debug/pprof/goroutine?debug=1" 2>/dev/null); then
+                # Extract total from the profile header
+                local total=$(echo "$goroutine_data" | grep "^goroutine profile:" | sed 's/.*total \([0-9]*\).*/\1/')
+                echo "Retrieved goroutine profile with total: $total goroutines"
+                echo
+                
+                # Show top goroutine patterns by counting occurrences
+                echo "Top goroutine functions:"
+                echo "$goroutine_data" | grep -E "^\s*[a-zA-Z]" | awk '{print $1}' | sort | uniq -c | sort -nr | head -10 | while read count func; do
+                    printf "  %-30s: %3d\n" "$func" "$count"
+                done
+                
+                echo
+                echo "Sample goroutine details:"
+                echo "$goroutine_data" | head -20
+            else
+                echo "Could not retrieve goroutine data from pprof endpoint"
+            fi
+        }
+        show_leak_report "$PID"
+        exit 0
+    else
+        echo "Error: $APP_NAME process not found"
+        exit 1
+    fi
+elif [ "$SPECIAL_COMMAND" = "resource-stats" ]; then
+    echo "Querying enhanced resource stats for $APP_NAME..."
+    # Find the process
+    if PID=$(pgrep -x "$APP_NAME" || pgrep -f "/$APP_NAME$" || pgrep -f "$APP_NAME" | grep -v "monitoring" | grep -v "$$" | head -1); then
+        echo "Found process PID: $PID"
+        
+        # Try different ports to find HTTP server
+        for port in 6060 6061 6062 6063 6064 6065; do
+            if curl -s --connect-timeout 1 "http://localhost:$port/health" >/dev/null 2>&1; then
+                echo "HTTP server found on port: $port"
+                
+                echo "=== RESOURCE STATS ==="
+                curl -s "http://localhost:$port/stats/resources" 2>/dev/null | jq . 2>/dev/null || curl -s "http://localhost:$port/stats/resources"
+                
+                echo ""
+                echo "=== HEALTH STATUS ==="  
+                curl -s "http://localhost:$port/health" 2>/dev/null | jq . 2>/dev/null || curl -s "http://localhost:$port/health"
+                
+                exit 0
+            fi
+        done
+        echo "Error: HTTP server not found for process PID $PID"
+        exit 1
+    else
+        echo "Error: $APP_NAME process not found"
+        exit 1
+    fi
+fi
+
+# Continue with normal monitoring setup only if not a special command
 INTERVAL=${2:-30}  # seconds
 MAX_LOG_SIZE_MB=${3:-100}  # MB, rotate logs when exceeded
 ENABLE_GOROUTINE_ANALYSIS=${ENABLE_GOROUTINE_ANALYSIS:-"true"}  # Set to "false" to disable
@@ -711,11 +796,222 @@ check_resource_alerts() {
     fi
 }
 
+# Generate comprehensive goroutine leak report
+show_leak_report() {
+    local pid=$1
+    echo
+    echo "=== GOROUTINE LEAK ANALYSIS ==="
+    
+    echo "=== HISTORICAL LEAK DATA ==="
+    if [ -f "/tmp/goroutine_analysis_$pid" ]; then
+        echo "Recent leak detection data (last 20 entries):"
+        tail -20 "/tmp/goroutine_analysis_$pid" | while IFS='|' read -r timestamp total external app libp2p quic dht pubsub net runtime; do
+            if [ -n "$timestamp" ] && [ "$timestamp" != "timestamp" ]; then
+                echo "[$timestamp] Total:$total Ext:$external App:$app L:$libp2p Q:$quic D:$dht P:$pubsub N:$net R:$runtime"
+            fi
+        done
+    else
+        echo "No historical leak analysis data available yet"
+    fi
+    
+    echo
+    echo "=== CURRENT GOROUTINE ANALYSIS ==="
+    analyze_current_goroutines "$pid"
+}
+
+# Enhanced goroutine analysis 
+analyze_current_goroutines() {
+    local pid=$1
+    local port=6060
+    
+    echo "Analyzing current goroutine patterns..."
+    
+    if goroutine_stacks=$(timeout 10 curl -s "http://localhost:$port/debug/pprof/goroutine?debug=2" 2>/dev/null); then
+        # Count goroutines by pattern
+        echo "Current goroutine breakdown:"
+        echo "$goroutine_stacks" | awk '
+        /^goroutine [0-9]+ \[/ {
+            # Extract state
+            match($0, /\[([^\]]+)\]/, state_match)
+            state = state_match[1]
+            
+            # Get next line for function
+            getline
+            funcname = $1
+            
+            # Simplify function name
+            if (match(funcname, /\.([^.]+)$/, func_match)) {
+                funcname = func_match[1]
+            }
+            
+            pattern = funcname "[" state "]"
+            count[pattern]++
+            total++
+        }
+        END {
+            for (p in count) {
+                printf "  %-40s: %3d\n", p, count[p]
+            }
+            printf "\nTotal goroutines analyzed: %d\n", total
+        }'
+        
+        # Look for potential stuck patterns
+        echo
+        echo "Potential stuck goroutines (first 10):"
+        echo "$goroutine_stacks" | grep -E -A1 "(chan receive|chan send|select)" | head -20 | while read -r line; do
+            if [[ $line =~ ^goroutine ]]; then
+                echo "  $line"
+            fi
+        done
+    else
+        echo "Could not retrieve goroutine data from pprof endpoint"
+    fi
+}
+
+# Periodic leak report generation
+generate_periodic_leak_report() {
+    local pid=$1
+    local report_interval=1800  # 30 minutes
+    local last_report_file="/tmp/last_leak_report_$pid"
+    local current_time=$(date +%s)
+    
+    # Check if it's time for a periodic report
+    if [ -f "$last_report_file" ]; then
+        local last_report_time=$(cat "$last_report_file")
+        if [ $((current_time - last_report_time)) -lt $report_interval ]; then
+            return  # Not time yet
+        fi
+    fi
+    
+    # Generate leak report
+    echo "$(date): Generating periodic goroutine leak report"
+    show_leak_report "$pid" | head -50  # Limit output size
+    echo "$current_time" > "$last_report_file"
+}
+
+# Query HTTP resource stats from P2P manager
+query_resource_stats() {
+    local pid=$1
+    local pprof_port=${2:-6060}
+    
+    # Try to get enhanced resource stats from HTTP endpoint
+    local stats_url="http://localhost:$pprof_port/stats/resources"
+    
+    if resource_stats=$(curl -s --connect-timeout $CURL_TIMEOUT "$stats_url" 2>/dev/null); then
+        # Parse JSON response and extract key metrics
+        local active_streams=$(echo "$resource_stats" | grep -o '"active_streams":[0-9]*' | cut -d: -f2 || echo 0)
+        local service_offers=$(echo "$resource_stats" | grep -o '"service_offers":[0-9]*' | cut -d: -f2 || echo 0)
+        local relay_circuits=$(echo "$resource_stats" | grep -o '"relay_circuits":[0-9]*' | cut -d: -f2 || echo 0)
+        local goroutines_active=$(echo "$resource_stats" | grep -o '"goroutines_active":[0-9]*' | cut -d: -f2 || echo 0)
+        local goroutines_usage=$(echo "$resource_stats" | grep -o '"goroutines_usage_percent":[0-9]*' | cut -d: -f2 || echo 0)
+        
+        # Update global variables for CSV output
+        ACTIVE_STREAMS=${active_streams:-0}
+        SERVICE_CACHE=${service_offers:-0}
+        RELAY_CIRCUITS=${relay_circuits:-0}
+        
+        return 0
+    else
+        # Fallback to existing method if HTTP endpoint unavailable
+        return 1
+    fi
+}
+
+# Get health status from HTTP endpoint
+get_health_status() {
+    local pid=$1
+    local pprof_port=${2:-6060}
+    
+    local health_url="http://localhost:$pprof_port/health"
+    
+    if health_data=$(curl -s --connect-timeout $CURL_TIMEOUT "$health_url" 2>/dev/null); then
+        local status=$(echo "$health_data" | grep -o '"status":"[^"]*"' | cut -d: -f2 | tr -d '"' || echo "unknown")
+        local host_running=$(echo "$health_data" | grep -o '"host_running":[^,}]*' | cut -d: -f2 | tr -d ' ' || echo "false")
+        
+        # Log health status periodically
+        if [ "$status" != "ok" ] || [ "$host_running" != "true" ]; then
+            log_warn "P2P health check failed: status=$status, host_running=$host_running (PID: $pid)"
+        fi
+        
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Find pprof port for the given process ID
+find_pprof_port() {
+    local pid=$1
+    
+    # First, try to read from config files
+    local config_files=(
+        "${HOME}/.trustflow/config.txt"
+        "./config.txt"
+        "/etc/trustflow/config.txt"
+    )
+    
+    for config_file in "${config_files[@]}"; do
+        if [ -f "$config_file" ]; then
+            local pprof_port=$(grep -i "pprof_port" "$config_file" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+            if [ -n "$pprof_port" ] && [[ "$pprof_port" =~ ^[0-9]+$ ]]; then
+                echo "$pprof_port"
+                return 0
+            fi
+        fi
+    done
+    
+    # If not found in config, try to detect from network connections
+    # Look for listening ports associated with the PID
+    local listening_ports=$(netstat -tulnp 2>/dev/null | grep ":$pid/" | awk '{print $4}' | sed 's/.*://' | sort -n)
+    
+    # Try common pprof port ranges (6060-6070)
+    for port in 6060 6061 6062 6063 6064 6065 6066 6067 6068 6069 6070; do
+        if echo "$listening_ports" | grep -q "^$port$"; then
+            # Test if it's actually a pprof endpoint
+            if curl -s --connect-timeout 1 "http://localhost:$port/debug/pprof/" >/dev/null 2>&1; then
+                echo "$port"
+                return 0
+            fi
+        fi
+    done
+    
+    # Return empty if not found
+    return 1
+}
+
+# Enhanced resource monitoring with HTTP stats integration
+enhanced_resource_monitoring() {
+    local pid=$1
+    
+    # Wrap in error handling to prevent script exit
+    {
+        # First try to get pprof port
+        local pprof_port_found=""
+        pprof_port_found=$(find_pprof_port "$pid" 2>/dev/null || echo "")
+        
+        if [ -n "$pprof_port_found" ]; then
+            # Query enhanced resource stats from HTTP endpoint
+            if query_resource_stats "$pid" "$pprof_port_found" 2>/dev/null; then
+                log_info "Enhanced resource stats retrieved from HTTP endpoint (port $pprof_port_found)"
+            fi
+            
+            # Check health status
+            get_health_status "$pid" "$pprof_port_found" 2>/dev/null || true
+        fi
+    } 2>/dev/null || {
+        # Silently continue if enhanced monitoring fails
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Enhanced monitoring failed for PID $pid" >> "$ERROR_LOG" 2>/dev/null || true
+    }
+}
+
+
 # Main monitoring loop with enhanced error handling
 while true; do
-    rotate_log_if_needed
-    
-    TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    # Wrap entire loop iteration in error handling to prevent script death
+    {
+        rotate_log_if_needed
+        
+        TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     
     # Find the actual trustflow-node binary process, not scripts
     if ! PID=$(pgrep -x "$APP_NAME" || pgrep -f "/$APP_NAME$" || pgrep -f "$APP_NAME" | grep -v "monitoring" | grep -v "$$" | head -1); then
@@ -766,6 +1062,16 @@ while true; do
         # Resource alerts
         check_resource_alerts "$PID" "$CPU" "$MEM" "$RSS" "$GOROUTINES"
         
+        # Enhanced resource monitoring via HTTP endpoints (with error isolation)
+        enhanced_resource_monitoring "$PID" || {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Enhanced resource monitoring failed for PID $PID, continuing..." >> "$ERROR_LOG" 2>/dev/null || true
+        }
+        
+        # Generate periodic leak reports (every 30 minutes) with error isolation  
+        generate_periodic_leak_report "$PID" || {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Periodic leak report failed for PID $PID, continuing..." >> "$ERROR_LOG" 2>/dev/null || true
+        }
+        
         # Enhanced display with detailed external package breakdown
         printf "\r%s | PID:%s | CPU:%s%% | MEM:%s%% | RSS:%sMB | T:%s | FD:%s | TCP:%s | GR:%s(E:%s/A:%s|L:%s/Q:%s/D:%s/P:%s/N:%s/R:%s)" \
             "$(date '+%H:%M:%S')" "$PID" "$CPU" "$MEM" "$RSS" "$THREADS" "$FD_COUNT" "$TCP_CONN" "$GOROUTINES" "$EXTERNAL_GR" "$APP_GR" "$LIBP2P_GR" "$QUIC_GR" "$DHT_GR" "$PUBSUB_GR" "$NET_GR" "$RELAY_GR"
@@ -790,19 +1096,34 @@ while true; do
             report_cycle_count=$((report_cycle_count + 1))
             echo "$report_cycle_count" > "$report_cycle_file"
             
-            # Generate report every 10th cycle
+            # Generate report every 10th cycle  
             if [ $((report_cycle_count % 10)) -eq 0 ]; then
-                # Run in background to avoid blocking the monitoring output
-                {
-                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Generating periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG"
-                    generate_stuck_goroutines_report "$PID" >> "$ERROR_LOG" 2>&1
-                } &
+                # Run in background with proper error isolation
+                (
+                    # Isolate background job from main script's set -euo pipefail
+                    set +euo pipefail
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Starting periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true
+                    
+                    # Run with timeout to prevent hanging
+                    if timeout 30s generate_stuck_goroutines_report "$PID" >> "$ERROR_LOG" 2>&1; then
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Completed periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true
+                    else
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Periodic stuck goroutines report failed or timed out for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true
+                    fi
+                ) &
+                # Don't wait for background job to complete
             fi
         fi
     else
         log_error "Failed to get process stats for PID $PID"
         echo "$TIMESTAMP,$PID,error_getting_stats,0,0,0,0,0,0,0,0,0,0,0,0,0,stats_failed" >> "$LOG_FILE"
     fi
+    
+    } || {
+        # Catch any errors that escape the individual error handlers
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Main loop iteration failed, but continuing monitoring..." >> "$ERROR_LOG" 2>/dev/null || true
+        printf "\r%s | ERROR in monitoring iteration, continuing...\n" "$(date '+%H:%M:%S')"
+    }
     
     sleep "$INTERVAL"
 done
