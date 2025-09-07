@@ -109,6 +109,26 @@ cache_ttl = 1h
 peer_data_stale_threshold = 2h
 resource_cleanup_threshold = 30m
 
+# Stream-specific timeout settings by data type
+# Small struct timeouts (quick operations)
+max_stream_age_service_request = 1m
+max_stream_age_job_run_status = 1m
+max_stream_age_job_run_status_request = 1m
+max_stream_age_service_lookup = 30s
+
+# Medium struct timeouts (standard operations)
+max_stream_age_service_offer = 2m
+max_stream_age_service_response = 2m
+max_stream_age_job_run_response = 3m
+max_stream_age_message = 2m
+
+# Job processing timeouts
+max_stream_age_job_run_request = 5m
+
+# Large data timeouts (file transfers, large payloads)
+max_stream_age_byte_array = 2h
+max_stream_age_file = 4h
+
 [network]
 # Connection Settings
 stream_dispatch_timeout = 50ms

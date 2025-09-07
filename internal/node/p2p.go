@@ -61,6 +61,13 @@ type streamJob struct {
 	streamData node_types.StreamData // Optional stream data for message processing
 }
 
+// streamInfo tracks information about active streams including data type for configurable timeouts
+type streamInfo struct {
+	startTime time.Time
+	dataType  uint16          // Data type from StreamData (0-13)
+	stream    network.Stream  // Reference to the actual stream for cleanup
+}
+
 type P2PManager struct {
 	daemon                bool
 	public                bool
@@ -94,7 +101,7 @@ type P2PManager struct {
 	streamWorkersWg       sync.WaitGroup               // For stream workers specifically
 	streamWorkerPool      chan chan streamJob          // Pool of worker channels
 	streamWorkers         []chan streamJob             // Individual worker channels
-	activeStreams         map[string]time.Time         // Track active streams for cleanup
+	activeStreams         map[string]*streamInfo       // Track active streams with data type for cleanup
 	streamsMutex          sync.RWMutex                 // Protect activeStreams map
 	closingStreams        map[string]bool              // Track streams being closed
 	closingMutex          sync.RWMutex                 // Protect closingStreams map
@@ -150,7 +157,7 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 		relay:              false,
 		streamWorkerPool:   make(chan chan streamJob, cm.GetConfigInt("stream_worker_pool_size", 10, 1, 100)),
 		streamWorkers:      make([]chan streamJob, 0, cm.GetConfigInt("stream_worker_pool_size", 10, 1, 100)),
-		activeStreams:      make(map[string]time.Time),
+		activeStreams:      make(map[string]*streamInfo),
 		closingStreams:     make(map[string]bool),
 		maxGoroutines:      int64(cm.GetConfigInt("max_goroutines", 200, 50, 1000)),
 		bootstrapAddrs:     bootstrapAddrs,
@@ -859,24 +866,65 @@ func (p2pm *P2PManager) cleanupStreamWorkers() {
 	p2pm.Lm.Log("debug", "Stream worker pool cleanup completed", "p2p")
 }
 
-// cleanupStaleStreams removes streams that have been active for too long
-func (p2pm *P2PManager) cleanupStaleStreams() {
-	maxStreamAge := p2pm.cm.GetConfigDuration("max_stream_age", 10*time.Minute)
+// getMaxStreamAgeForType returns the configured max age for a specific stream data type
+func (p2pm *P2PManager) getMaxStreamAgeForType(dataType uint16) time.Duration {
+	switch dataType {
+	case 0: // *[]node_types.ServiceOffer
+		return p2pm.cm.GetConfigDuration("max_stream_age_service_offer", 2*time.Minute)
+	case 1: // *node_types.JobRunRequest
+		return p2pm.cm.GetConfigDuration("max_stream_age_job_run_request", 5*time.Minute)
+	case 2: // *[]byte
+		return p2pm.cm.GetConfigDuration("max_stream_age_byte_array", 2*time.Hour)
+	case 3: // *os.File
+		return p2pm.cm.GetConfigDuration("max_stream_age_file", 4*time.Hour)
+	case 4: // *node_types.ServiceRequest
+		return p2pm.cm.GetConfigDuration("max_stream_age_service_request", 1*time.Minute)
+	case 5: // *node_types.ServiceResponse
+		return p2pm.cm.GetConfigDuration("max_stream_age_service_response", 2*time.Minute)
+	case 6: // *node_types.JobRunResponse
+		return p2pm.cm.GetConfigDuration("max_stream_age_job_run_response", 3*time.Minute)
+	case 7: // *node_types.JobRunStatus
+		return p2pm.cm.GetConfigDuration("max_stream_age_job_run_status", 1*time.Minute)
+	case 8: // *node_types.JobRunStatusRequest
+		return p2pm.cm.GetConfigDuration("max_stream_age_job_run_status_request", 1*time.Minute)
+	case 9, 10, 11, 12: // Other message types
+		return p2pm.cm.GetConfigDuration("max_stream_age_message", 2*time.Minute)
+	case 13: // *node_types.ServiceLookup
+		return p2pm.cm.GetConfigDuration("max_stream_age_service_lookup", 30*time.Second)
+	default:
+		// Fallback to general max_stream_age config
+		return p2pm.cm.GetConfigDuration("max_stream_age", 10*time.Minute)
+	}
+}
 
+// cleanupStaleStreams removes streams that have been active for too long and actually closes them
+func (p2pm *P2PManager) cleanupStaleStreams() {
 	p2pm.streamsMutex.Lock()
 	defer p2pm.streamsMutex.Unlock()
 
 	now := time.Now()
 	staleStreams := make([]string, 0)
 
-	for streamID, startTime := range p2pm.activeStreams {
-		if now.Sub(startTime) > maxStreamAge {
+	// Find stale streams based on their individual data type timeouts
+	for streamID, streamInfo := range p2pm.activeStreams {
+		maxAge := p2pm.getMaxStreamAgeForType(streamInfo.dataType)
+		if now.Sub(streamInfo.startTime) > maxAge {
 			staleStreams = append(staleStreams, streamID)
 		}
 	}
 
-	// Remove stale streams
+	// Close stale streams before removing from tracking
 	for _, streamID := range staleStreams {
+		streamInfo := p2pm.activeStreams[streamID]
+		p2pm.Lm.Log("debug", fmt.Sprintf("Closing stale stream %s (type: %d, age: %v)", 
+			streamID, streamInfo.dataType, now.Sub(streamInfo.startTime)), "p2p")
+		
+		// Close the stream using the stored reference
+		if streamInfo.stream != nil {
+			p2pm.safeCloseStream(streamInfo.stream, "stale stream cleanup")
+		}
+		
+		// Remove from tracking
 		delete(p2pm.activeStreams, streamID)
 	}
 
@@ -2161,10 +2209,25 @@ func StreamData[T any](
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			return err
 		}
+		
+		// Track this outbound stream with its data type
+		streamID := s.ID()
+		p2pm.streamsMutex.Lock()
+		p2pm.activeStreams[streamID] = &streamInfo{
+			startTime: time.Now(),
+			dataType:  t, // We know the data type from the switch statement above
+			stream:    s,
+		}
+		p2pm.streamsMutex.Unlock()
 	}
 	// Ensure stream is always cleaned up
 	defer func() {
 		if s != nil {
+			// Remove from tracking before closing
+			streamID := s.ID()
+			p2pm.streamsMutex.Lock()
+			delete(p2pm.activeStreams, streamID)
+			p2pm.streamsMutex.Unlock()
 			s.Close()
 		}
 	}()
@@ -2283,7 +2346,11 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	// Track this stream for cleanup
 	streamID := s.ID()
 	p2pm.streamsMutex.Lock()
-	p2pm.activeStreams[streamID] = time.Now()
+	p2pm.activeStreams[streamID] = &streamInfo{
+		startTime: time.Now(),
+		dataType:  0, // Default to 0, will be updated when StreamData is received
+		stream:    s,
+	}
 	p2pm.streamsMutex.Unlock()
 
 	// Enhanced resource tracking with P2PResourceManager (non-intrusive)
@@ -2326,6 +2393,13 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 		}
 		return
 	}
+
+	// Update stream data type in tracking info now that we know the actual type
+	p2pm.streamsMutex.Lock()
+	if streamInfo, exists := p2pm.activeStreams[streamID]; exists {
+		streamInfo.dataType = streamData.Type
+	}
+	p2pm.streamsMutex.Unlock()
 
 	message := fmt.Sprintf("Received stream data type %d from %s in stream %s",
 		streamData.Type, string(bytes.Trim(streamData.PeerId[:], "\x00")), s.ID())
@@ -3841,8 +3915,8 @@ func (p2pm *P2PManager) cleanupOldStreams() {
 	defer p2pm.streamsMutex.Unlock()
 
 	cutoff := time.Now().Add(-30 * time.Minute) // Remove streams older than 30 minutes
-	for streamID, createdAt := range p2pm.activeStreams {
-		if createdAt.Before(cutoff) {
+	for streamID, streamInfo := range p2pm.activeStreams {
+		if streamInfo.startTime.Before(cutoff) {
 			delete(p2pm.activeStreams, streamID)
 			p2pm.Lm.Log("debug", fmt.Sprintf("Cleaned up old stream tracking: %s", streamID), "p2p")
 		}
