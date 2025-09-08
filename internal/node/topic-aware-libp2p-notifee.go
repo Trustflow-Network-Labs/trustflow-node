@@ -38,11 +38,6 @@ func NewTopicAwareNotifiee(
 	}
 }
 
-func (n *TopicAwareNotifiee) isPeerInBootstrap(peerID peer.ID, bootstrapPeers []peer.AddrInfo) bool {
-	return slices.ContainsFunc(bootstrapPeers, func(addrInfo peer.AddrInfo) bool {
-		return addrInfo.ID == peerID
-	})
-}
 
 func (n *TopicAwareNotifiee) Connected(net network.Network, conn network.Conn) {
 	remotePeer := conn.RemotePeer()

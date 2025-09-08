@@ -557,17 +557,6 @@ func (gt *GoroutineTracker) executeTrackedFunction(goroutineID, name string, fn 
 	fn()
 }
 
-// Heartbeat updates the last ping time for a goroutine (optional heartbeat system)
-func (gt *GoroutineTracker) Heartbeat(name string) {
-	gt.mu.Lock()
-	defer gt.mu.Unlock()
-
-	for _, info := range gt.goroutines {
-		if info.Name == name {
-			info.LastPing = time.Now()
-		}
-	}
-}
 
 // GetStuckGoroutines returns goroutines that have been running longer than maxAge
 func (gt *GoroutineTracker) GetStuckGoroutines(maxAge time.Duration) []*GoroutineInfo {
