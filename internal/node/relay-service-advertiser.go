@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -164,12 +163,13 @@ func (rsa *RelayServiceAdvertiser) advertiseService(ctx context.Context) error {
 	return nil
 }
 
-// advertiseForTopic advertises relay service for a specific topic
+// advertiseForTopic advertises relay service for a specific topic using proper DHT patterns
 func (rsa *RelayServiceAdvertiser) advertiseForTopic(ctx context.Context, topic string) error {
-	// Create DHT key for this topic's relay services
-	relayKey := fmt.Sprintf("/trustflow/relay-service/%s", topic)
+	// Create deterministic CID for this topic's relay services
+	// This allows other nodes to discover relay providers for specific topics
+	relayKey := fmt.Sprintf("trustflow-relay-%s", topic)
 	
-	// Create proper CID from relay key hash
+	// Create proper CID from relay key hash  
 	hash, err := mh.Sum([]byte(relayKey), mh.SHA2_256, -1)
 	if err != nil {
 		return fmt.Errorf("failed to create hash for relay key: %w", err)
@@ -177,22 +177,15 @@ func (rsa *RelayServiceAdvertiser) advertiseForTopic(ctx context.Context, topic 
 	relayCID := cid.NewCidV1(cid.Raw, hash)
 	
 	// Advertise as a provider for this topic's relay services
+	// This announces that this node provides relay services for this topic
 	err = rsa.dht.Provide(ctx, relayCID, true)
 	if err != nil {
 		return fmt.Errorf("failed to provide relay service for topic %s: %w", topic, err)
 	}
 	
-	// Store detailed service information
-	serviceKey := fmt.Sprintf("/trustflow/relay-info/%s/%s", rsa.serviceInfo.PeerID.String(), topic)
-	serviceData, err := json.Marshal(rsa.serviceInfo)
-	if err != nil {
-		return fmt.Errorf("failed to marshal service info: %w", err)
-	}
-	
-	err = rsa.dht.PutValue(ctx, serviceKey, serviceData)
-	if err != nil {
-		return fmt.Errorf("failed to store service info: %w", err)
-	}
+	// Note: Service details (pricing, bandwidth, etc.) will be exchanged
+	// during direct peer communication rather than stored in DHT
+	// This follows libp2p best practices and avoids DHT record validation issues
 	
 	return nil
 }

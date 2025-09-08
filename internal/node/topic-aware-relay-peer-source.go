@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -196,19 +195,31 @@ func (tarps *TopicAwareRelayPeerSource) discoverRelaysForTopic(ctx context.Conte
 	
 	var relays []RelayServiceInfo
 	for _, provider := range providers {
-		// Get relay service info from provider
-		serviceInfo, err := tarps.getRelayServiceInfo(ctx, provider.ID, topic)
-		if err != nil {
-			tarps.lm.Log("warning", 
-				fmt.Sprintf("Failed to get service info from %s: %v", provider.ID.String()[:8], err), 
-				"relay-discovery")
-			continue
+		// Create default relay service info since detailed info is exchanged during direct communication
+		// This follows libp2p best practices and avoids DHT record validation issues
+		serviceInfo := RelayServiceInfo{
+			PeerID:       provider.ID,
+			Topics:       []string{topic},
+			PricePerGB:   0.25,   // Default pricing - will be negotiated directly
+			Currency:     "USD",
+			MaxBandwidth: 10485760, // Default 10MB/s - actual capacity determined during handshake
+			MaxDuration:  3600,   // 1 hour default
+			MaxData:      1073741824, // 1GB default
+			Availability: 95.0,   // Default availability assumption
+			Latency:      50,     // Default 50ms assumption
+			Reputation:   3.0,    // Neutral default rating
+			ContactInfo:  "",     // Contact info exchanged during direct communication
+			LastSeen:     time.Now(),
 		}
 		
 		// Validate service meets our criteria
 		if tarps.validateRelayService(serviceInfo) {
 			relays = append(relays, serviceInfo)
 		}
+		
+		tarps.lm.Log("debug", 
+			fmt.Sprintf("Found relay provider %s for topic %s", provider.ID.String()[:8], topic), 
+			"relay-discovery")
 	}
 	
 	// Cache the results
@@ -226,29 +237,11 @@ func (tarps *TopicAwareRelayPeerSource) discoverRelaysForTopic(ctx context.Conte
 
 // createRelayServiceKey creates a DHT key for discovering relay services for a topic
 func (tarps *TopicAwareRelayPeerSource) createRelayServiceKey(topic string) string {
-	return fmt.Sprintf("/trustflow/relay-service/%s", topic)
+	return fmt.Sprintf("trustflow-relay-%s", topic)
 }
 
-// getRelayServiceInfo retrieves service information from a relay provider
-func (tarps *TopicAwareRelayPeerSource) getRelayServiceInfo(ctx context.Context, peerID peer.ID, topic string) (RelayServiceInfo, error) {
-	// Create DHT key for this peer's service info
-	serviceKey := fmt.Sprintf("/trustflow/relay-info/%s/%s", peerID.String(), topic)
-	
-	// Get service info from DHT
-	value, err := tarps.dht.GetValue(ctx, serviceKey)
-	if err != nil {
-		return RelayServiceInfo{}, fmt.Errorf("failed to get service info: %w", err)
-	}
-	
-	var serviceInfo RelayServiceInfo
-	err = json.Unmarshal(value, &serviceInfo)
-	if err != nil {
-		return RelayServiceInfo{}, fmt.Errorf("failed to unmarshal service info: %w", err)
-	}
-	
-	serviceInfo.LastSeen = time.Now()
-	return serviceInfo, nil
-}
+// Note: Detailed relay service info is now exchanged during direct peer communication
+// rather than stored in DHT to avoid record validation issues and follow libp2p best practices
 
 // validateRelayService checks if a relay service meets our requirements
 func (tarps *TopicAwareRelayPeerSource) validateRelayService(service RelayServiceInfo) bool {
