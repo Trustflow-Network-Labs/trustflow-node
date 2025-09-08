@@ -831,17 +831,43 @@ analyze_current_goroutines() {
         echo "Current goroutine breakdown:"
         echo "$goroutine_stacks" | awk '
         /^goroutine [0-9]+ \[/ {
-            # Extract state
-            match($0, /\[([^\]]+)\]/, state_match)
-            state = state_match[1]
+            # Extract state using gsub and field splitting
+            state_line = $0
+            gsub(/.*\[/, "", state_line)
+            gsub(/\].*/, "", state_line)
+            gsub(/,.*/, "", state_line)  # Remove time info if present
+            state = state_line ? state_line : "unknown"
             
             # Get next line for function
-            getline
-            funcname = $1
-            
-            # Simplify function name
-            if (match(funcname, /\.([^.]+)$/, func_match)) {
-                funcname = func_match[1]
+            if (getline > 0 && NF > 0) {
+                # Take the whole line as function name and clean it up
+                funcname = $0
+                gsub(/^\t+/, "", funcname)  # Remove leading tabs
+                gsub(/^\s+/, "", funcname)  # Remove leading spaces
+                
+                # Extract just the function name part (before first parenthesis)
+                gsub(/\(.*$/, "", funcname)
+                # Remove any trailing whitespace
+                gsub(/\s+$/, "", funcname)
+                
+                # Extract last part after dot for package.function format
+                split(funcname, parts, ".")
+                if (length(parts) > 1) {
+                    funcname = parts[length(parts)]
+                } else {
+                    # If no dots, try to extract just the function name
+                    split(funcname, parts, "/")
+                    if (length(parts) > 1) {
+                        funcname = parts[length(parts)]
+                    }
+                }
+                
+                # Fallback if funcname is empty
+                if (funcname == "" || funcname == "0" || funcname ~ /^[0-9x]+$/) {
+                    funcname = "runtime"
+                }
+            } else {
+                funcname = "unknown"
             }
             
             pattern = funcname "[" state "]"
@@ -852,7 +878,11 @@ analyze_current_goroutines() {
             for (p in count) {
                 printf "  %-40s: %3d\n", p, count[p]
             }
-            printf "\nTotal goroutines analyzed: %d\n", total
+            if (total > 0) {
+                printf "\nTotal goroutines analyzed: %d\n", total
+            } else {
+                printf "\nNo goroutines found in input\n"
+            }
         }'
         
         # Look for potential stuck patterns
@@ -1104,8 +1134,8 @@ while true; do
                     set +euo pipefail
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Starting periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true
                     
-                    # Run with timeout to prevent hanging
-                    if timeout 30s generate_stuck_goroutines_report "$PID" >> "$ERROR_LOG" 2>&1; then
+                    # Call function directly (timeout not needed for function call)
+                    if generate_stuck_goroutines_report "$PID" >> "$ERROR_LOG" 2>&1; then
                         echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Completed periodic stuck goroutines report for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true
                     else
                         echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Periodic stuck goroutines report failed or timed out for PID $PID" >> "$ERROR_LOG" 2>/dev/null || true

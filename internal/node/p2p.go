@@ -533,23 +533,28 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 
 	gt.lm.Log("debug", fmt.Sprintf("Started goroutine %s (ID: %s)", name, goroutineID), "goroutines")
 
-	go func() {
-		defer atomic.AddInt64(gt.activeGoroutines, -1)
-		defer func() {
-			// Unregister goroutine
-			gt.mu.Lock()
-			delete(gt.goroutines, goroutineID)
-			gt.mu.Unlock()
-			gt.lm.Log("debug", fmt.Sprintf("Ended goroutine %s (ID: %s)", name, goroutineID), "goroutines")
-
-			if r := recover(); r != nil {
-				gt.lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "goroutines")
-			}
-		}()
-		fn()
-	}()
+	// Execute function directly using helper method to avoid anonymous wrapper goroutines
+	go gt.executeTrackedFunction(goroutineID, name, fn)
 
 	return true
+}
+
+// executeTrackedFunction runs a function with tracking cleanup - separate method to avoid nested closures
+func (gt *GoroutineTracker) executeTrackedFunction(goroutineID, name string, fn func()) {
+	defer atomic.AddInt64(gt.activeGoroutines, -1)
+	defer func() {
+		gt.mu.Lock()
+		delete(gt.goroutines, goroutineID)
+		gt.mu.Unlock()
+		gt.lm.Log("debug", fmt.Sprintf("Ended goroutine %s (ID: %s)", name, goroutineID), "goroutines")
+
+		if r := recover(); r != nil {
+			gt.lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "goroutines")
+		}
+	}()
+	
+	// Execute the actual function directly
+	fn()
 }
 
 // Heartbeat updates the last ping time for a goroutine (optional heartbeat system)
@@ -1261,10 +1266,8 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		}
 	})
 
-	// Start topics aware peer discovery with goroutine tracking
-	if !gt.SafeStart("peer-discovery", p2pm.DiscoverPeers) {
-		p2pm.Lm.Log("warn", "Failed to start peer discovery due to goroutine limit", "p2p")
-	}
+	// Run initial peer discovery immediately, then ticker will handle periodic calls
+	p2pm.DiscoverPeers()
 
 	// Start P2P periodic tasks
 	err = p2pm.StartPeriodicTasks()
@@ -1922,19 +1925,14 @@ func (p2pm *P2PManager) DiscoverPeers() {
 		p2pm.Lm.Log("info", fmt.Sprintf("Memory usage: %+v", memInfo), "p2p")
 	}
 
-	// Connect to peers asynchronously
+	// Connect to peers synchronously (we're already in the ticker goroutine)
 	if len(discoveredPeers) > 0 {
-		gt := p2pm.GetGoroutineTracker()
-		gt.SafeStart("connect-discovered-peers", func() {
-			p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
-		})
+		p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
 	}
 }
 
 // Monitor connection health and reconnect (cron)
 func (p2pm *P2PManager) MaintainConnections() {
-	gt := p2pm.GetGoroutineTracker()
-
 	for _, peerID := range p2pm.h.Network().Peers() {
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
 			// Attempt to reconnect
@@ -1947,13 +1945,8 @@ func (p2pm *P2PManager) MaintainConnections() {
 				continue
 			}
 
-			// Start reconnection attempt with tracking
-			peer := p // Capture loop variable
-			if !gt.SafeStart(fmt.Sprintf("reconnect-%s", peerID.String()[:8]), func() {
-				p2pm.ConnectNodeWithRetry(p2pm.ctx, peer, 3, 2*time.Second)
-			}) {
-				p2pm.Lm.Log("warn", fmt.Sprintf("Failed to start reconnection goroutine for peer %s", peerID.String()[:8]), "p2p")
-			}
+			// Reconnect synchronously (we're already in the ticker goroutine)
+			p2pm.ConnectNodeWithRetry(p2pm.ctx, p, 3, 2*time.Second)
 		}
 	}
 }
