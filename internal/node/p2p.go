@@ -64,8 +64,8 @@ type streamJob struct {
 // streamInfo tracks information about active streams including data type for configurable timeouts
 type streamInfo struct {
 	startTime time.Time
-	dataType  uint16          // Data type from StreamData (0-13)
-	stream    network.Stream  // Reference to the actual stream for cleanup
+	dataType  uint16         // Data type from StreamData (0-13)
+	stream    network.Stream // Reference to the actual stream for cleanup
 }
 
 type P2PManager struct {
@@ -552,11 +552,10 @@ func (gt *GoroutineTracker) executeTrackedFunction(goroutineID, name string, fn 
 			gt.lm.Log("error", fmt.Sprintf("Goroutine %s panic recovered: %v", name, r), "goroutines")
 		}
 	}()
-	
+
 	// Execute the actual function directly
 	fn()
 }
-
 
 // GetStuckGoroutines returns goroutines that have been running longer than maxAge
 func (gt *GoroutineTracker) GetStuckGoroutines(maxAge time.Duration) []*GoroutineInfo {
@@ -910,14 +909,14 @@ func (p2pm *P2PManager) cleanupStaleStreams() {
 	// Close stale streams before removing from tracking
 	for _, streamID := range staleStreams {
 		streamInfo := p2pm.activeStreams[streamID]
-		p2pm.Lm.Log("debug", fmt.Sprintf("Closing stale stream %s (type: %d, age: %v)", 
+		p2pm.Lm.Log("debug", fmt.Sprintf("Closing stale stream %s (type: %d, age: %v)",
 			streamID, streamInfo.dataType, now.Sub(streamInfo.startTime)), "p2p")
-		
+
 		// Close the stream using the stored reference
 		if streamInfo.stream != nil {
 			p2pm.safeCloseStream(streamInfo.stream, "stale stream cleanup")
 		}
-		
+
 		// Remove from tracking
 		delete(p2pm.activeStreams, streamID)
 	}
@@ -1256,7 +1255,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	})
 
 	// Run initial peer discovery immediately, then ticker will handle periodic calls
-	p2pm.DiscoverPeers()
+	go p2pm.DiscoverPeers()
 
 	// Start P2P periodic tasks
 	err = p2pm.StartPeriodicTasks()
@@ -1869,36 +1868,55 @@ func (p2pm *P2PManager) DiscoverPeers() {
 
 	// Look for others who have announced and attempt to connect to them
 	for _, completeTopicName := range p2pm.completeTopicNames {
-		peerChan, err := routingDiscovery.FindPeers(p2pm.ctx, completeTopicName)
+		// Create timeout context for peer discovery to prevent hanging goroutines
+		discoveryCtx, cancel := context.WithTimeout(p2pm.ctx, 1*time.Minute)
+		peerChan, err := routingDiscovery.FindPeers(discoveryCtx, completeTopicName)
 		if err != nil {
+			cancel()
 			p2pm.Lm.Log("warn", err.Error(), "p2p")
 			continue
 		}
 
-		for peer := range peerChan {
-			if peer.ID == "" || peer.ID == p2pm.h.ID() {
-				continue
-			}
+		// Process peers with timeout protection to prevent goroutine leaks
+		func() {
+			defer cancel()
+			for {
+				select {
+				case peer, ok := <-peerChan:
+					if !ok {
+						// Channel closed, exit
+						return
+					}
 
-			// Check if we already have this peer
-			found := false
-			for _, existing := range discoveredPeers {
-				if existing.ID == peer.ID {
-					found = true
-					break
+					if peer.ID == "" || peer.ID == p2pm.h.ID() {
+						continue
+					}
+
+					// Check if we already have this peer
+					found := false
+					for _, existing := range discoveredPeers {
+						if existing.ID == peer.ID {
+							found = true
+							break
+						}
+					}
+
+					if !found {
+						discoveredPeers = append(discoveredPeers, peer)
+
+						// Prevent unbounded memory growth
+						if len(discoveredPeers) >= maxDiscoveredPeers {
+							p2pm.Lm.Log("warn", fmt.Sprintf("Discovery limit reached (%d peers), stopping", maxDiscoveredPeers), "p2p")
+							return
+						}
+					}
+				case <-discoveryCtx.Done():
+					// Timeout or cancellation, exit gracefully
+					p2pm.Lm.Log("debug", fmt.Sprintf("Peer discovery for topic %s timed out or cancelled", completeTopicName), "p2p")
+					return
 				}
 			}
-
-			if !found {
-				discoveredPeers = append(discoveredPeers, peer)
-
-				// Prevent unbounded memory growth
-				if len(discoveredPeers) >= maxDiscoveredPeers {
-					p2pm.Lm.Log("warn", fmt.Sprintf("Discovery limit reached (%d peers), stopping", maxDiscoveredPeers), "p2p")
-					break
-				}
-			}
-		}
+		}()
 
 		// Break outer loop if limit reached
 		if len(discoveredPeers) >= maxDiscoveredPeers {
@@ -1916,7 +1934,9 @@ func (p2pm *P2PManager) DiscoverPeers() {
 
 	// Connect to peers synchronously (we're already in the ticker goroutine)
 	if len(discoveredPeers) > 0 {
-		p2pm.ConnectNodesAsync(discoveredPeers, 3, 2*time.Second)
+		for _, discoveredPeer := range discoveredPeers {
+			p2pm.ConnectNodeWithRetry(p2pm.ctx, discoveredPeer, 3, 2*time.Second)
+		}
 	}
 }
 
@@ -2191,7 +2211,7 @@ func StreamData[T any](
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			return err
 		}
-		
+
 		// Track this outbound stream with its data type
 		streamID := s.ID()
 		p2pm.streamsMutex.Lock()
@@ -3701,6 +3721,9 @@ func BroadcastMessage[T any](p2pm *P2PManager, message T) error {
 }
 
 func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscription) {
+	// Create timeout context for each message receive operation
+	messageTimeout := 30 * time.Second
+	
 	for {
 		if sub == nil {
 			err := fmt.Errorf("subscription is nil. Will stop listening")
@@ -3708,34 +3731,89 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			break
 		}
 
-		m, err := sub.Next(ctx)
-		if err != nil {
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-		}
-		if m == nil {
-			err := fmt.Errorf("message received is nil. Will stop listening")
-			p2pm.Lm.Log("error", err.Error(), "p2p")
-			break
+		// Check if main context is cancelled
+		select {
+		case <-ctx.Done():
+			p2pm.Lm.Log("info", "Message receiver stopping due to context cancellation", "p2p")
+			return
+		default:
 		}
 
-		message := string(m.Message.Data)
-		peerId := m.GetFrom()
-		p2pm.Lm.Log("debug", fmt.Sprintf("Message %s received from %s via %s", message, peerId.String(), m.ReceivedFrom), "p2p")
+		// Create timeout context for this specific message receive
+		msgCtx, cancel := context.WithTimeout(ctx, messageTimeout)
+		
+		// Use select to handle both message and timeout/cancellation
+		type msgResult struct {
+			msg *pubsub.Message
+			err error
+		}
+		
+		msgChan := make(chan msgResult, 1)
+		go func() {
+			defer cancel()
+			m, err := sub.Next(msgCtx)
+			msgChan <- msgResult{msg: m, err: err}
+		}()
 
-		topic := string(*m.Topic)
-		p2pm.Lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
-
-		switch topic {
-		case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + LOOKUP_SERVICE:
-			err := p2pm.sendServiceOffer(m.Message.Data, peerId)
-			if err != nil {
-				p2pm.Lm.Log("error", err.Error(), "p2p")
+		select {
+		case result := <-msgChan:
+			if result.err != nil {
+				// Check if it's a context cancellation (normal shutdown)
+				if msgCtx.Err() == context.Canceled || ctx.Err() == context.Canceled {
+					p2pm.Lm.Log("info", "Message receiver stopping due to cancellation", "p2p")
+					return
+				}
+				// Check if it's a timeout
+				if msgCtx.Err() == context.DeadlineExceeded {
+					p2pm.Lm.Log("debug", "Message receive timeout, continuing to listen", "p2p")
+					continue
+				}
+				// Other errors
+				p2pm.Lm.Log("error", fmt.Sprintf("Message receive error: %v", result.err), "p2p")
 				continue
 			}
-		default:
-			msg := fmt.Sprintf("Unknown topic %s", topic)
-			p2pm.Lm.Log("error", msg, "p2p")
-			continue
+			
+			if result.msg == nil {
+				err := fmt.Errorf("message received is nil. Will stop listening")
+				p2pm.Lm.Log("error", err.Error(), "p2p")
+				break
+			}
+
+			message := string(result.msg.Message.Data)
+			peerId := result.msg.GetFrom()
+			p2pm.Lm.Log("debug", fmt.Sprintf("Message %s received from %s via %s", message, peerId.String(), result.msg.ReceivedFrom), "p2p")
+
+			topic := string(*result.msg.Topic)
+			p2pm.Lm.Log("debug", fmt.Sprintf("Message topic is %s", topic), "p2p")
+
+			switch topic {
+			case p2pm.cm.GetConfigWithDefault("topic_name_prefix", "trustflow.network.") + LOOKUP_SERVICE:
+				err := p2pm.sendServiceOffer(result.msg.Message.Data, peerId)
+				if err != nil {
+					p2pm.Lm.Log("error", err.Error(), "p2p")
+					continue
+				}
+			default:
+				msg := fmt.Sprintf("Unknown topic %s", topic)
+				p2pm.Lm.Log("error", msg, "p2p")
+				continue
+			}
+
+		case <-msgCtx.Done():
+			cancel()
+			// Timeout occurred - log and continue
+			if msgCtx.Err() == context.DeadlineExceeded {
+				p2pm.Lm.Log("debug", "Message receive timeout, continuing to listen", "p2p")
+				continue
+			}
+			// Context cancelled - stop
+			p2pm.Lm.Log("info", "Message receiver stopping due to context cancellation", "p2p")
+			return
+		
+		case <-ctx.Done():
+			cancel()
+			p2pm.Lm.Log("info", "Message receiver stopping due to parent context cancellation", "p2p")
+			return
 		}
 	}
 }

@@ -799,37 +799,48 @@ check_resource_alerts() {
 # Generate comprehensive goroutine leak report
 show_leak_report() {
     local pid=$1
-    echo
-    echo "=== GOROUTINE LEAK ANALYSIS ==="
+    local output=""
     
-    echo "=== HISTORICAL LEAK DATA ==="
+    output+="\n=== GOROUTINE LEAK ANALYSIS ===\n"
+    
+    output+="=== HISTORICAL LEAK DATA ===\n"
     if [ -f "/tmp/goroutine_analysis_$pid" ]; then
-        echo "Recent leak detection data (last 20 entries):"
-        tail -20 "/tmp/goroutine_analysis_$pid" | while IFS='|' read -r timestamp total external app libp2p quic dht pubsub net runtime; do
+        output+="Recent leak detection data (last 20 entries):\n"
+        while IFS='|' read -r timestamp total external app libp2p quic dht pubsub net runtime; do
             if [ -n "$timestamp" ] && [ "$timestamp" != "timestamp" ]; then
-                echo "[$timestamp] Total:$total Ext:$external App:$app L:$libp2p Q:$quic D:$dht P:$pubsub N:$net R:$runtime"
+                output+="[$timestamp] Total:$total Ext:$external App:$app L:$libp2p Q:$quic D:$dht P:$pubsub N:$net R:$runtime\n"
             fi
-        done
+        done < <(tail -20 "/tmp/goroutine_analysis_$pid")
     else
-        echo "No historical leak analysis data available yet"
+        output+="No historical leak analysis data available yet\n"
     fi
     
-    echo
-    echo "=== CURRENT GOROUTINE ANALYSIS ==="
-    analyze_current_goroutines "$pid"
+    output+="\n=== CURRENT GOROUTINE ANALYSIS ===\n"
+    output+="$(analyze_current_goroutines_to_string "$pid")\n"
+    
+    # Output to both stdout and error log
+    echo -e "$output"
+    echo -e "$output" >> "$ERROR_LOG"
 }
 
 # Enhanced goroutine analysis 
 analyze_current_goroutines() {
     local pid=$1
+    analyze_current_goroutines_to_string "$pid"
+}
+
+# Enhanced goroutine analysis that returns string instead of echoing
+analyze_current_goroutines_to_string() {
+    local pid=$1
     local port=6060
+    local output=""
     
-    echo "Analyzing current goroutine patterns..."
+    output+="Analyzing current goroutine patterns...\n"
     
     if goroutine_stacks=$(timeout 10 curl -s "http://localhost:$port/debug/pprof/goroutine?debug=2" 2>/dev/null); then
         # Count goroutines by pattern
-        echo "Current goroutine breakdown:"
-        echo "$goroutine_stacks" | awk '
+        output+="Current goroutine breakdown:\n"
+        output+="$(echo "$goroutine_stacks" | awk '
         /^goroutine [0-9]+ \[/ {
             # Extract state using gsub and field splitting
             state_line = $0
@@ -883,19 +894,20 @@ analyze_current_goroutines() {
             } else {
                 printf "\nNo goroutines found in input\n"
             }
-        }'
+        }')\n"
         
         # Look for potential stuck patterns
-        echo
-        echo "Potential stuck goroutines (first 10):"
-        echo "$goroutine_stacks" | grep -E -A1 "(chan receive|chan send|select)" | head -20 | while read -r line; do
+        output+="\nPotential stuck goroutines (first 10):\n"
+        output+="$(echo "$goroutine_stacks" | grep -E -A1 "(chan receive|chan send|select)" | head -20 | while read -r line; do
             if [[ $line =~ ^goroutine ]]; then
                 echo "  $line"
             fi
-        done
+        done)\n"
     else
-        echo "Could not retrieve goroutine data from pprof endpoint"
+        output+="Could not retrieve goroutine data from pprof endpoint\n"
     fi
+    
+    echo -e "$output"
 }
 
 # Periodic leak report generation
@@ -915,7 +927,8 @@ generate_periodic_leak_report() {
     
     # Generate leak report
     echo "$(date): Generating periodic goroutine leak report"
-    show_leak_report "$pid" | head -50  # Limit output size
+    echo "$(date): Generating periodic goroutine leak report" >> "$ERROR_LOG"
+    show_leak_report "$pid" | head -50  # Limit output size (already logs to ERROR_LOG via show_leak_report)
     echo "$current_time" > "$last_report_file"
 }
 
