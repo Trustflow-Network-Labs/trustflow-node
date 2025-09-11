@@ -115,6 +115,9 @@ type P2PManager struct {
 	relayAdvertiser       *RelayServiceAdvertiser      // Advertise our relay service
 	jobManager            *JobManager                  // Job management - single instance
 	p2pResourceManager    *utils.P2PResourceManager    // Enhanced resource management with HTTP stats
+	discoveryMutex        sync.Mutex                   // Prevent concurrent peer discovery operations
+	discoveryInProgress   bool                         // Flag to track if discovery is running
+	routingDiscovery      *drouting.RoutingDiscovery   // Shared routing discovery instance
 }
 
 func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PManager {
@@ -355,15 +358,23 @@ func (p2pm *P2PManager) streamWorker(workerID int, jobChan chan streamJob) {
 			// Process the stream job
 			p2pm.processStreamJob(job)
 
-			// Return worker to pool for next job
+			// Return worker to pool for next job with timeout to prevent hanging
+			returnTimeout := time.NewTimer(5 * time.Second)
 			select {
 			case p2pm.streamWorkerPool <- jobChan:
 				// Worker returned to pool successfully
+				returnTimeout.Stop()
+			case <-returnTimeout.C:
+				// Timeout returning worker to pool - this indicates shutdown or pool issues
+				p2pm.Lm.Log("warn", fmt.Sprintf("Stream worker %d timeout returning to pool - assuming shutdown", workerID), "p2p")
+				return
 			case <-p2pm.cronStopChan:
-				p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (cronStopChan)", workerID), "p2p")
+				returnTimeout.Stop()
+				p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (cronStopChan during return)", workerID), "p2p")
 				return
 			case <-p2pm.ctx.Done():
-				p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (context done)", workerID), "p2p")
+				returnTimeout.Stop()
+				p2pm.Lm.Log("debug", fmt.Sprintf("Stream worker %d stopping (context done during return)", workerID), "p2p")
 				return
 			}
 
@@ -1129,8 +1140,12 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	maxConnections := 400
 
 	// Create resource manager with strict limits to prevent memory/goroutine leaks
-	// Use conservative autoscaled limits to control resource usage
+	// Use conservative autoscaled limits to fix QUIC and LibP2P goroutine leaks
 	limits := rcmgr.DefaultLimits.AutoScale()
+
+	// The AutoScale() already provides conservative limits, we'll use them directly
+	// and rely on the periodic cleanup to handle external library goroutine leaks
+	p2pm.Lm.Log("info", "Applied autoscaled resource limits with external library cleanup", "p2p")
 
 	// Use a fixed limiter with autoscaled limits for better control
 	limiter := rcmgr.NewFixedLimiter(limits)
@@ -1223,6 +1238,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		pubsub.WithPeerExchange(true),
 		pubsub.WithFloodPublish(true),
 		pubsub.WithDiscovery(routingDiscovery),
+		// Use default PubSub parameters to avoid configuration issues
 	)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -1253,6 +1269,16 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 			p2pm.h.Network().Notify(notifyManager)
 		}
 	})
+
+	// Initialize shared routing discovery instance once
+	p2pm.routingDiscovery = drouting.NewRoutingDiscovery(p2pm.idht)
+
+	// Advertise topics once at startup - each dutil.Advertise runs indefinitely
+	for _, completeTopicName := range p2pm.completeTopicNames {
+		// Start persistent advertisement for this topic (runs until context cancellation)
+		dutil.Advertise(p2pm.ctx, p2pm.routingDiscovery, completeTopicName)
+		p2pm.Lm.Log("info", fmt.Sprintf("Started persistent advertisement for topic: %s", completeTopicName), "p2p")
+	}
 
 	// Run initial peer discovery immediately, then ticker will handle periodic calls
 	go p2pm.DiscoverPeers()
@@ -1848,6 +1874,24 @@ func (p2pm *P2PManager) initDHT(mode string, bootstrapPeers []peer.AddrInfo) (*d
 }
 
 func (p2pm *P2PManager) DiscoverPeers() {
+	// Prevent concurrent discovery operations to avoid channel/goroutine leaks
+	p2pm.discoveryMutex.Lock()
+	if p2pm.discoveryInProgress {
+		p2pm.discoveryMutex.Unlock()
+		p2pm.Lm.Log("debug", "Peer discovery already in progress, skipping", "p2p")
+		return
+	}
+	p2pm.discoveryInProgress = true
+	p2pm.discoveryMutex.Unlock()
+
+	// Ensure we clear the flag when done
+	defer func() {
+		p2pm.discoveryMutex.Lock()
+		p2pm.discoveryInProgress = false
+		p2pm.discoveryMutex.Unlock()
+		p2pm.Lm.Log("debug", "Peer discovery completed", "p2p")
+	}()
+
 	const maxDiscoveredPeers = 50 // Limit memory growth
 	var discoveredPeers []peer.AddrInfo
 
@@ -1859,75 +1903,80 @@ func (p2pm *P2PManager) DiscoverPeers() {
 	})
 	defer p2pm.resourceTracker.ReleaseResource(discoveryID)
 
-	routingDiscovery := drouting.NewRoutingDiscovery(p2pm.idht)
+	// Use shared routing discovery instance
 
-	// Advertise all topics with timeout to prevent hanging goroutines
+	// Run concurrent topic discoveries to avoid blocking each other
+	var wg sync.WaitGroup
+	var mu sync.Mutex // Protect shared discoveredPeers slice
+	var totalDiscovered int
+
 	for _, completeTopicName := range p2pm.completeTopicNames {
-		// Create timeout context for advertisement to prevent hanging goroutines
-		advertiseCtx, cancel := context.WithTimeout(p2pm.ctx, 30*time.Second)
-		dutil.Advertise(advertiseCtx, routingDiscovery, completeTopicName)
-		cancel() // Clean up context immediately
-	}
+		wg.Add(1)
+		go func(topicName string) {
+			defer wg.Done()
 
-	// Look for others who have announced and attempt to connect to them
-	for _, completeTopicName := range p2pm.completeTopicNames {
-		// Create timeout context for peer discovery to prevent hanging goroutines
-		discoveryCtx, cancel := context.WithTimeout(p2pm.ctx, 1*time.Minute)
-		peerChan, err := routingDiscovery.FindPeers(discoveryCtx, completeTopicName)
-		if err != nil {
-			cancel()
-			p2pm.Lm.Log("warn", err.Error(), "p2p")
-			continue
-		}
+			// Discover peers for this specific topic
+			peerChan, err := p2pm.routingDiscovery.FindPeers(p2pm.ctx, topicName)
+			if err != nil {
+				p2pm.Lm.Log("warn", fmt.Sprintf("Failed to find peers for topic %s: %v", topicName, err), "p2p")
+				return
+			}
 
-		// Process peers with timeout protection to prevent goroutine leaks
-		func() {
-			defer cancel()
+			// Process peers for this topic
 			for {
 				select {
-				case peer, ok := <-peerChan:
+				case piir, ok := <-peerChan:
 					if !ok {
-						// Channel closed, exit
+						// Channel closed, this topic discovery is done
+						p2pm.Lm.Log("debug", fmt.Sprintf("Completed peer discovery for topic %s", topicName), "p2p")
 						return
 					}
 
-					if peer.ID == "" || peer.ID == p2pm.h.ID() {
+					if piir.ID == "" || piir.ID == p2pm.h.ID() {
 						continue
 					}
 
-					// Check if we already have this peer
+					// Thread-safe check if we already have this peer
+					mu.Lock()
 					found := false
 					for _, existing := range discoveredPeers {
-						if existing.ID == peer.ID {
+						if existing.ID == piir.ID {
 							found = true
 							break
 						}
 					}
 
 					if !found {
-						discoveredPeers = append(discoveredPeers, peer)
+						discoveredPeers = append(discoveredPeers, piir)
+						totalDiscovered = len(discoveredPeers)
+						mu.Unlock()
 
-						// Prevent unbounded memory growth
-						if len(discoveredPeers) >= maxDiscoveredPeers {
-							p2pm.Lm.Log("warn", fmt.Sprintf("Discovery limit reached (%d peers), stopping", maxDiscoveredPeers), "p2p")
+						// Connect immediately using existing async method
+						p2pm.ConnectNodesAsync([]peer.AddrInfo{piir}, 3, 2*time.Second)
+						p2pm.Lm.Log("debug", fmt.Sprintf("Discovered and connecting to peer %s from topic %s", piir.ID.String()[:12], topicName), "p2p")
+
+						// Check if we've reached the global limit
+						if totalDiscovered >= maxDiscoveredPeers {
+							p2pm.Lm.Log("warn", fmt.Sprintf("Discovery limit reached (%d peers), stopping all discoveries", maxDiscoveredPeers), "p2p")
 							return
 						}
+					} else {
+						mu.Unlock()
 					}
-				case <-discoveryCtx.Done():
-					// Timeout or cancellation, exit gracefully
-					p2pm.Lm.Log("debug", fmt.Sprintf("Peer discovery for topic %s timed out or cancelled", completeTopicName), "p2p")
+
+				case <-p2pm.ctx.Done():
+					// Main context cancelled, stop this topic discovery
+					p2pm.Lm.Log("debug", fmt.Sprintf("Topic %s discovery cancelled via main context", topicName), "p2p")
 					return
 				}
 			}
-		}()
-
-		// Break outer loop if limit reached
-		if len(discoveredPeers) >= maxDiscoveredPeers {
-			break
-		}
+		}(completeTopicName)
 	}
 
-	p2pm.Lm.Log("info", fmt.Sprintf("Discovered %d peers for connection attempts", len(discoveredPeers)), "p2p")
+	// Wait for all topic discoveries to complete
+	wg.Wait()
+
+	p2pm.Lm.Log("info", fmt.Sprintf("Discovered %d peers for connection attempts", totalDiscovered), "p2p")
 
 	// Log memory usage info
 	memInfo := p2pm.GetMemoryUsageInfo()
@@ -1935,12 +1984,7 @@ func (p2pm *P2PManager) DiscoverPeers() {
 		p2pm.Lm.Log("info", fmt.Sprintf("Memory usage: %+v", memInfo), "p2p")
 	}
 
-	// Connect to peers synchronously (we're already in the ticker goroutine)
-	if len(discoveredPeers) > 0 {
-		for _, discoveredPeer := range discoveredPeers {
-			p2pm.ConnectNodeWithRetry(p2pm.ctx, discoveredPeer, 3, 2*time.Second)
-		}
-	}
+	// Peers are now connected immediately as they are discovered (see above)
 }
 
 // Monitor connection health and reconnect (cron)
@@ -3741,11 +3785,11 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 
 		// Create timeout context for this specific message receive - do NOT create goroutine
 		msgCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		
+
 		// Use sub.Next() directly with timeout context - this is the proper way
 		m, err := sub.Next(msgCtx)
 		cancel() // Always clean up context
-		
+
 		if err != nil {
 			// Check if it's a context cancellation (normal shutdown)
 			if msgCtx.Err() == context.Canceled || ctx.Err() == context.Canceled {
@@ -3761,7 +3805,7 @@ func (p2pm *P2PManager) receivedMessage(ctx context.Context, sub *pubsub.Subscri
 			p2pm.Lm.Log("debug", fmt.Sprintf("Message receive error: %v", err), "p2p")
 			continue
 		}
-		
+
 		if m == nil {
 			p2pm.Lm.Log("debug", "Received nil message, continuing to listen", "p2p")
 			continue

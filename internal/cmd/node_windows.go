@@ -269,6 +269,8 @@ func startPeriodicCleanup(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute) // Run cleanup every 5 minutes
 	defer ticker.Stop()
 	
+	var lastGoroutineCount int
+	
 	for {
 		select {
 		case <-ticker.C:
@@ -281,11 +283,21 @@ func startPeriodicCleanup(ctx context.Context) {
 			// Log current goroutine count for monitoring
 			numGoroutines := runtime.NumGoroutine()
 			if numGoroutines > 500 { // Alert if goroutines are high
-				fmt.Printf("[CLEANUP] High goroutine count detected: %d\n", numGoroutines)
+				fmt.Printf("[CLEANUP] High goroutine count detected: %d (CLI mode - Windows)\n", numGoroutines)
 			}
+			
+			// Track goroutine growth over time
+			if lastGoroutineCount > 0 && numGoroutines > lastGoroutineCount {
+				growth := numGoroutines - lastGoroutineCount
+				if growth > 50 { // Alert if growth is significant
+					fmt.Printf("[CLEANUP] Goroutine growth detected: +%d (total: %d)\n", growth, numGoroutines)
+				}
+			}
+			lastGoroutineCount = numGoroutines
 			
 		case <-ctx.Done():
 			// Context cancelled, stop cleanup
+			fmt.Printf("[CLEANUP] Periodic cleanup stopped\n")
 			return
 		}
 	}
