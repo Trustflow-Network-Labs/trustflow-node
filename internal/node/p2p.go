@@ -107,14 +107,12 @@ type P2PManager struct {
 	closingMutex          sync.RWMutex                 // Protect closingStreams map
 	activeGoroutines      int64                        // Track active goroutines (atomic)
 	maxGoroutines         int64                        // Maximum allowed goroutines
-	resourceTracker       *utils.ResourceTracker       // Memory leak prevention
 	cleanupManager        *utils.CleanupManager        // Automatic cleanup
 	memoryMonitor         *utils.MemoryPressureMonitor // Memory pressure monitoring
 	relayTrafficMonitor   *RelayTrafficMonitor         // Monitor relay traffic for billing
 	relayPeerSource       *TopicAwareRelayPeerSource   // Discover relay peers dynamically
 	relayAdvertiser       *RelayServiceAdvertiser      // Advertise our relay service
 	jobManager            *JobManager                  // Job management - single instance
-	p2pResourceManager    *utils.P2PResourceManager    // Enhanced resource management with HTTP stats
 	discoveryMutex        sync.Mutex                   // Prevent concurrent peer discovery operations
 	discoveryInProgress   bool                         // Flag to track if discovery is running
 	routingDiscovery      *drouting.RoutingDiscovery   // Shared routing discovery instance
@@ -188,7 +186,6 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	p2pm.ctx = ctx
 
 	// Initialize memory leak prevention components
-	p2pm.resourceTracker = utils.NewResourceTracker(p2pm.ctx, lm, p2pm.GetGoroutineTracker())
 	p2pm.cleanupManager = utils.NewCleanupManager(p2pm.ctx, lm)
 
 	// Create memory pressure monitor with configurable threshold
@@ -198,9 +195,6 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 	// Start memory monitoring with configurable interval
 	monitorInterval := cm.GetConfigDuration("memory_monitor_interval", 30*time.Second)
 	p2pm.memoryMonitor.Start(monitorInterval)
-
-	// Initialize context tracking for memory leak detection
-	utils.InitializeContextTracking(lm, p2pm.GetGoroutineTracker())
 
 	// Initialize buffer pools with configuration values
 	utils.InitializeBufferPools(cm)
@@ -219,9 +213,6 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 
 	// Initialize stream worker pool
 	p2pm.initializeStreamWorkers()
-
-	// Initialize enhanced P2P resource manager for monitoring and stats
-	p2pm.p2pResourceManager = utils.NewP2PResourceManager(p2pm.ctx, lm)
 
 	return p2pm
 }
@@ -248,25 +239,11 @@ func (p2pm *P2PManager) Close() error {
 		p2pm.memoryMonitor.Stop()
 	}
 
-	// Shutdown enhanced P2P resource manager
-	if p2pm.p2pResourceManager != nil {
-		if err := p2pm.p2pResourceManager.Shutdown(); err != nil {
-			p2pm.Lm.Log("warn", fmt.Sprintf("P2P resource manager shutdown error: %v", err), "p2p")
-		}
-	}
-
 	// Run final cleanup before shutdown
 	if p2pm.cleanupManager != nil {
 		cleanupErrors := p2pm.cleanupManager.Shutdown()
 		if len(cleanupErrors) > 0 {
 			p2pm.Lm.Log("warn", fmt.Sprintf("Cleanup errors during shutdown: %v", cleanupErrors), "p2p")
-		}
-	}
-
-	// Shutdown resource tracker
-	if p2pm.resourceTracker != nil {
-		if err := p2pm.resourceTracker.Shutdown(); err != nil {
-			p2pm.Lm.Log("warn", fmt.Sprintf("Resource tracker shutdown error: %v", err), "p2p")
 		}
 	}
 
@@ -416,13 +393,6 @@ func (p2pm *P2PManager) processStreamJob(job streamJob) {
 	case "proposal":
 		p2pm.streamProposalResponse(job.stream)
 	case "message":
-		// Register stream with resource tracker for monitoring only
-		p2pm.resourceTracker.TrackResourceWithCleanup(streamID, utils.ResourceStream, func() error {
-			p2pm.Lm.Log("debug", fmt.Sprintf("Resource tracker cleanup for stream %s", streamID), "p2p")
-			return nil // Don't close here, let receivedStream handle it properly
-		})
-		defer p2pm.resourceTracker.ReleaseResource(streamID)
-
 		p2pm.receivedStream(job.stream, job.streamData)
 	default:
 		p2pm.Lm.Log("warn", fmt.Sprintf("Unknown stream job type: %s", job.jobType), "p2p")
@@ -1009,16 +979,6 @@ func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
 	return info
 }
 
-// GetEnhancedResourceStats returns detailed resource statistics from P2PResourceManager
-func (p2pm *P2PManager) GetEnhancedResourceStats() map[string]any {
-	if p2pm.p2pResourceManager == nil {
-		return map[string]any{"error": "P2P resource manager not initialized"}
-	}
-
-	// Get detailed stats from the resource manager
-	return p2pm.p2pResourceManager.GetResourceStats()
-}
-
 // Get ticker intervals from config (no cron parsing needed)
 func (p2pm *P2PManager) getTickerIntervals() (time.Duration, time.Duration, error) {
 	// Use simple duration strings in config instead of cron
@@ -1332,13 +1292,9 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 			// Get basic memory usage info
 			basicStats := p2pm.GetMemoryUsageInfo()
 
-			// Get enhanced resource stats from P2PResourceManager
-			enhancedStats := p2pm.GetEnhancedResourceStats()
-
 			// Combine both sets of statistics
 			combined := map[string]any{
 				"basic":     basicStats,
-				"enhanced":  enhancedStats,
 				"timestamp": time.Now().Format(time.RFC3339),
 			}
 
@@ -1895,16 +1851,6 @@ func (p2pm *P2PManager) DiscoverPeers() {
 	const maxDiscoveredPeers = 50 // Limit memory growth
 	var discoveredPeers []peer.AddrInfo
 
-	// Track discovery operation
-	discoveryID := fmt.Sprintf("discovery-%d", time.Now().Unix())
-	p2pm.resourceTracker.TrackResourceWithCleanup(discoveryID, utils.ResourceConnection, func() error {
-		p2pm.Lm.Log("debug", "Peer discovery cleanup completed", "p2p")
-		return nil
-	})
-	defer p2pm.resourceTracker.ReleaseResource(discoveryID)
-
-	// Use shared routing discovery instance
-
 	// Run concurrent topic discoveries to avoid blocking each other
 	var wg sync.WaitGroup
 	var mu sync.Mutex // Protect shared discoveredPeers slice
@@ -1983,8 +1929,6 @@ func (p2pm *P2PManager) DiscoverPeers() {
 	if len(memInfo) > 0 {
 		p2pm.Lm.Log("info", fmt.Sprintf("Memory usage: %+v", memInfo), "p2p")
 	}
-
-	// Peers are now connected immediately as they are discovered (see above)
 }
 
 // Monitor connection health and reconnect (cron)
@@ -2046,9 +1990,7 @@ func (p2pm *P2PManager) ConnectNode(p peer.AddrInfo) error {
 		return nil // Consider this as success
 	}
 
-	connCtx, cancel := utils.TrackContextWithTimeout(p2pm.ctx, 10*time.Second, "node_connection")
-	err = p2pm.h.Connect(connCtx, p)
-	cancel()
+	err = p2pm.h.Connect(p2pm.ctx, p)
 
 	if err != nil {
 		// This might be usefull when node chabges its ID
@@ -2130,21 +2072,11 @@ func (p2pm *P2PManager) ConnectNodesAsync(peers []peer.AddrInfo, maxRetries int,
 			defer wg.Done()
 
 			for peer := range peerChan {
-				// Track connection attempt
-				connID := fmt.Sprintf("connect-%s", peer.ID.String())
-				p2pm.resourceTracker.TrackResourceWithCleanup(connID, utils.ResourceConnection, func() error {
-					p2pm.Lm.Log("debug", fmt.Sprintf("Connection attempt cleanup: %s", peer.ID.String()), "p2p")
-					return nil
-				})
-
 				if err := p2pm.ConnectNodeWithRetry(p2pm.ctx, peer, maxRetries, baseDelay); err == nil {
 					mu.Lock()
 					connectedPeers = append(connectedPeers, peer)
 					mu.Unlock()
 				}
-
-				// Release resource tracking
-				p2pm.resourceTracker.ReleaseResource(connID)
 			}
 		}) {
 			wg.Done() // If goroutine couldn't start, reduce wait group count
@@ -2176,8 +2108,6 @@ func StreamData[T any](
 	var orderingPeer255 [255]byte
 	var interfaceId int64 = int64(0)
 	var s network.Stream
-	var ctx context.Context
-	var cancel context.CancelFunc
 	var deadline time.Time
 
 	var t uint16 = uint16(0)
@@ -2219,17 +2149,7 @@ func StreamData[T any](
 		return err
 	}
 
-	// Timeout context with tracking
-	if t == 3 {
-		// File transfers - use tracked context for 5-hour timeout
-		ctx, cancel = utils.TrackContextWithTimeout(p2pm.ctx, 5*time.Hour, "file_transfer")
-	} else {
-		// Other operations - 1 minute timeout
-		ctx, cancel = utils.TrackContextWithTimeout(p2pm.ctx, 1*time.Minute, "stream_operation")
-	}
-	defer cancel()
-
-	err := p2pm.ConnectNodeWithRetry(ctx, receivingPeer, 3, 2*time.Second)
+	err := p2pm.ConnectNodeWithRetry(p2pm.ctx, receivingPeer, 3, 2*time.Second)
 	if err != nil {
 		p2pm.Lm.Log("error", err.Error(), "p2p")
 		return err
@@ -2253,7 +2173,7 @@ func StreamData[T any](
 
 	// Create new stream
 	if s == nil {
-		s, err = p2pm.h.NewStream(ctx, receivingPeer.ID, p2pm.protocolID)
+		s, err = p2pm.h.NewStream(p2pm.ctx, receivingPeer.ID, p2pm.protocolID)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
 			return err
@@ -2330,15 +2250,15 @@ func StreamData[T any](
 		if err != nil {
 			return err
 		}
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-p2pm.ctx.Done():
+		return p2pm.ctx.Err()
 	}
 
 	select {
 	case err := <-streamDone:
 		return err
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-p2pm.ctx.Done():
+		return p2pm.ctx.Err()
 	}
 }
 
@@ -2376,10 +2296,6 @@ func (p2pm *P2PManager) streamProposal(
 }
 
 func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
-	// Create timeout context for the entire stream processing
-	ctx, cancel := utils.TrackContextWithTimeout(p2pm.ctx, 15*time.Minute, "proposal_response")
-	defer cancel()
-
 	// Set reasonable timeouts to prevent indefinite blocking without closing the stream prematurely
 	s.SetReadDeadline(time.Now().Add(10 * time.Minute))  // TODO, put in configs
 	s.SetWriteDeadline(time.Now().Add(10 * time.Minute)) // TODO, put in configs
@@ -2402,30 +2318,16 @@ func (p2pm *P2PManager) streamProposalResponse(s network.Stream) {
 	}
 	p2pm.streamsMutex.Unlock()
 
-	// Enhanced resource tracking with P2PResourceManager (non-intrusive)
-	if p2pm.p2pResourceManager != nil {
-		// Just track the stream resource without interfering with processing
-		p2pm.resourceTracker.TrackResourceWithCleanup(streamID, utils.ResourceStream, func() error {
-			p2pm.Lm.Log("debug", fmt.Sprintf("Stream %s tracked by resource manager", streamID), "p2p")
-			return nil
-		})
-	}
-
 	// Ensure stream is removed from tracking when function exits
 	defer func() {
 		p2pm.streamsMutex.Lock()
 		delete(p2pm.activeStreams, streamID)
 		p2pm.streamsMutex.Unlock()
-
-		// Release from resource tracker as well
-		if p2pm.resourceTracker != nil {
-			p2pm.resourceTracker.ReleaseResource(streamID)
-		}
 	}()
 
 	// Check if context is cancelled before processing
 	select {
-	case <-ctx.Done():
+	case <-p2pm.ctx.Done():
 		p2pm.Lm.Log("warn", "Stream processing cancelled due to timeout", "p2p")
 		s.Reset()
 		return
@@ -2792,11 +2694,6 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 			return nil, err
 		}
 
-		// Update resource tracker that stream is still active
-		if len(data)%1048576 == 0 { // Update every 1MB received
-			p2pm.resourceTracker.UpdateLastUsed(s.ID())
-		}
-
 		message = fmt.Sprintf("Received chunk [%d bytes] of type %d from %s", len(chunk), streamData.Type, s.ID())
 		p2pm.Lm.Log("debug", message, "p2p")
 
@@ -2817,9 +2714,6 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		return
 	default:
 	}
-
-	// Update resource tracker that stream is being actively used
-	p2pm.resourceTracker.UpdateLastUsed(streamID)
 
 	// Add small delay to prevent race conditions with resource tracker
 	time.Sleep(10 * time.Millisecond)
@@ -4017,18 +3911,9 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			return
 		case <-ticker.C:
 			p2pm.Lm.Log("debug", "Running periodic cleanup cycle", "p2p")
-			// Clean up old resources
-			if cleaned := p2pm.resourceTracker.CleanupOldResources(30 * time.Minute); cleaned > 0 {
-				p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d old resources", cleaned), "p2p")
-			}
 
 			// Clean up old stream tracking
 			p2pm.cleanupOldStreams()
-
-			// Run P2PResourceManager periodic cleanup
-			if p2pm.p2pResourceManager != nil {
-				p2pm.p2pResourceManager.PeriodicCleanup()
-			}
 
 			// Force GC after cleanup to reclaim memory
 			memStats := utils.ForceGC()
@@ -4058,19 +3943,6 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			// Check goroutine health and log stuck goroutines
 			gt := p2pm.GetGoroutineTracker()
 			gt.CheckGoroutineHealth()
-
-			// Log basic resource statistics
-			stats := p2pm.resourceTracker.GetResourceStats()
-			if len(stats) > 0 {
-				p2pm.Lm.Log("debug", fmt.Sprintf("Basic resource stats: %+v", stats), "p2p")
-			}
-
-			// Log enhanced resource statistics every cleanup cycle (10 minutes)
-			enhancedStats := p2pm.GetEnhancedResourceStats()
-			if enhancedStats != nil {
-				p2pm.Lm.Log("info", fmt.Sprintf("Enhanced resource stats: %+v", enhancedStats), "p2p-enhanced")
-			}
-
 		}
 	}
 }

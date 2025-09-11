@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// GoroutineTracker interface for goroutine management
+type GoroutineTracker interface {
+	SafeStart(name string, fn func()) bool
+	SafeStartCritical(name string, fn func()) bool
+}
 
 // CleanupManager provides automatic resource cleanup patterns
 type CleanupManager struct {
@@ -17,11 +22,11 @@ type CleanupManager struct {
 	cleanupFuncs map[string]func() error
 	ctx          context.Context
 	cancel       context.CancelFunc
-	logger       Logger
+	logger       *LogsManager
 }
 
 // NewCleanupManager creates a new cleanup manager
-func NewCleanupManager(parentCtx context.Context, logger Logger) *CleanupManager {
+func NewCleanupManager(parentCtx context.Context, logger *LogsManager) *CleanupManager {
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &CleanupManager{
 		cleanupFuncs: make(map[string]func() error),
@@ -171,12 +176,12 @@ type MemoryPressureMonitor struct {
 	ticker           *time.Ticker
 	ctx              context.Context
 	cancel           context.CancelFunc
-	logger           Logger
+	logger           *LogsManager
 	gt               GoroutineTracker
 }
 
 // NewMemoryPressureMonitor creates a memory pressure monitor
-func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logger Logger, gt GoroutineTracker) *MemoryPressureMonitor {
+func NewMemoryPressureMonitor(thresholdPercent float64, cm *CleanupManager, logger *LogsManager, gt GoroutineTracker) *MemoryPressureMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	monitor := &MemoryPressureMonitor{
