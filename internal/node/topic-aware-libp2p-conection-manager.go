@@ -139,6 +139,11 @@ type TopicAwareConnectionManager struct {
 	// Worker pool for peer evaluation
 	peerEvalQueue chan peer.ID   // Queue for peer evaluation requests
 	workerPool    sync.WaitGroup // Track worker goroutines
+
+	// New fields for improved management
+	isEvaluationInProgress bool        // Prevent overlapping evaluations
+	maxEvaluationsPerCycle int        // Rate limiting
+	evaluationInProgressMu sync.Mutex // Protect isEvaluationInProgress
 }
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
@@ -170,9 +175,10 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		routingPeerRatio:      0.3, // 30% for routing peers
 		evaluationPeriod:      time.Minute * 5,
 		cleanupInterval:       time.Minute * 10,
-		routingScoreThreshold: 0.1,
-		stopChan:              make(chan struct{}),
-		peerEvalQueue:         make(chan peer.ID, 100), // Buffer for 100 peer evaluation requests
+		routingScoreThreshold:  0.1,
+		stopChan:               make(chan struct{}),
+		peerEvalQueue:          make(chan peer.ID, 100), // Buffer for 100 peer evaluation requests
+		maxEvaluationsPerCycle: 50,                      // Limit to 50 evaluations per 3-minute cycle
 	}
 
 	// Start periodic evaluation and cleanup
@@ -298,11 +304,38 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 
 // Periodic evaluation of peers
 func (tcm *TopicAwareConnectionManager) peersEvaluation() {
+	// Prevent overlapping evaluations
+	tcm.evaluationInProgressMu.Lock()
+	if tcm.isEvaluationInProgress {
+		tcm.lm.Log("debug", "Skipping peer evaluation - previous cycle still in progress", "p2p")
+		tcm.evaluationInProgressMu.Unlock()
+		return
+	}
+	tcm.isEvaluationInProgress = true
+	tcm.evaluationInProgressMu.Unlock()
+	
+	defer func() {
+		tcm.evaluationInProgressMu.Lock()
+		tcm.isEvaluationInProgress = false
+		tcm.evaluationInProgressMu.Unlock()
+	}()
+
+	tcm.lm.Log("debug", "Starting periodic peer evaluation", "p2p")
+	
+	// Update topic peer subscriptions
 	tcm.UpdateTopicPeersList(tcm.targetTopics)
-	tcm.reevaluateAllPeers()
-	// Use previously completed peers evaluation
+	
+	// Only re-evaluate stale peers instead of ALL peers
+	tcm.reevaluateStalePeers()
+	
+	// Add connection trimming
+	ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
+	defer cancel()
+	tcm.TrimOpenConns(ctx)
+	
+	// Log statistics
 	connStats := tcm.GetConnectionStats()
-	msg := fmt.Sprintf("Connection stats => Total connections: %d, Topic peers connected: %d, Routing peers connected: %d.",
+	msg := fmt.Sprintf("Connection stats => Total: %d, Topic peers: %d, Routing peers: %d",
 		connStats["total"], connStats["topic_peers"], connStats["routing_peers"])
 	tcm.lm.Log("debug", msg, "libp2p-events")
 }
@@ -745,19 +778,42 @@ func (tcm *TopicAwareConnectionManager) pruneRoutingPeers(routingConns []network
 	}
 }
 
-// Periodically re-evaluate all connected peers
-func (tcm *TopicAwareConnectionManager) reevaluateAllPeers() {
-	tcm.mu.Lock()
-	connectedPeers := make([]peer.ID, 0)
-	for _, conn := range tcm.host.Network().Conns() {
-		connectedPeers = append(connectedPeers, conn.RemotePeer())
+// Re-evaluate only stale connected peers
+func (tcm *TopicAwareConnectionManager) reevaluateStalePeers() {
+	tcm.mu.RLock()
+	stalePeers := make([]peer.ID, 0)
+	now := time.Now()
+	
+	// Find peers with stale evaluation data
+	for peerID, lastEval := range tcm.lastEvaluation {
+		if now.Sub(lastEval) > tcm.evaluationPeriod { // 5 minutes
+			if tcm.host.Network().Connectedness(peerID) == network.Connected {
+				stalePeers = append(stalePeers, peerID)
+			}
+		}
 	}
-	tcm.mu.Unlock()
+	
+	// Also check peers that have never been evaluated
+	for _, conn := range tcm.host.Network().Conns() {
+		peerID := conn.RemotePeer()
+		if _, hasEval := tcm.lastEvaluation[peerID]; !hasEval {
+			stalePeers = append(stalePeers, peerID)
+		}
+	}
+	
+	tcm.mu.RUnlock()
 
-	// Process peers using worker pool (bounded concurrency)
-	for _, peerID := range connectedPeers {
+	// Rate limiting - only evaluate up to maxEvaluationsPerCycle peers
+	if len(stalePeers) > tcm.maxEvaluationsPerCycle {
+		stalePeers = stalePeers[:tcm.maxEvaluationsPerCycle]
+	}
+
+	// Schedule stale peers for evaluation
+	for _, peerID := range stalePeers {
 		tcm.schedulePeerEvaluation(peerID)
 	}
+	
+	tcm.lm.Log("debug", fmt.Sprintf("Scheduled %d stale peers for evaluation", len(stalePeers)), "p2p")
 }
 
 // Handle new peer connections
@@ -790,6 +846,16 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 
 	// Schedule peer evaluation using bounded worker pool
 	tcm.schedulePeerEvaluation(peerID)
+	
+	// Check if we need to trim connections
+	allConns := tcm.host.Network().Conns()
+	if len(allConns) > tcm.maxConnections {
+		go func() {
+			ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*1)
+			defer cancel()
+			tcm.TrimOpenConns(ctx)
+		}()
+	}
 
 	// Schedule immediate topic check after brief delay for peer to subscribe
 	gt := tcm.p2pm.GetGoroutineTracker()
@@ -998,11 +1064,13 @@ func (tcm *TopicAwareConnectionManager) peerEvaluationWorker(workerID int) {
 func (tcm *TopicAwareConnectionManager) schedulePeerEvaluation(peerID peer.ID) {
 	select {
 	case tcm.peerEvalQueue <- peerID:
-		// Successfully queued for evaluation
+		// Successfully queued
 		tcm.lm.Log("debug", "Queued peer "+peerID.String()+" for evaluation", "p2p")
 	default:
-		// Queue is full, drop the request to prevent blocking
-		tcm.lm.Log("debug", "Peer evaluation queue full, skipping evaluation for "+peerID.String(), "p2p")
+		// Queue is full - log warning and drop request
+		queueLen := len(tcm.peerEvalQueue)
+		tcm.lm.Log("warning", fmt.Sprintf("Peer evaluation queue full (%d/%d), dropping evaluation for %s", 
+			queueLen, cap(tcm.peerEvalQueue), peerID.String()), "p2p")
 	}
 }
 
@@ -1042,5 +1110,21 @@ func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.I
 		}
 
 		tcm.lm.Log("debug", "Immediate topic peer detection: "+peerID.String(), "p2p")
+	}
+}
+
+// Get queue statistics for monitoring
+func (tcm *TopicAwareConnectionManager) GetQueueStats() map[string]int {
+	queueLen := len(tcm.peerEvalQueue)
+	queueCap := cap(tcm.peerEvalQueue)
+	utilization := 0
+	if queueCap > 0 {
+		utilization = (queueLen * 100) / queueCap
+	}
+	
+	return map[string]int{
+		"queue_length":             queueLen,
+		"queue_capacity":           queueCap,
+		"queue_utilization_percent": utilization,
 	}
 }

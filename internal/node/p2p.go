@@ -3860,20 +3860,6 @@ func (p2pm *P2PManager) GeneratePeerId(peerId string) (peer.ID, error) {
 	return pID, nil
 }
 
-// cleanupOldStreams removes old/stale streams from tracking
-func (p2pm *P2PManager) cleanupOldStreams() {
-	p2pm.streamsMutex.Lock()
-	defer p2pm.streamsMutex.Unlock()
-
-	cutoff := time.Now().Add(-30 * time.Minute) // Remove streams older than 30 minutes
-	for streamID, streamInfo := range p2pm.activeStreams {
-		if streamInfo.startTime.Before(cutoff) {
-			delete(p2pm.activeStreams, streamID)
-			p2pm.Lm.Log("debug", fmt.Sprintf("Cleaned up old stream tracking: %s", streamID), "p2p")
-		}
-	}
-}
-
 // handleStreamError handles stream errors with graceful close or reset fallback
 func (p2pm *P2PManager) handleStreamError(s network.Stream, message string, err error) {
 	p2pm.Lm.Log("error", fmt.Sprintf("%s: %v", message, err), "p2p")
@@ -3893,9 +3879,6 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			return
 		case <-ticker.C:
 			p2pm.Lm.Log("debug", "Running periodic cleanup cycle", "p2p")
-
-			// Clean up old stream tracking
-			p2pm.cleanupOldStreams()
 
 			// Force GC after cleanup to reclaim memory
 			memStats := utils.ForceGC()
