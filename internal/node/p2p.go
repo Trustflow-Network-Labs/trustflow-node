@@ -107,7 +107,6 @@ type P2PManager struct {
 	closingMutex          sync.RWMutex                 // Protect closingStreams map
 	activeGoroutines      int64                        // Track active goroutines (atomic)
 	maxGoroutines         int64                        // Maximum allowed goroutines
-	cleanupManager        *utils.CleanupManager        // Automatic cleanup
 	memoryMonitor         *utils.MemoryPressureMonitor // Memory pressure monitoring
 	relayTrafficMonitor   *RelayTrafficMonitor         // Monitor relay traffic for billing
 	relayPeerSource       *TopicAwareRelayPeerSource   // Discover relay peers dynamically
@@ -185,12 +184,9 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 
 	p2pm.ctx = ctx
 
-	// Initialize memory leak prevention components
-	p2pm.cleanupManager = utils.NewCleanupManager(p2pm.ctx, lm)
-
 	// Create memory pressure monitor with configurable threshold
 	memoryThreshold := cm.GetConfigFloat64("memory_pressure_threshold", 85.0, 50.0, 95.0)
-	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, p2pm.cleanupManager, lm, p2pm.GetGoroutineTracker())
+	p2pm.memoryMonitor = utils.NewMemoryPressureMonitor(memoryThreshold, lm, p2pm.GetGoroutineTracker())
 
 	// Start memory monitoring with configurable interval
 	monitorInterval := cm.GetConfigDuration("memory_monitor_interval", 30*time.Second)
@@ -198,12 +194,6 @@ func NewP2PManager(ctx context.Context, ui ui.UI, cm *utils.ConfigManager) *P2PM
 
 	// Initialize buffer pools with configuration values
 	utils.InitializeBufferPools(cm)
-
-	// Register P2P cleanup functions
-	p2pm.cleanupManager.RegisterCleanup("p2p-streams", func() error {
-		p2pm.cleanupOldStreams()
-		return nil
-	})
 
 	// Start periodic cleanup routine with critical priority
 	gt := p2pm.GetGoroutineTracker()
@@ -237,14 +227,6 @@ func (p2pm *P2PManager) Close() error {
 	// Stop memory pressure monitor
 	if p2pm.memoryMonitor != nil {
 		p2pm.memoryMonitor.Stop()
-	}
-
-	// Run final cleanup before shutdown
-	if p2pm.cleanupManager != nil {
-		cleanupErrors := p2pm.cleanupManager.Shutdown()
-		if len(cleanupErrors) > 0 {
-			p2pm.Lm.Log("warn", fmt.Sprintf("Cleanup errors during shutdown: %v", cleanupErrors), "p2p")
-		}
 	}
 
 	// Force garbage collection before closing resources

@@ -37,12 +37,12 @@ var nodeCmd = &cobra.Command{
 		// Set runtime limits to prevent goroutine leaks (CLI mode - Windows)
 		runtime.GOMAXPROCS(runtime.NumCPU()) // Use all available CPUs
 		debug.SetMaxThreads(2000)            // Limit OS threads to prevent resource exhaustion
-		
+
 		// Start periodic cleanup goroutine for CLI mode
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go startPeriodicCleanup(ctx)
-		
+
 		var public bool = false
 
 		// Configs manager
@@ -111,7 +111,7 @@ var nodeCmd = &cobra.Command{
 		go func() {
 			stopDone <- p2pManager.Stop()
 		}()
-		
+
 		select {
 		case err := <-stopDone:
 			if err != nil {
@@ -122,10 +122,10 @@ var nodeCmd = &cobra.Command{
 		case <-time.After(15 * time.Second):
 			fmt.Printf("⚠️ P2P manager stop timeout - force exiting\n")
 		}
-		
+
 		// Give pprof server and other HTTP connections time to close
 		time.Sleep(500 * time.Millisecond)
-		
+
 		// Cancel cleanup context after p2p manager stops
 		cancel()
 	},
@@ -268,24 +268,21 @@ func init() {
 func startPeriodicCleanup(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute) // Run cleanup every 5 minutes
 	defer ticker.Stop()
-	
+
 	var lastGoroutineCount int
-	
+
 	for {
 		select {
 		case <-ticker.C:
 			// Force garbage collection to clean up unused memory
-			runtime.GC()
-			
-			// Free OS memory back to the system
-			debug.FreeOSMemory()
-			
+			utils.ForceGC()
+
 			// Log current goroutine count for monitoring
 			numGoroutines := runtime.NumGoroutine()
 			if numGoroutines > 500 { // Alert if goroutines are high
 				fmt.Printf("[CLEANUP] High goroutine count detected: %d (CLI mode - Windows)\n", numGoroutines)
 			}
-			
+
 			// Track goroutine growth over time
 			if lastGoroutineCount > 0 && numGoroutines > lastGoroutineCount {
 				growth := numGoroutines - lastGoroutineCount
@@ -294,7 +291,7 @@ func startPeriodicCleanup(ctx context.Context) {
 				}
 			}
 			lastGoroutineCount = numGoroutines
-			
+
 		case <-ctx.Done():
 			// Context cancelled, stop cleanup
 			fmt.Printf("[CLEANUP] Periodic cleanup stopped\n")

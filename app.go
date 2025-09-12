@@ -33,10 +33,10 @@ type App struct {
 	frontendReadyChan chan struct{}
 	channelManager    *utils.ChannelManager // Centralized channel management
 	gui               ui.UI
-	stopChan          chan struct{} // Channel to signal node stop from StopNode()
-	stopChanMutex     sync.Mutex    // Protect stopChan access
-	cleanupCtx        context.Context       // Context for cleanup goroutine
-	cleanupCancel     context.CancelFunc    // Cancel function for cleanup
+	stopChan          chan struct{}      // Channel to signal node stop from StopNode()
+	stopChanMutex     sync.Mutex         // Protect stopChan access
+	cleanupCtx        context.Context    // Context for cleanup goroutine
+	cleanupCancel     context.CancelFunc // Cancel function for cleanup
 }
 
 // NewApp creates a new App application struct
@@ -50,14 +50,14 @@ func (a *App) startup(ctx context.Context) {
 	// Set runtime limits to prevent goroutine leaks
 	runtime.GOMAXPROCS(runtime.NumCPU()) // Use all available CPUs
 	debug.SetMaxThreads(2000)            // Limit OS threads to prevent resource exhaustion
-	
+
 	a.ctx = ctx
 	a.channelManager = utils.NewChannelManager(ctx)
 	a.frontendReadyChan = make(chan struct{})
-	
+
 	// Create separate cancellable context for cleanup goroutine
 	a.cleanupCtx, a.cleanupCancel = context.WithCancel(ctx)
-	
+
 	// Start periodic cleanup goroutine to manage memory and goroutines
 	go a.startPeriodicCleanup(a.cleanupCtx)
 	a.gui = ui.GUI{
@@ -286,7 +286,7 @@ func (a *App) StopNode() error {
 	go func() {
 		stopDone <- a.p2pm.Stop()
 	}()
-	
+
 	select {
 	case err := <-stopDone:
 		if err != nil {
@@ -298,10 +298,10 @@ func (a *App) StopNode() error {
 		fmt.Printf("⚠️ P2P manager stop timeout - force exiting\n")
 		// Continue with cleanup even if stop times out
 	}
-	
+
 	// Give pprof server and other HTTP connections time to close
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Cancel cleanup context after p2p manager stops
 	if a.cleanupCancel != nil {
 		a.cleanupCancel()
@@ -671,24 +671,21 @@ func (a *App) RemoveWorkflowJobInterfacePeer(workflowJobId int64, workflowJobInt
 func (a *App) startPeriodicCleanup(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute) // Run cleanup every 5 minutes
 	defer ticker.Stop()
-	
+
 	var lastGoroutineCount int
-	
+
 	for {
 		select {
 		case <-ticker.C:
 			// Force garbage collection to clean up unused memory
-			runtime.GC()
-			
-			// Free OS memory back to the system
-			debug.FreeOSMemory()
-			
+			utils.ForceGC()
+
 			// Log current goroutine count for monitoring
 			numGoroutines := runtime.NumGoroutine()
 			if numGoroutines > 500 { // Alert if goroutines are high
 				fmt.Printf("[CLEANUP] High goroutine count detected: %d (GUI mode)\n", numGoroutines)
 			}
-			
+
 			// Track goroutine growth over time
 			if lastGoroutineCount > 0 && numGoroutines > lastGoroutineCount {
 				growth := numGoroutines - lastGoroutineCount
@@ -697,7 +694,7 @@ func (a *App) startPeriodicCleanup(ctx context.Context) {
 				}
 			}
 			lastGoroutineCount = numGoroutines
-			
+
 		case <-ctx.Done():
 			// Context cancelled, stop cleanup
 			fmt.Printf("[CLEANUP] Periodic cleanup stopped\n")
