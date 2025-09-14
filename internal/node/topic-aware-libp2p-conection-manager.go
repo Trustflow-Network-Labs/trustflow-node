@@ -116,10 +116,11 @@ type TopicAwareConnectionManager struct {
 	p2pm         *P2PManager // Reference to access goroutine tracker
 
 	// Connection priorities
-	topicPeers     map[peer.ID]bool      // Peers subscribed to our topics
-	routingPeers   map[peer.ID]float64   // Peers useful for routing (with score)
-	lastEvaluation map[peer.ID]time.Time // Last time we evaluated peer usefulness
-	peerStatsCache *LRUCache             // Historical statistics
+	topicPeers           map[peer.ID]bool      // Peers subscribed to our topics
+	routingPeers         map[peer.ID]float64   // Peers useful for routing (with score)
+	lastEvaluation       map[peer.ID]time.Time // Last time we evaluated peer usefulness
+	lastTopicCheck       map[peer.ID]time.Time // Last time we checked topic subscription
+	peerStatsCache       *LRUCache             // Historical statistics
 
 	mu sync.RWMutex
 
@@ -168,6 +169,7 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		topicPeers:            make(map[peer.ID]bool),
 		routingPeers:          make(map[peer.ID]float64),
 		lastEvaluation:        make(map[peer.ID]time.Time),
+		lastTopicCheck:        make(map[peer.ID]time.Time),
 		peerStatsCache:        NewLRUCache(maxPeerTracking),
 		maxConnections:        maxConnections,
 		maxPeerTracking:       maxPeerTracking,
@@ -250,6 +252,7 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 	staleThreshold := time.Hour * 2 // Remove data older than 2 hours
 
 	// Clean up topicPeers
+	topicPeersBeforeCleanup := len(tcm.topicPeers)
 	if len(tcm.topicPeers) > tcm.maxPeerTracking {
 		// Keep only connected peers if over limit
 		newTopicPeers := make(map[peer.ID]bool)
@@ -259,6 +262,8 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 			}
 		}
 		tcm.topicPeers = newTopicPeers
+		tcm.lm.Log("debug", fmt.Sprintf("Topic peers cleanup: %d -> %d (removed %d disconnected)", 
+			topicPeersBeforeCleanup, len(tcm.topicPeers), topicPeersBeforeCleanup-len(tcm.topicPeers)), "p2p")
 	}
 
 	// Clean up routingPeers
@@ -274,12 +279,19 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 		tcm.routingPeers = newRoutingPeers
 	}
 
-	// Clean up lastEvaluation
+	// Clean up lastEvaluation and lastTopicCheck
 	stalePeers := make([]peer.ID, 0)
 	for peerID, lastEval := range tcm.lastEvaluation {
 		if now.Sub(lastEval) > staleThreshold {
 			delete(tcm.lastEvaluation, peerID)
 			stalePeers = append(stalePeers, peerID)
+		}
+	}
+	
+	// Clean up topic check timestamps
+	for peerID, lastCheck := range tcm.lastTopicCheck {
+		if now.Sub(lastCheck) > staleThreshold {
+			delete(tcm.lastTopicCheck, peerID)
 		}
 	}
 
@@ -320,8 +332,6 @@ func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 		tcm.evaluationInProgressMu.Unlock()
 	}()
 
-	tcm.lm.Log("debug", "Starting periodic peer evaluation", "p2p")
-	
 	// Update topic peer subscriptions
 	tcm.UpdateTopicPeersList(tcm.targetTopics)
 	
@@ -355,10 +365,13 @@ func (tcm *TopicAwareConnectionManager) UpdateTopicPeersList(targetTopics []stri
 	// Get current topic subscribers using pubsub.ListPeers directly
 	for _, topicName := range targetTopics {
 		peers := tcm.pubsub.ListPeers(topicName)
+		tcm.lm.Log("debug", fmt.Sprintf("Topic '%s' reports %d peers: %v", topicName, len(peers), peers), "p2p")
 		for _, peerID := range peers {
 			currentTopicPeers[peerID] = true
 		}
 	}
+	
+	tcm.lm.Log("debug", fmt.Sprintf("Total unique topic peers from pubsub: %d", len(currentTopicPeers)), "p2p")
 
 	// Bounded update - only keep up to maxPeerTracking peers
 	if len(currentTopicPeers) > tcm.maxPeerTracking {
@@ -391,6 +404,19 @@ func (tcm *TopicAwareConnectionManager) UpdateTopicPeersList(targetTopics []stri
 		tcm.lm.Log("debug", fmt.Sprintf("Topic peers list bounded to %d entries", len(boundedTopicPeers)), "p2p")
 	} else {
 		tcm.topicPeers = currentTopicPeers
+	}
+	
+	// Debug: Show final topic peers count and some peer IDs for verification
+	tcm.lm.Log("debug", fmt.Sprintf("Final topic peers count: %d", len(tcm.topicPeers)), "p2p")
+	if len(tcm.topicPeers) > 0 {
+		peerIDs := make([]string, 0, min(5, len(tcm.topicPeers)))
+		count := 0
+		for peerID := range tcm.topicPeers {
+			if count >= 5 { break }
+			peerIDs = append(peerIDs, peerID.String()[:12]+"...")
+			count++
+		}
+		tcm.lm.Log("debug", fmt.Sprintf("Sample topic peers: %v", peerIDs), "p2p")
 	}
 
 	switch tcm.uiType {
@@ -857,24 +883,33 @@ func (tcm *TopicAwareConnectionManager) OnPeerConnected(peerID peer.ID) {
 		}()
 	}
 
-	// Schedule immediate topic check after brief delay for peer to subscribe
-	gt := tcm.p2pm.GetGoroutineTracker()
-	gt.SafeStart(fmt.Sprintf("tcm-topic-check-%s", peerID.String()[:8]), func() {
-		// Use proper context handling to prevent goroutine leaks
-		ctx, cancel := context.WithTimeout(tcm.ctx, 5*time.Second)
-		defer cancel()
+	// Check cache first, but add delay for new connections to let pubsub populate
+	tcm.mu.RLock()
+	_, hasRecentCheck := tcm.lastTopicCheck[peerID]
+	tcm.mu.RUnlock()
+	
+	if !hasRecentCheck {
+		// New connection - add delay like the old implementation
+		gt := tcm.p2pm.GetGoroutineTracker()
+		gt.SafeStart(fmt.Sprintf("tcm-topic-check-%s", peerID.String()[:8]), func() {
+			ctx, cancel := context.WithTimeout(tcm.ctx, 5*time.Second)
+			defer cancel()
 
-		select {
-		case <-time.After(2 * time.Second):
-			// Check if peer is still connected before doing expensive check
-			if tcm.host.Network().Connectedness(peerID) == network.Connected {
-				tcm.checkPeerTopicSubscription(peerID)
+			select {
+			case <-time.After(2 * time.Second):
+				// Check if peer is still connected before doing expensive check
+				if tcm.host.Network().Connectedness(peerID) == network.Connected {
+					tcm.checkPeerTopicSubscriptionCached(peerID)
+				}
+			case <-ctx.Done():
+				// Context cancelled, exit goroutine
+				return
 			}
-		case <-ctx.Done():
-			// Context cancelled, exit goroutine
-			return
-		}
-	})
+		})
+	} else {
+		// Has cache - immediate check
+		tcm.checkPeerTopicSubscriptionCached(peerID)
+	}
 }
 
 // Handle peer disconnections
@@ -890,6 +925,7 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	delete(tcm.topicPeers, peerID)
 	delete(tcm.routingPeers, peerID)
 	delete(tcm.lastEvaluation, peerID)
+	delete(tcm.lastTopicCheck, peerID)
 
 	switch tcm.uiType {
 	case "CLI":
@@ -1000,6 +1036,7 @@ func (tcm *TopicAwareConnectionManager) Shutdown() {
 	tcm.topicPeers = make(map[peer.ID]bool)
 	tcm.routingPeers = make(map[peer.ID]float64)
 	tcm.lastEvaluation = make(map[peer.ID]time.Time)
+	tcm.lastTopicCheck = make(map[peer.ID]time.Time)
 	tcm.mu.Unlock()
 
 	// Stop worker pool
@@ -1074,8 +1111,9 @@ func (tcm *TopicAwareConnectionManager) schedulePeerEvaluation(peerID peer.ID) {
 	}
 }
 
-// Check if a newly connected peer subscribes to our topics
-func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.ID) {
+
+// Cache-first topic subscription check - eliminates goroutine overhead
+func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscriptionCached(peerID peer.ID) {
 	tcm.mu.Lock()
 	defer tcm.mu.Unlock()
 
@@ -1084,7 +1122,33 @@ func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.I
 		return
 	}
 
+	now := time.Now()
+	topicCheckStaleThreshold := time.Minute * 10 // Re-check after 10 minutes (topic subscriptions rarely change)
+
+	// Check if we have recent cache data
+	lastCheck, hasRecentCheck := tcm.lastTopicCheck[peerID]
 	wasTopicPeer := tcm.topicPeers[peerID]
+
+	// If we have recent data (< 10 minutes), trust the cache but still emit connection events
+	if hasRecentCheck && now.Sub(lastCheck) < topicCheckStaleThreshold {
+		tcm.lm.Log("debug", fmt.Sprintf("Peer %s topic check: using cached result (topic_peer=%v)", peerID.String()[:12], wasTopicPeer), "p2p")
+		
+		// Emit connection event for topic peers (even from cache)
+		if wasTopicPeer {
+			switch tcm.uiType {
+			case "CLI":
+				// Do nothing
+			case "GUI":
+				runtime.EventsEmit(tcm.ctx, "topicpeerconnectedlog-event", peerID.String())
+			default:
+				// Do nothing
+			}
+		}
+		return
+	}
+
+	// Cache is stale or missing - do expensive pubsub query
+	tcm.lm.Log("debug", fmt.Sprintf("Peer %s topic check: cache stale, doing pubsub query", peerID.String()[:12]), "p2p")
 
 	// Check if peer is now subscribed to any target topics
 	isTopicPeer := false
@@ -1096,8 +1160,12 @@ func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.I
 		}
 	}
 
-	// Update topic peer status and emit event if newly classified as topic peer
+	// Update cache timestamp
+	tcm.lastTopicCheck[peerID] = now
+
+	// Update topic peer status and emit appropriate events
 	if isTopicPeer && !wasTopicPeer {
+		// Newly subscribed to topics
 		tcm.topicPeers[peerID] = true
 
 		switch tcm.uiType {
@@ -1109,7 +1177,24 @@ func (tcm *TopicAwareConnectionManager) checkPeerTopicSubscription(peerID peer.I
 			// Do nothing
 		}
 
-		tcm.lm.Log("debug", "Immediate topic peer detection: "+peerID.String(), "p2p")
+		tcm.lm.Log("debug", "Cache-based topic peer detection: "+peerID.String(), "p2p")
+	} else if !isTopicPeer && wasTopicPeer {
+		// Peer no longer subscribes to topics - emit disconnection event
+		tcm.topicPeers[peerID] = false
+
+		switch tcm.uiType {
+		case "CLI":
+			// Do nothing
+		case "GUI":
+			runtime.EventsEmit(tcm.ctx, "topicpeerdisconnectedlog-event", peerID.String())
+		default:
+			// Do nothing
+		}
+
+		tcm.lm.Log("debug", "Peer unsubscribed from topics: "+peerID.String(), "p2p")
+	} else {
+		// Update cache entry even if status unchanged
+		tcm.topicPeers[peerID] = isTopicPeer
 	}
 }
 
