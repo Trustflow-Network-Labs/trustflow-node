@@ -1656,6 +1656,13 @@ func (p2pm *P2PManager) Stop() error {
 	// Stop periodic tasks
 	p2pm.StopPeriodicTasks()
 
+	// Shutdown connection manager first to stop its workers and tickers
+	if p2pm.tcm != nil {
+		p2pm.Lm.Log("info", "Shutting down TopicAwareConnectionManager...", "p2p")
+		p2pm.tcm.Shutdown()
+		p2pm.Lm.Log("info", "TopicAwareConnectionManager shutdown complete", "p2p")
+	}
+
 	// Cancel subscriptions
 	for _, subscription := range p2pm.subscriptions {
 		subscription.Cancel()
@@ -1667,6 +1674,14 @@ func (p2pm *P2PManager) Stop() error {
 			p2pm.UI.Print(fmt.Sprintf("Could not close topic %s: %s\n", key, err.Error()))
 		}
 		delete(p2pm.topicsSubscribed, key)
+	}
+
+	// Clear pubsub reference to help with cleanup
+	// Note: libp2p-pubsub goroutines should stop when host closes, but sometimes get stuck
+	if p2pm.ps != nil {
+		p2pm.Lm.Log("info", "Clearing pubsub reference...", "p2p")
+		p2pm.ps = nil
+		p2pm.Lm.Log("info", "Pubsub reference cleared", "p2p")
 	}
 
 	// Stop p2p node with timeout to prevent hanging
@@ -1685,7 +1700,9 @@ func (p2pm *P2PManager) Stop() error {
 		}
 		p2pm.Lm.Log("info", "libp2p host closed successfully", "p2p")
 	case <-time.After(10 * time.Second):
-		p2pm.Lm.Log("warn", "Host close timeout - force terminating", "p2p")
+		p2pm.Lm.Log("warn", "Host close timeout - force terminating (this may leave pubsub goroutines running)", "p2p")
+		// This is expected with libp2p-pubsub - validation/connector goroutines sometimes don't stop
+		p2pm.Lm.Log("warn", "Known issue: pubsub validation/connector goroutines may remain until app restart", "p2p")
 		// Don't return error, continue with cleanup
 	}
 
