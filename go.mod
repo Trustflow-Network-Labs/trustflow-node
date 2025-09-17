@@ -1,4 +1,4 @@
-module github.com/adgsm/trustflow-node
+module github.com/Trustflow-Network-Labs/trustflow-node
 
 go 1.24.0
 
@@ -210,16 +210,16 @@ require (
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20241007155032-5fefd90f89a9
 
-replace github.com/adgsm/trustflow-node/internal/cmd => ./internal/cmd
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/cmd => ./internal/cmd
 
-replace github.com/adgsm/trustflow-node/internal/keystore => ./internal/keystore
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/keystore => ./internal/keystore
 
-replace github.com/adgsm/trustflow-node/internal/repo => ./internal/repo
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/repo => ./internal/repo
 
-replace github.com/adgsm/trustflow-node/internal/tfnode => ./internal/tfnode
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/tfnode => ./internal/tfnode
 
-replace github.com/adgsm/trustflow-node/internal/utils => ./internal/utils
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/utils => ./internal/utils
 
-replace github.com/adgsm/trustflow-node/internal/database => ./internal/database
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/database => ./internal/database
 
-replace github.com/adgsm/trustflow-node/internal/node_types => ./internal/node_types
+replace github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types => ./internal/node_types

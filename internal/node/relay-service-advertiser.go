@@ -8,7 +8,7 @@ import (
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 )
 
 // RelayServiceAdvertiser manages advertising relay services on the DHT

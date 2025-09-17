@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"

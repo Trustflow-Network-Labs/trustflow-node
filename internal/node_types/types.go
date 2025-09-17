@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	"github.com/google/shlex"
 	"github.com/libp2p/go-libp2p/core/peer"
 )

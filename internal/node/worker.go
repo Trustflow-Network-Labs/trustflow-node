@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 )
 
 // Worker represents a managed goroutine

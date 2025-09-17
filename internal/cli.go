@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/adgsm/trustflow-node/internal/cmd"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/cmd"
 )
 
 func main() {

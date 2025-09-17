@@ -3,7 +3,7 @@ package examples
 import (
 	"fmt"
 
-	"github.com/adgsm/trustflow-node/internal/node"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node"
 )
 
 // RelayMarketplaceDemo demonstrates the topic-aware relay marketplace

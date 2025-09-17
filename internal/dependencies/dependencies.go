@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/adgsm/trustflow-node/internal/ui"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/ui"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 )
 
 type DependencyManager struct {

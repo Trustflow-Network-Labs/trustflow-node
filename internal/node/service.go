@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adgsm/trustflow-node/internal/node_types"
-	"github.com/adgsm/trustflow-node/internal/price"
-	"github.com/adgsm/trustflow-node/internal/repo"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/price"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/repo"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	"github.com/google/shlex"
 )
 

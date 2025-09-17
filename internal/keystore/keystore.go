@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adgsm/trustflow-node/internal/node_types"
-	"github.com/adgsm/trustflow-node/internal/settings"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/settings"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 )

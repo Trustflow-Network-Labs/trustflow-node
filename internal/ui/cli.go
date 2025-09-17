@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/adgsm/trustflow-node/internal/node_types"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types"
 	"github.com/manifoldco/promptui"
 )
 

@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"github.com/adgsm/trustflow-node/internal/node_types"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types"
 )
 
 type GUI struct {

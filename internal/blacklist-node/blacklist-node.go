@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/adgsm/trustflow-node/internal/node_types"
-	"github.com/adgsm/trustflow-node/internal/ui"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/ui"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/conngater"
 )

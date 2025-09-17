@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/adgsm/trustflow-node/internal/dependencies"
-	"github.com/adgsm/trustflow-node/internal/node"
-	"github.com/adgsm/trustflow-node/internal/ui"
-	"github.com/adgsm/trustflow-node/internal/utils"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/dependencies"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/node"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/ui"
+	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 	"github.com/spf13/cobra"
 )
 
