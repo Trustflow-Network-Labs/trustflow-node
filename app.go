@@ -31,7 +31,6 @@ type App struct {
 	confirmFuncChan   chan bool
 	confirmChanMutex  sync.Mutex // Protect confirmFuncChan access
 	frontendReadyChan chan struct{}
-	channelManager    *utils.ChannelManager // Centralized channel management
 	gui               ui.UI
 	stopChan          chan struct{}      // Channel to signal node stop from StopNode()
 	stopChanMutex     sync.Mutex         // Protect stopChan access
@@ -52,7 +51,6 @@ func (a *App) startup(ctx context.Context) {
 	debug.SetMaxThreads(2000)            // Limit OS threads to prevent resource exhaustion
 
 	a.ctx = ctx
-	a.channelManager = utils.NewChannelManager(ctx)
 	a.frontendReadyChan = make(chan struct{})
 
 	// Create separate cancellable context for cleanup goroutine
@@ -133,11 +131,6 @@ func (a *App) shutdown(ctx context.Context) {
 		a.confirmFuncChan = nil
 	}
 	a.confirmChanMutex.Unlock()
-
-	// Shutdown channel manager
-	if a.channelManager != nil {
-		a.channelManager.Shutdown()
-	}
 
 	defer a.p2pm.Close()
 }
