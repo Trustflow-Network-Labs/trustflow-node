@@ -1911,7 +1911,10 @@ func (p2pm *P2PManager) DiscoverPeers() {
 
 				case <-p2pm.ctx.Done():
 					// Main context cancelled, stop this topic discovery
-					p2pm.Lm.Log("debug", fmt.Sprintf("Topic %s discovery cancelled via main context", topicName), "p2p")
+					// Check if LogsManager is still available (prevent panic during shutdown)
+					if p2pm.Lm != nil {
+						p2pm.Lm.Log("debug", fmt.Sprintf("Topic %s discovery cancelled via main context", topicName), "p2p")
+					}
 					return
 				}
 			}

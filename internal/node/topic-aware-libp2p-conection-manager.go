@@ -151,7 +151,7 @@ type TopicAwareConnectionManager struct {
 	// Semaphore for coordinating evaluation completion with trimming
 	pendingEvaluations int32         // Atomic counter for pending evaluations
 	evaluationComplete chan struct{} // Signal when all evaluations are done
-	
+
 	// Shutdown protection
 	isShutdown int32 // Atomic flag to prevent multiple shutdowns
 }
@@ -762,7 +762,16 @@ func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 	if len(otherPeers) > 0 {
 		tcm.lm.Log("debug", fmt.Sprintf("Pruning %d other peers (lowest priority)", len(otherPeers)), "p2p")
 		for _, conn := range otherPeers {
-			conn.Close()
+			peerID := conn.RemotePeer()
+
+			// Clean up peer data BEFORE closing to prevent memory leaks
+			tcm.cleanupPeerData(peerID)
+
+			// Use libp2p network interface to properly close connection and cleanup QUIC goroutines
+			err := tcm.host.Network().ClosePeer(peerID)
+			if err != nil {
+				tcm.lm.Log("debug", fmt.Sprintf("Error closing peer %s: %v", peerID.String(), err), "p2p")
+			}
 		}
 	}
 
@@ -780,16 +789,16 @@ func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 		excessConnections := remainingConns - tcm.maxConnections
 		tcm.lm.Log("warning", fmt.Sprintf(
 			"Connection count exceeded limit: %d connections (%d topic + %d routing) > %d limit. "+
-			"Topic peers are protected and will NOT be disconnected. "+
-			"Consider increasing maxConnections or reducing routing peer ratio.",
+				"Topic peers are protected and will NOT be disconnected. "+
+				"Consider increasing maxConnections or reducing routing peer ratio.",
 			remainingConns, len(topicPeers), maxRoutingPeers, tcm.maxConnections), "p2p")
-		
+
 		// Log detailed breakdown for monitoring
 		tcm.lm.Log("warning", fmt.Sprintf(
 			"Protected topic peers: %d (cannot be disconnected), "+
-			"Routing peers: %d (capped at %d), "+
-			"Other peers: %d (already pruned), "+
-			"Excess over limit: %d",
+				"Routing peers: %d (capped at %d), "+
+				"Other peers: %d (already pruned), "+
+				"Excess over limit: %d",
 			len(topicPeers), len(routingPeers), maxRoutingPeers, len(otherPeers), excessConnections), "p2p")
 	}
 }
@@ -805,7 +814,16 @@ func (tcm *TopicAwareConnectionManager) pruneRoutingPeers(routingConns []network
 
 	// Prune the worst ones
 	for i := 0; i < toPrune && i < len(routingConns); i++ {
-		routingConns[i].Close()
+		peerID := routingConns[i].RemotePeer()
+
+		// Clean up peer data BEFORE closing to prevent memory leaks
+		tcm.cleanupPeerData(peerID)
+
+		// Use libp2p network interface to properly close connection and cleanup QUIC goroutines
+		err := tcm.host.Network().ClosePeer(peerID)
+		if err != nil {
+			tcm.lm.Log("debug", fmt.Sprintf("Error closing routing peer %s: %v", peerID.String(), err), "p2p")
+		}
 	}
 }
 
@@ -946,6 +964,9 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	delete(tcm.lastEvaluation, peerID)
 	delete(tcm.lastTopicCheck, peerID)
 
+	// Remove from peer stats cache to prevent memory leak
+	tcm.peerStatsCache.Remove(peerID)
+
 	switch tcm.uiType {
 	case "CLI":
 		// Do nothing
@@ -960,6 +981,19 @@ func (tcm *TopicAwareConnectionManager) OnPeerDisconnected(peerID peer.ID) {
 	default:
 		// Do nothing
 	}
+}
+
+// cleanupPeerData removes peer data from all internal caches without acquiring locks
+// This is called during connection pruning when the lock is already held
+func (tcm *TopicAwareConnectionManager) cleanupPeerData(peerID peer.ID) {
+	// Remove from active tracking maps
+	delete(tcm.topicPeers, peerID)
+	delete(tcm.routingPeers, peerID)
+	delete(tcm.lastEvaluation, peerID)
+	delete(tcm.lastTopicCheck, peerID)
+
+	// Remove from peer stats cache to prevent memory leak
+	tcm.peerStatsCache.Remove(peerID)
 }
 
 // Update historical performance data
@@ -1069,14 +1103,14 @@ func (tcm *TopicAwareConnectionManager) Shutdown() {
 	// Stop worker pool with timeout protection
 	close(tcm.topicPeerQueue)
 	close(tcm.regularQueue)
-	
+
 	// Wait for workers with timeout to prevent hanging
 	workersDone := make(chan struct{})
 	go func() {
 		tcm.workerPool.Wait()
 		close(workersDone)
 	}()
-	
+
 	select {
 	case <-workersDone:
 		// All workers stopped gracefully
@@ -1171,7 +1205,7 @@ func (tcm *TopicAwareConnectionManager) processPeerEvaluation(peerID peer.ID, pe
 func (tcm *TopicAwareConnectionManager) schedulePeerEvaluation(peerID peer.ID) {
 	// Check if this is a topic peer by looking at current subscriptions
 	isTopicPeer := tcm.isKnownTopicPeer(peerID)
-	
+
 	if isTopicPeer {
 		// Topic peers always get evaluated - use large buffered channel
 		select {
@@ -1200,12 +1234,12 @@ func (tcm *TopicAwareConnectionManager) schedulePeerEvaluation(peerID peer.ID) {
 func (tcm *TopicAwareConnectionManager) isKnownTopicPeer(peerID peer.ID) bool {
 	tcm.mu.RLock()
 	defer tcm.mu.RUnlock()
-	
+
 	// First check our cached topic peers
 	if isTopicPeer, exists := tcm.topicPeers[peerID]; exists && isTopicPeer {
 		return true
 	}
-	
+
 	// Also check current pubsub subscriptions directly for real-time accuracy
 	for _, topicName := range tcm.targetTopics {
 		peers := tcm.pubsub.ListPeers(topicName)
@@ -1213,7 +1247,7 @@ func (tcm *TopicAwareConnectionManager) isKnownTopicPeer(peerID peer.ID) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -1315,24 +1349,24 @@ func (tcm *TopicAwareConnectionManager) GetQueueStats() map[string]int {
 	topicQueueCap := cap(tcm.topicPeerQueue)
 	regularQueueLen := len(tcm.regularQueue)
 	regularQueueCap := cap(tcm.regularQueue)
-	
+
 	topicUtilization := 0
 	if topicQueueCap > 0 {
 		topicUtilization = (topicQueueLen * 100) / topicQueueCap
 	}
-	
+
 	regularUtilization := 0
 	if regularQueueCap > 0 {
 		regularUtilization = (regularQueueLen * 100) / regularQueueCap
 	}
 
 	return map[string]int{
-		"topic_queue_length":              topicQueueLen,
-		"topic_queue_capacity":            topicQueueCap,
-		"topic_queue_utilization_percent": topicUtilization,
-		"regular_queue_length":            regularQueueLen,
-		"regular_queue_capacity":          regularQueueCap,
+		"topic_queue_length":                topicQueueLen,
+		"topic_queue_capacity":              topicQueueCap,
+		"topic_queue_utilization_percent":   topicUtilization,
+		"regular_queue_length":              regularQueueLen,
+		"regular_queue_capacity":            regularQueueCap,
 		"regular_queue_utilization_percent": regularUtilization,
-		"total_pending":                   topicQueueLen + regularQueueLen,
+		"total_pending":                     topicQueueLen + regularQueueLen,
 	}
 }
