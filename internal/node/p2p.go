@@ -1148,9 +1148,9 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		gracePeriod := p2pm.cm.GetConfigDuration("connection_grace_period", 30*time.Second)
 		silencePeriod := p2pm.cm.GetConfigDuration("connection_silence_period", 15*time.Second)
 		connMgr, err := connmgr.NewConnManager(
-			50,             // Low water mark - reduced to limit baseline connections
-			maxConnections, // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(gracePeriod),   // Configurable grace period for cleanup
+			50,                                       // Low water mark - reduced to limit baseline connections
+			maxConnections,                           // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(gracePeriod),     // Configurable grace period for cleanup
 			connmgr.WithSilencePeriod(silencePeriod), // Configurable silence period to avoid connection churn
 		)
 		if err != nil {
@@ -1167,9 +1167,9 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		gracePeriod := p2pm.cm.GetConfigDuration("connection_grace_period", 30*time.Second)
 		silencePeriod := p2pm.cm.GetConfigDuration("connection_silence_period", 15*time.Second)
 		connMgr, err := connmgr.NewConnManager(
-			50,             // Low water mark - reduced to limit baseline connections
-			maxConnections, // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(gracePeriod),   // Configurable grace period for cleanup
+			50,                                       // Low water mark - reduced to limit baseline connections
+			maxConnections,                           // High water mark - maximum connections before pruning
+			connmgr.WithGracePeriod(gracePeriod),     // Configurable grace period for cleanup
 			connmgr.WithSilencePeriod(silencePeriod), // Configurable silence period to avoid connection churn
 		)
 		if err != nil {
@@ -1990,6 +1990,15 @@ func (p2pm *P2PManager) DiscoverPeers() {
 func (p2pm *P2PManager) MaintainConnections() {
 	for _, peerID := range p2pm.h.Network().Peers() {
 		if p2pm.h.Network().Connectedness(peerID) != network.Connected {
+			// Close stale connection resources before attempting to reconnect
+			p2pm.h.Network().ClosePeer(peerID)
+			p2pm.Lm.Log("debug", fmt.Sprintf("Closed stale connection to %s before reconnect attempt",
+				peerID.String()[:12]), "connection-maintenance")
+
+			// Give time for resources to be cleaned up
+			cleanupDelay := p2pm.cm.GetConfigDuration("connection_cleanup_delay", 100*time.Millisecond)
+			time.Sleep(cleanupDelay)
+
 			// Attempt to reconnect
 			if err := peerID.Validate(); err != nil {
 				continue
@@ -2701,8 +2710,8 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 	// Safety limits to prevent memory exhaustion attacks
 	maxChunkSizeMB := p2pm.cm.GetConfigInt("max_chunk_size_mb", 10, 1, 100)
 	maxTotalSizeMB := p2pm.cm.GetConfigInt("max_stream_size_mb", 100, 10, 1000)
-	maxChunkSize := uint64(maxChunkSizeMB * 1024 * 1024)  // Convert MB to bytes
-	maxTotalSize := uint64(maxTotalSizeMB * 1024 * 1024)  // Convert MB to bytes
+	maxChunkSize := uint64(maxChunkSizeMB * 1024 * 1024) // Convert MB to bytes
+	maxTotalSize := uint64(maxTotalSizeMB * 1024 * 1024) // Convert MB to bytes
 
 	for {
 		// Receive chunk size

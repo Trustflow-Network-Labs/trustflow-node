@@ -157,6 +157,7 @@ connection_grace_period = 30s
 connection_silence_period = 15s
 peer_tracking_multiplier = 3
 max_routing_peers = 50
+connection_cleanup_delay = 100ms
 
 # Relay Settings
 max_active_circuits = 1000
