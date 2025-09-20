@@ -158,7 +158,9 @@ type TopicAwareConnectionManager struct {
 
 func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
-	maxPeerTracking := maxConnections * 3 // Track 3x max connections
+
+	// Adjust limits for relay nodes to reduce memory pressure
+	maxPeerTracking := maxConnections * 3 // 3x tracking
 
 	// Detect UI type for emitting events to front-end
 	uiType, err := ui.DetectUIType(p2pm.UI)

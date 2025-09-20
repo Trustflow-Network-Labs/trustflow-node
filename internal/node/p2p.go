@@ -476,11 +476,18 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 		return false
 	}
 
-	// Generate unique ID and capture stack trace
+	// Generate unique ID and capture minimal stack trace only for critical goroutines
 	goroutineID := fmt.Sprintf("%s_%d_%d", name, time.Now().UnixNano(), current)
-	stackBuf := make([]byte, 2048)
-	stackLen := runtime.Stack(stackBuf, false)
-	stackTrace := string(stackBuf[:stackLen])
+	var stackTrace string
+	if critical {
+		// Only capture stack traces for critical goroutines to reduce memory usage
+		stackBuf := make([]byte, 512) // Reduced from 2048 to 512 bytes
+		stackLen := runtime.Stack(stackBuf, false)
+		stackTrace = string(stackBuf[:stackLen])
+	} else {
+		// For non-critical goroutines, just store the function name to save memory
+		stackTrace = name
+	}
 
 	// Register goroutine
 	gt.mu.Lock()
@@ -959,6 +966,32 @@ func (p2pm *P2PManager) GetMemoryUsageInfo() map[string]int {
 	info["goroutines_usage_percent"] = int(float64(active) / float64(max) * 100)
 
 	return info
+}
+
+// performRelayMemoryCleanup performs enhanced memory cleanup for relay nodes
+func (p2pm *P2PManager) performRelayMemoryCleanup() {
+	if !p2pm.relay {
+		return // Safety check - only run for relay nodes
+	}
+
+	p2pm.Lm.Log("debug", "Performing relay-specific memory cleanup", "relay-memory")
+
+	// Clean up stale relay circuits that are the main memory leak source
+	if p2pm.relayTrafficMonitor != nil {
+		initialCircuits := len(p2pm.relayTrafficMonitor.GetActiveCircuits())
+		p2pm.relayTrafficMonitor.CleanupStaleCircuits(5 * time.Minute) // Clean circuits older than 5 minutes
+		finalCircuits := len(p2pm.relayTrafficMonitor.GetActiveCircuits())
+
+		if initialCircuits > finalCircuits {
+			p2pm.Lm.Log("info", fmt.Sprintf("Cleaned up %d stale relay circuits (%d -> %d)",
+				initialCircuits-finalCircuits, initialCircuits, finalCircuits), "relay-memory")
+		}
+	}
+
+	// Force more frequent garbage collection for relay nodes
+	memStats := utils.ForceGC()
+	p2pm.Lm.Log("info", fmt.Sprintf("Relay memory cleanup - HeapInuse: %d MB, NumGC: %d",
+		memStats.HeapInuse/1024/1024, memStats.NumGC), "relay-memory")
 }
 
 // Get ticker intervals from config (no cron parsing needed)
@@ -2687,7 +2720,20 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 			return nil, err
 		}
 
-		chunk := make([]byte, chunkSize)
+		// Use buffer pool for memory efficiency when possible
+		var chunk []byte
+		var pooledBuffer []byte
+		_, _, poolBufferSize := utils.P2PBufferPool.GetStats()
+
+		if chunkSize <= uint64(poolBufferSize) {
+			// Use pooled buffer for chunks that fit
+			pooledBuffer = utils.P2PBufferPool.Get()
+			chunk = pooledBuffer[:chunkSize]
+			defer utils.P2PBufferPool.Put(pooledBuffer)
+		} else {
+			// Allocate directly for large chunks
+			chunk = make([]byte, chunkSize)
+		}
 
 		// Receive a data chunk
 		err = binary.Read(s, binary.BigEndian, &chunk)
@@ -3899,6 +3945,11 @@ func (p2pm *P2PManager) startPeriodicCleanup() {
 			return
 		case <-ticker.C:
 			p2pm.Lm.Log("debug", "Running periodic cleanup cycle", "p2p")
+
+			// Relay-specific memory management: More aggressive cleanup for relay nodes
+			if p2pm.relay {
+				p2pm.performRelayMemoryCleanup()
+			}
 
 			// Force GC after cleanup to reclaim memory
 			memStats := utils.ForceGC()

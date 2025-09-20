@@ -416,7 +416,39 @@ func (rtm *RelayTrafficMonitor) cleanupOldestCircuitsUnsafe(count int) {
 	}
 	
 	if removed > 0 {
-		fmt.Printf("Cleaned up %d oldest circuits due to memory limit (remaining: %d)\n", 
+		fmt.Printf("Cleaned up %d oldest circuits due to memory limit (remaining: %d)\n",
 			removed, len(rtm.activeCircuits))
+	}
+}
+
+// CleanupStaleCircuits removes circuits that have been active longer than the specified duration
+func (rtm *RelayTrafficMonitor) CleanupStaleCircuits(maxAge time.Duration) {
+	rtm.mu.Lock()
+	defer rtm.mu.Unlock()
+
+	now := time.Now()
+	staleCircuits := make([]string, 0)
+
+	// Find stale circuits
+	for circuitID, record := range rtm.activeCircuits {
+		if now.Sub(record.StartTime) > maxAge {
+			staleCircuits = append(staleCircuits, circuitID)
+		}
+	}
+
+	// Remove stale circuits and save to database
+	for _, circuitID := range staleCircuits {
+		if record, exists := rtm.activeCircuits[circuitID]; exists && rtm.db != nil {
+			// Mark as completed and save to database
+			endTime := now
+			record.EndTime = &endTime
+			record.Duration = endTime.Sub(record.StartTime)
+			record.Status = "completed"
+
+			// Save to database
+			rtm.storeCircuitRecord(record)
+		}
+
+		delete(rtm.activeCircuits, circuitID)
 	}
 }

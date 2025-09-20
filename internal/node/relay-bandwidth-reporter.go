@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/metrics"
@@ -12,52 +13,71 @@ import (
 	"github.com/Trustflow-Network-Labs/trustflow-node/internal/utils"
 )
 
+// TrafficRecord represents a single traffic measurement for batching
+type TrafficRecord struct {
+	PeerID       string
+	IngressBytes int64
+	EgressBytes  int64
+	Protocol     string
+	Direction    string
+	RecordedAt   int64
+	RelayNodeID  string
+}
+
 // RelayBandwidthReporter implements metrics.Reporter to capture real relay traffic
 type RelayBandwidthReporter struct {
-	db   *sql.DB
-	lm   *utils.LogsManager
-	p2pm *P2PManager
+	db          *sql.DB
+	lm          *utils.LogsManager
+	p2pm        *P2PManager
+
+	// Batching fields to reduce database overhead
+	trafficBatch []TrafficRecord
+	batchMutex   sync.Mutex
+	batchTicker  *time.Ticker
+	stopChan     chan struct{}
 }
 
 // NewRelayBandwidthReporter creates a bandwidth reporter for relay traffic measurement
 func NewRelayBandwidthReporter(db *sql.DB, lm *utils.LogsManager, p2pm *P2PManager) *RelayBandwidthReporter {
 	if lm != nil {
-		lm.Log("info", "🚀 RelayBandwidthReporter initialized for traffic billing", "relay-billing")
+		lm.Log("info", "🚀 RelayBandwidthReporter initialized with batched operations for memory efficiency", "relay-billing")
 	}
-	
-	return &RelayBandwidthReporter{
-		db:   db,
-		lm:   lm,
-		p2pm: p2pm,
+
+	rbr := &RelayBandwidthReporter{
+		db:           db,
+		lm:           lm,
+		p2pm:         p2pm,
+		trafficBatch: make([]TrafficRecord, 0, 100), // Pre-allocate batch capacity
+		stopChan:     make(chan struct{}),
 	}
+
+	// Start batch processing every 30 seconds to reduce database overhead
+	rbr.batchTicker = time.NewTicker(30 * time.Second)
+	go rbr.processBatchedTraffic()
+
+	return rbr
 }
 
 // LogSentMessage records outbound traffic through relay connections
 func (rbr *RelayBandwidthReporter) LogSentMessage(size int64) {
 	// This captures all outbound traffic - we'll filter for relay in LogSentMessageStream
-	if rbr.lm != nil {
-		rbr.lm.Log("debug", fmt.Sprintf("BandwidthReporter: LogSentMessage called with %d bytes", size), "relay-billing")
-	}
+	// DEBUG LOGGING REMOVED: Was causing memory leaks with excessive string allocations
 }
 
-// LogRecvMessage records inbound traffic through relay connections  
+// LogRecvMessage records inbound traffic through relay connections
 func (rbr *RelayBandwidthReporter) LogRecvMessage(size int64) {
 	// This captures all inbound traffic - we'll filter for relay in LogRecvMessageStream
-	if rbr.lm != nil {
-		rbr.lm.Log("debug", fmt.Sprintf("BandwidthReporter: LogRecvMessage called with %d bytes", size), "relay-billing")
-	}
+	// DEBUG LOGGING REMOVED: Was causing memory leaks with excessive string allocations
 }
 
 // LogSentMessageStream records outbound traffic for specific peer/protocol
 func (rbr *RelayBandwidthReporter) LogSentMessageStream(size int64, proto protocol.ID, p peer.ID) {
-	if rbr.lm != nil {
-		rbr.lm.Log("debug", fmt.Sprintf("BandwidthReporter: LogSentMessageStream called - peer: %s, proto: %s, size: %d", 
-			p.String()[:8], proto, size), "relay-billing")
-	}
-	
+	// DEBUG LOGGING REMOVED: Was causing massive memory leaks with 200k+ logs per day
+
 	if rbr.isRelayTraffic(p) {
-		if rbr.lm != nil {
-			rbr.lm.Log("info", fmt.Sprintf("Recording relay EGRESS traffic: peer %s, protocol %s, %d bytes", 
+		// Keep only essential relay traffic logging, reduce frequency
+		if rbr.lm != nil && size > 1000 { // Only log significant traffic
+			rbr.lm.Log("info", fmt.Sprintf("Recording relay EGRESS traffic: peer %s, protocol %s, %d bytes",
 				p.String()[:8], proto, size), "relay-billing")
 		}
 		rbr.recordTraffic(p, 0, size, string(proto), "egress")
@@ -66,14 +86,12 @@ func (rbr *RelayBandwidthReporter) LogSentMessageStream(size int64, proto protoc
 
 // LogRecvMessageStream records inbound traffic for specific peer/protocol
 func (rbr *RelayBandwidthReporter) LogRecvMessageStream(size int64, proto protocol.ID, p peer.ID) {
-	if rbr.lm != nil {
-		rbr.lm.Log("debug", fmt.Sprintf("BandwidthReporter: LogRecvMessageStream called - peer: %s, proto: %s, size: %d", 
-			p.String()[:8], proto, size), "relay-billing")
-	}
-	
+	// DEBUG LOGGING REMOVED: Was causing massive memory leaks with 200k+ logs per day
+
 	if rbr.isRelayTraffic(p) {
-		if rbr.lm != nil {
-			rbr.lm.Log("info", fmt.Sprintf("Recording relay INGRESS traffic: peer %s, protocol %s, %d bytes", 
+		// Keep only essential relay traffic logging, reduce frequency
+		if rbr.lm != nil && size > 1000 { // Only log significant traffic
+			rbr.lm.Log("info", fmt.Sprintf("Recording relay INGRESS traffic: peer %s, protocol %s, %d bytes",
 				p.String()[:8], proto, size), "relay-billing")
 		}
 		rbr.recordTraffic(p, size, 0, string(proto), "ingress")
@@ -122,49 +140,130 @@ func (rbr *RelayBandwidthReporter) isRelayTraffic(peerID peer.ID) bool {
 	return false
 }
 
-// recordTraffic stores actual measured traffic in the database
+// recordTraffic adds traffic record to batch instead of immediate database write
 func (rbr *RelayBandwidthReporter) recordTraffic(peerID peer.ID, ingressBytes, egressBytes int64, protocol, direction string) {
 	if rbr.db == nil {
 		return
 	}
-
-	// Insert traffic record into database
-	query := `
-		INSERT INTO relay_traffic_log (
-			peer_id, ingress_bytes, egress_bytes, protocol, direction, 
-			recorded_at, relay_node_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`
 
 	relayNodeID := ""
 	if rbr.p2pm != nil && rbr.p2pm.h != nil {
 		relayNodeID = rbr.p2pm.h.ID().String()
 	}
 
-	_, err := rbr.db.Exec(query, 
-		peerID.String(), 
-		ingressBytes, 
-		egressBytes, 
-		protocol, 
-		direction,
-		time.Now().Unix(),
-		relayNodeID,
-	)
+	// Add to batch instead of immediate database insert (reduces memory pressure)
+	record := TrafficRecord{
+		PeerID:       peerID.String(),
+		IngressBytes: ingressBytes,
+		EgressBytes:  egressBytes,
+		Protocol:     protocol,
+		Direction:    direction,
+		RecordedAt:   time.Now().Unix(),
+		RelayNodeID:  relayNodeID,
+	}
 
-	if err != nil && rbr.lm != nil {
-		rbr.lm.Log("error", 
-			fmt.Sprintf("Failed to record relay traffic: %v", err), 
-			"relay-billing")
-	} else if rbr.lm != nil {
-		// Log significant transfers
-		totalBytes := ingressBytes + egressBytes
-		if totalBytes > 1024*1024 { // > 1MB
-			rbr.lm.Log("info", 
-				fmt.Sprintf("Recorded relay traffic: peer %s, %d bytes (%s)", 
-					peerID.String()[:8], totalBytes, direction), 
-				"relay-billing")
+	rbr.batchMutex.Lock()
+	rbr.trafficBatch = append(rbr.trafficBatch, record)
+
+	// If batch gets too large, trigger immediate flush to prevent memory buildup
+	if len(rbr.trafficBatch) >= 100 {
+		rbr.flushBatch() // Flush without releasing lock
+	}
+	rbr.batchMutex.Unlock()
+}
+
+// processBatchedTraffic runs periodic batch processing to reduce database overhead
+func (rbr *RelayBandwidthReporter) processBatchedTraffic() {
+	for {
+		select {
+		case <-rbr.batchTicker.C:
+			rbr.batchMutex.Lock()
+			if len(rbr.trafficBatch) > 0 {
+				rbr.flushBatch()
+			}
+			rbr.batchMutex.Unlock()
+		case <-rbr.stopChan:
+			// Final flush before shutdown
+			rbr.batchMutex.Lock()
+			if len(rbr.trafficBatch) > 0 {
+				rbr.flushBatch()
+			}
+			rbr.batchMutex.Unlock()
+			return
 		}
 	}
+}
+
+// flushBatch performs batched database insert (must be called with mutex held)
+func (rbr *RelayBandwidthReporter) flushBatch() {
+	if len(rbr.trafficBatch) == 0 {
+		return
+	}
+
+	// Prepare batch insert query
+	query := `
+		INSERT INTO relay_traffic_log (
+			peer_id, ingress_bytes, egress_bytes, protocol, direction,
+			recorded_at, relay_node_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	tx, err := rbr.db.Begin()
+	if err != nil {
+		if rbr.lm != nil {
+			rbr.lm.Log("error", fmt.Sprintf("Failed to start batch transaction: %v", err), "relay-billing")
+		}
+		return
+	}
+
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		tx.Rollback()
+		if rbr.lm != nil {
+			rbr.lm.Log("error", fmt.Sprintf("Failed to prepare batch statement: %v", err), "relay-billing")
+		}
+		return
+	}
+	defer stmt.Close()
+
+	// Execute all records in the batch
+	for _, record := range rbr.trafficBatch {
+		_, err := stmt.Exec(
+			record.PeerID,
+			record.IngressBytes,
+			record.EgressBytes,
+			record.Protocol,
+			record.Direction,
+			record.RecordedAt,
+			record.RelayNodeID,
+		)
+		if err != nil {
+			if rbr.lm != nil {
+				rbr.lm.Log("error", fmt.Sprintf("Failed to execute batch record: %v", err), "relay-billing")
+			}
+			// Continue with other records instead of failing entire batch
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		if rbr.lm != nil {
+			rbr.lm.Log("error", fmt.Sprintf("Failed to commit batch transaction: %v", err), "relay-billing")
+		}
+	} else if rbr.lm != nil {
+		rbr.lm.Log("info", fmt.Sprintf("Successfully flushed %d relay traffic records to database", len(rbr.trafficBatch)), "relay-billing")
+	}
+
+	// Clear the batch (reuse slice to avoid allocations)
+	rbr.trafficBatch = rbr.trafficBatch[:0]
+}
+
+// Shutdown stops the batch processing goroutine
+func (rbr *RelayBandwidthReporter) Shutdown() {
+	if rbr.batchTicker != nil {
+		rbr.batchTicker.Stop()
+	}
+	close(rbr.stopChan)
 }
 
 // GetRelayTrafficFromDB retrieves relay traffic data from database
