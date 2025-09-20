@@ -428,6 +428,7 @@ type GoroutineTracker struct {
 	activeGoroutines *int64
 	maxGoroutines    int64
 	lm               *utils.LogsManager
+	cm               *utils.ConfigManager // For configurable stack trace buffer size
 	mu               sync.RWMutex
 	goroutines       map[string]*GoroutineInfo // Track individual goroutines
 }
@@ -438,6 +439,7 @@ func (p2pm *P2PManager) GetGoroutineTracker() *GoroutineTracker {
 		activeGoroutines: &p2pm.activeGoroutines,
 		maxGoroutines:    p2pm.maxGoroutines,
 		lm:               p2pm.Lm,
+		cm:               p2pm.cm,
 		goroutines:       make(map[string]*GoroutineInfo),
 	}
 }
@@ -454,10 +456,14 @@ func (gt *GoroutineTracker) SafeStartCritical(name string, fn func()) bool {
 
 // SafeStartWithPriority safely starts a goroutine with priority handling
 func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critical bool) bool {
-	// Critical services get higher limit (reserve 30 goroutines for critical tasks)
+	// Critical services get higher limit (reserve goroutines for critical tasks)
+	criticalReserve := int64(30) // Default
+	if gt.cm != nil {
+		criticalReserve = int64(gt.cm.GetConfigInt("critical_goroutine_reserve", 30, 10, 100))
+	}
 	effectiveLimit := gt.maxGoroutines
 	if !critical {
-		effectiveLimit = gt.maxGoroutines - 30 // Reserve 30 slots for critical services
+		effectiveLimit = gt.maxGoroutines - criticalReserve // Reserve slots for critical services
 	}
 
 	current := atomic.LoadInt64(gt.activeGoroutines)
@@ -481,7 +487,11 @@ func (gt *GoroutineTracker) SafeStartWithPriority(name string, fn func(), critic
 	var stackTrace string
 	if critical {
 		// Only capture stack traces for critical goroutines to reduce memory usage
-		stackBuf := make([]byte, 512) // Reduced from 2048 to 512 bytes
+		stackBufSize := 512 // Default
+		if gt.cm != nil {
+			stackBufSize = gt.cm.GetConfigInt("stack_trace_buffer_size", 512, 256, 2048)
+		}
+		stackBuf := make([]byte, stackBufSize) // Configurable buffer size
 		stackLen := runtime.Stack(stackBuf, false)
 		stackTrace = string(stackBuf[:stackLen])
 	} else {
@@ -979,7 +989,8 @@ func (p2pm *P2PManager) performRelayMemoryCleanup() {
 	// Clean up stale relay circuits that are the main memory leak source
 	if p2pm.relayTrafficMonitor != nil {
 		initialCircuits := len(p2pm.relayTrafficMonitor.GetActiveCircuits())
-		p2pm.relayTrafficMonitor.CleanupStaleCircuits(5 * time.Minute) // Clean circuits older than 5 minutes
+		circuitCleanupAge := p2pm.cm.GetConfigDuration("relay_circuit_cleanup_age", 5*time.Minute)
+		p2pm.relayTrafficMonitor.CleanupStaleCircuits(circuitCleanupAge)
 		finalCircuits := len(p2pm.relayTrafficMonitor.GetActiveCircuits())
 
 		if initialCircuits > finalCircuits {
@@ -1112,7 +1123,7 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 	}
 	bootstrapPeers = append(bootstrapPeers, bootstrapAddrsInfo...)
 
-	maxConnections := 400
+	maxConnections := p2pm.cm.GetConfigInt("max_connections_private", 400, 50, 2000)
 
 	// Create resource manager with strict limits to prevent memory/goroutine leaks
 	// Use conservative autoscaled limits to fix QUIC and LibP2P goroutine leaks
@@ -1132,13 +1143,15 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 
 	var hst host.Host
 	if p2pm.public {
-		maxConnections = 800
+		maxConnections = p2pm.cm.GetConfigInt("max_connections_public", 800, 100, 5000)
 		// Configure connection manager with stricter limits to prevent goroutine leaks
+		gracePeriod := p2pm.cm.GetConfigDuration("connection_grace_period", 30*time.Second)
+		silencePeriod := p2pm.cm.GetConfigDuration("connection_silence_period", 15*time.Second)
 		connMgr, err := connmgr.NewConnManager(
 			50,             // Low water mark - reduced to limit baseline connections
 			maxConnections, // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(30*time.Second),   // Shorter grace period for faster cleanup
-			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
+			connmgr.WithGracePeriod(gracePeriod),   // Configurable grace period for cleanup
+			connmgr.WithSilencePeriod(silencePeriod), // Configurable silence period to avoid connection churn
 		)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -1151,11 +1164,13 @@ func (p2pm *P2PManager) Start(ctx context.Context, port uint16, daemon bool, pub
 		}
 	} else {
 		// Configure connection manager with stricter limits to prevent goroutine leaks
+		gracePeriod := p2pm.cm.GetConfigDuration("connection_grace_period", 30*time.Second)
+		silencePeriod := p2pm.cm.GetConfigDuration("connection_silence_period", 15*time.Second)
 		connMgr, err := connmgr.NewConnManager(
 			50,             // Low water mark - reduced to limit baseline connections
 			maxConnections, // High water mark - maximum connections before pruning
-			connmgr.WithGracePeriod(30*time.Second),   // Shorter grace period for faster cleanup
-			connmgr.WithSilencePeriod(15*time.Second), // Add silence period to avoid connection churn
+			connmgr.WithGracePeriod(gracePeriod),   // Configurable grace period for cleanup
+			connmgr.WithSilencePeriod(silencePeriod), // Configurable silence period to avoid connection churn
 		)
 		if err != nil {
 			p2pm.Lm.Log("error", err.Error(), "p2p")
@@ -1443,6 +1458,11 @@ func (p2pm *P2PManager) createPublicHost(
 
 		// Initialize relay traffic monitor for billing with database storage
 		p2pm.relayTrafficMonitor = NewRelayTrafficMonitor(hst.Network(), p2pm.DB)
+
+		// Configure relay traffic monitor with user settings
+		relayLogInterval := p2pm.cm.GetConfigDuration("relay_traffic_log_interval", 30*time.Second)
+		maxActiveCircuits := p2pm.cm.GetConfigInt("max_active_relay_circuits", 1000, 100, 10000)
+		p2pm.relayTrafficMonitor.SetConfig(relayLogInterval, maxActiveCircuits)
 
 		// Register relay connection notifee for billing
 		relayNotifee := &RelayConnectionNotifee{
@@ -2528,15 +2548,17 @@ func sendStream[T any](p2pm *P2PManager, s network.Stream, data T) error {
 	message := fmt.Sprintf("Received %s from %s", string(ready[:]), s.ID())
 	p2pm.Lm.Log("debug", message, "p2p")
 
-	var chunkSize uint64 = 4096
+	chunkSize := uint64(p2pm.cm.GetConfigInt("chunk_size_bytes", 81920, 1024, 1048576)) // 1KB to 1MB range
 	var pointer uint64 = 0
 
-	// Read chunk size form configs
-	cs := p2pm.cm.GetConfigWithDefault("chunk_size", "81920")
-	chunkSize, err = strconv.ParseUint(cs, 10, 64)
-	if err != nil {
-		message := fmt.Sprintf("Invalid chunk size in configs file. Will set to the default chunk size (%s)", err.Error())
-		p2pm.Lm.Log("warn", message, "p2p")
+	// Legacy config support
+	if val, exists := p2pm.cm.GetConfig("chunk_size"); exists {
+		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
+			chunkSize = size
+		} else {
+			message := fmt.Sprintf("Invalid chunk size in configs file. Will use default (%s)", err.Error())
+			p2pm.Lm.Log("warn", message, "p2p")
+		}
 	}
 
 	switch v := any(data).(type) {
@@ -2677,18 +2699,10 @@ func (p2pm *P2PManager) receiveStreamChunks(s network.Stream, streamData node_ty
 	var data []byte
 
 	// Safety limits to prevent memory exhaustion attacks
-	maxChunkSize := uint64(10 * 1024 * 1024)  // 10MB max per chunk
-	maxTotalSize := uint64(100 * 1024 * 1024) // 100MB max total
-	if val, exists := p2pm.cm.GetConfig("max_chunk_size_mb"); exists {
-		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
-			maxChunkSize = size * 1024 * 1024
-		}
-	}
-	if val, exists := p2pm.cm.GetConfig("max_stream_size_mb"); exists {
-		if size, err := strconv.ParseUint(val, 10, 64); err == nil {
-			maxTotalSize = size * 1024 * 1024
-		}
-	}
+	maxChunkSizeMB := p2pm.cm.GetConfigInt("max_chunk_size_mb", 10, 1, 100)
+	maxTotalSizeMB := p2pm.cm.GetConfigInt("max_stream_size_mb", 100, 10, 1000)
+	maxChunkSize := uint64(maxChunkSizeMB * 1024 * 1024)  // Convert MB to bytes
+	maxTotalSize := uint64(maxTotalSizeMB * 1024 * 1024)  // Convert MB to bytes
 
 	for {
 		// Receive chunk size
@@ -3936,7 +3950,8 @@ func (p2pm *P2PManager) handleStreamError(s network.Stream, message string, err 
 
 // startPeriodicCleanup runs periodic cleanup tasks
 func (p2pm *P2PManager) startPeriodicCleanup() {
-	ticker := time.NewTicker(10 * time.Minute)
+	cleanupInterval := p2pm.cm.GetConfigDuration("periodic_cleanup_interval", 10*time.Minute)
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	for {

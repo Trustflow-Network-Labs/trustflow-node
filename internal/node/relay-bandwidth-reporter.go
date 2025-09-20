@@ -51,8 +51,15 @@ func NewRelayBandwidthReporter(db *sql.DB, lm *utils.LogsManager, p2pm *P2PManag
 		stopChan:     make(chan struct{}),
 	}
 
-	// Start batch processing every 30 seconds to reduce database overhead
-	rbr.batchTicker = time.NewTicker(30 * time.Second)
+	// Start batch processing to reduce database overhead
+	var batchInterval time.Duration = 30 * time.Second // Default
+	if p2pm != nil && p2pm.cm != nil {
+		batchInterval = p2pm.cm.GetConfigDuration("relay_batch_interval", 30*time.Second)
+		if lm != nil {
+			lm.Log("info", fmt.Sprintf("🔧 Relay batch interval configured: %v", batchInterval), "relay-billing")
+		}
+	}
+	rbr.batchTicker = time.NewTicker(batchInterval)
 	go rbr.processBatchedTraffic()
 
 	return rbr
@@ -166,7 +173,11 @@ func (rbr *RelayBandwidthReporter) recordTraffic(peerID peer.ID, ingressBytes, e
 	rbr.trafficBatch = append(rbr.trafficBatch, record)
 
 	// If batch gets too large, trigger immediate flush to prevent memory buildup
-	if len(rbr.trafficBatch) >= 100 {
+	var batchSize int = 100 // Default
+	if rbr.p2pm != nil && rbr.p2pm.cm != nil {
+		batchSize = rbr.p2pm.cm.GetConfigInt("relay_traffic_batch_size", 100, 10, 1000)
+	}
+	if len(rbr.trafficBatch) >= batchSize {
 		rbr.flushBatch() // Flush without releasing lock
 	}
 	rbr.batchMutex.Unlock()

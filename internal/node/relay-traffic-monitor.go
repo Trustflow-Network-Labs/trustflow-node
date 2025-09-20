@@ -47,9 +47,17 @@ func NewRelayTrafficMonitor(host network.Network, db *sql.DB) *RelayTrafficMonit
 		activeCircuits:    make(map[string]*RelayTrafficRecord),
 		host:             host,
 		db:               db,
-		logInterval:      30 * time.Second, // Log every 30 seconds
-		maxActiveCircuits: 1000, // Limit active circuits in memory
+		logInterval:      30 * time.Second, // Default - will be updated by SetConfig if available
+		maxActiveCircuits: 1000, // Default - will be updated by SetConfig if available
 	}
+}
+
+// SetConfig updates the monitor configuration from ConfigManager
+func (rtm *RelayTrafficMonitor) SetConfig(logInterval time.Duration, maxActiveCircuits int) {
+	rtm.mu.Lock()
+	defer rtm.mu.Unlock()
+	rtm.logInterval = logInterval
+	rtm.maxActiveCircuits = maxActiveCircuits
 }
 
 // StartCircuitMonitoring begins tracking a new relay circuit

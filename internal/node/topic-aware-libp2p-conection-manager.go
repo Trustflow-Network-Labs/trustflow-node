@@ -160,7 +160,11 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 	targetTopics []string) (*TopicAwareConnectionManager, error) {
 
 	// Adjust limits for relay nodes to reduce memory pressure
-	maxPeerTracking := maxConnections * 3 // 3x tracking
+	peerTrackingMultiplier := 3 // Default multiplier
+	if p2pm.cm != nil {
+		peerTrackingMultiplier = p2pm.cm.GetConfigInt("peer_tracking_multiplier", 3, 1, 10)
+	}
+	maxPeerTracking := maxConnections * peerTrackingMultiplier
 
 	// Detect UI type for emitting events to front-end
 	uiType, err := ui.DetectUIType(p2pm.UI)
@@ -745,8 +749,12 @@ func (tcm *TopicAwareConnectionManager) TrimOpenConns(ctx context.Context) {
 
 	// Calculate target numbers
 	// Note: Topic peers have no limits - they are always protected
-	// Cap routing peers at 50 maximum, regardless of total connection limit
-	maxRoutingPeers := int(math.Min(float64(tcm.maxConnections)*tcm.routingPeerRatio, 50))
+	// Cap routing peers at configurable maximum, regardless of total connection limit
+	maxRoutingPeersLimit := 50 // Default
+	if tcm.p2pm.cm != nil {
+		maxRoutingPeersLimit = tcm.p2pm.cm.GetConfigInt("max_routing_peers", 50, 10, 200)
+	}
+	maxRoutingPeers := int(math.Min(float64(tcm.maxConnections)*tcm.routingPeerRatio, float64(maxRoutingPeersLimit)))
 
 	// Check if trimming is needed
 	overTotalLimit := len(allConns) > tcm.maxConnections

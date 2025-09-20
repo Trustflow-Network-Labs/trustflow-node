@@ -104,12 +104,24 @@ relay_advertise_interval = 5m
 relay_traffic_log_interval = 60s
 resource_cleanup_interval = 3m
 
+# NEW: Relay Memory Management (production values)
+relay_circuit_cleanup_age = 3m
+relay_batch_interval = 45s
+periodic_cleanup_interval = 5m
+
 # Thresholds and Limits
 memory_pressure_threshold = 75.0
 max_stream_age = 5m
 cache_ttl = 30m
 peer_data_stale_threshold = 1h
 resource_cleanup_threshold = 15m
+
+# NEW: Relay Traffic Management (production values)
+max_active_relay_circuits = 500
+relay_traffic_batch_size = 150
+
+# NEW: Memory Optimization (conservative for production)
+stack_trace_buffer_size = 256
 
 # Stream-specific timeout settings by data type (production values)
 # Small struct timeouts (quick operations) - more aggressive for production
@@ -140,6 +152,14 @@ max_discovered_peers = 30
 peer_evaluation_queue_size = 50
 connection_event_buffer_size = 300
 
+# NEW: Connection Management (production values)
+max_connections_private = 200
+max_connections_public = 500
+connection_grace_period = 20s
+connection_silence_period = 10s
+peer_tracking_multiplier = 2
+max_routing_peers = 30
+
 # Relay Settings
 max_active_circuits = 500
 relay_circuit_data_limit = 1073741824
@@ -147,7 +167,8 @@ relay_circuit_duration = 30m
 
 # Transfer Limits
 max_chunk_size_mb = 5
-max_total_size_mb = 50
+max_stream_size_mb = 50
+chunk_size_bytes = 65536
 
 [context]
 # Context Audit Settings
