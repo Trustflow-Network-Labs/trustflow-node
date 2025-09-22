@@ -190,18 +190,18 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		maxPeerTracking:        maxPeerTracking,
 		topicPeerRatio:         0.9, // 90% target for topic peers (unlimited - never disconnected)
 		routingPeerRatio:       0.1, // 10% for routing peers (capped at 50 max)
-		evaluationPeriod:       time.Minute * 5,
-		cleanupInterval:        time.Minute * 10,
+		evaluationPeriod:       time.Minute * 60,
+		cleanupInterval:        time.Minute * 30,
 		routingScoreThreshold:  0.1,
 		stopChan:               make(chan struct{}),
 		topicPeerQueue:         make(chan peer.ID, 1000), // Large buffer for topic peers - never drop
 		regularQueue:           make(chan peer.ID, 100),  // Bounded buffer for regular peers
-		maxEvaluationsPerCycle: 50,                       // Limit to 50 evaluations per 3-minute cycle
+		maxEvaluationsPerCycle: 150,                      // Limit to 150 evaluations per 10-minute cycle
 		evaluationComplete:     make(chan struct{}, 1),   // Buffered channel for completion signal
 	}
 
 	// Start periodic evaluation and cleanup
-	tcm.startPeriodicEvaluation(3 * time.Minute)
+	tcm.startPeriodicEvaluation(10 * time.Minute)
 	tcm.startPeriodicCleanup()
 
 	// Start worker pool for peer evaluation
@@ -236,7 +236,26 @@ func (tcm *TopicAwareConnectionManager) startPeriodicEvaluation(interval time.Du
 
 // Stop periodic peer evaluation
 func (tcm *TopicAwareConnectionManager) StopPeriodicEvaluation() {
-	close(tcm.stopChan)
+	if tcm.stopChan == nil {
+		return
+	}
+
+	// Prevent double close
+	select {
+	case <-tcm.stopChan:
+		// Already closed
+		return
+	default:
+		close(tcm.stopChan)
+	}
+
+	// Wait a bit for goroutine to finish
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop the ticker if it exists
+	if tcm.evaluationTicker != nil {
+		tcm.evaluationTicker.Stop()
+	}
 }
 
 // Periodic cleanup to prevent unbounded growth
@@ -333,10 +352,24 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 
 // Periodic evaluation of peers
 func (tcm *TopicAwareConnectionManager) peersEvaluation() {
+	// Check if connection manager is shutting down
+	if tcm == nil || tcm.lm == nil || tcm.ctx == nil {
+		return
+	}
+
+	// Check if context is already cancelled
+	select {
+	case <-tcm.ctx.Done():
+		return
+	default:
+	}
+
 	// Prevent overlapping evaluations
 	tcm.evaluationInProgressMu.Lock()
 	if tcm.isEvaluationInProgress {
-		tcm.lm.Log("debug", "Skipping peer evaluation - previous cycle still in progress", "p2p")
+		if tcm.lm != nil {
+			tcm.lm.Log("debug", "Skipping peer evaluation - previous cycle still in progress", "p2p")
+		}
 		tcm.evaluationInProgressMu.Unlock()
 		return
 	}
@@ -344,30 +377,61 @@ func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 	tcm.evaluationInProgressMu.Unlock()
 
 	defer func() {
+		if r := recover(); r != nil {
+			if tcm.lm != nil {
+				tcm.lm.Log("error", fmt.Sprintf("Peer evaluation panic recovered: %v", r), "p2p")
+			}
+		}
 		tcm.evaluationInProgressMu.Lock()
 		tcm.isEvaluationInProgress = false
 		tcm.evaluationInProgressMu.Unlock()
 	}()
 
+	// Check if we're still alive before proceeding
+	if tcm.ctx == nil {
+		return
+	}
+
 	// Update topic peer subscriptions
 	tcm.UpdateTopicPeersList(tcm.targetTopics)
+
+	// Check if context was cancelled during update
+	select {
+	case <-tcm.ctx.Done():
+		return
+	default:
+	}
 
 	// Only re-evaluate stale peers instead of ALL peers
 	tcm.reevaluateStalePeers()
 
+	// Check if context was cancelled during evaluation
+	select {
+	case <-tcm.ctx.Done():
+		return
+	default:
+	}
+
 	// Wait for all evaluations to complete before trimming
 	tcm.waitForEvaluationComplete()
+
+	// Final context check before expensive operations
+	if tcm.ctx == nil {
+		return
+	}
 
 	// Now trim connections based on updated scores
 	ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
 	defer cancel()
 	tcm.TrimOpenConns(ctx)
 
-	// Log statistics
-	connStats := tcm.GetConnectionStats()
-	msg := fmt.Sprintf("Connection stats => Total: %d, Topic peers: %d, Routing peers: %d",
-		connStats["total"], connStats["topic_peers"], connStats["routing_peers"])
-	tcm.lm.Log("debug", msg, "libp2p-events")
+	// Log statistics (with nil check)
+	if tcm.lm != nil {
+		connStats := tcm.GetConnectionStats()
+		msg := fmt.Sprintf("Connection stats => Total: %d, Topic peers: %d, Routing peers: %d",
+			connStats["total"], connStats["topic_peers"], connStats["routing_peers"])
+		tcm.lm.Log("debug", msg, "libp2p-events")
+	}
 }
 
 // Refresh the list of peers subscribed to our topics
@@ -845,7 +909,7 @@ func (tcm *TopicAwareConnectionManager) reevaluateStalePeers() {
 
 	// Find peers with stale evaluation data
 	for peerID, lastEval := range tcm.lastEvaluation {
-		if now.Sub(lastEval) > tcm.evaluationPeriod { // 5 minutes
+		if now.Sub(lastEval) > tcm.evaluationPeriod {
 			if tcm.host.Network().Connectedness(peerID) == network.Connected {
 				stalePeers = append(stalePeers, peerID)
 			}

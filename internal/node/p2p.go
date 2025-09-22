@@ -1607,12 +1607,23 @@ func (p2pm *P2PManager) createHost(
 		libp2p.Identity(priv),
 		// Listening addresses
 		libp2p.ListenAddrStrings(
+			// TCP
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
 			fmt.Sprintf("/ip6/::1/tcp/%d", port+1),
+
+			// UDP, QUIC
 			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port+2),
 			fmt.Sprintf("/ip6/::1/udp/%d/quic-v1", port+3),
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
-			fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
+
+			// WebRTC-Direct
+			//fmt.Sprintf("/ip4/0.0.0.0/udp/%d/webrtc-direct", port+2),
+			//fmt.Sprintf("/ip6/::1/udp/%d/webrtc-direct", port+3),
+
+			// TCP, ws
+			//fmt.Sprintf("/ip4/0.0.0.0/tcp/%d/ws", port+4),
+			//fmt.Sprintf("/ip6/::1/udp/%d/ws", port+5),
+
+			// Relay
 			"/p2p-circuit",
 		),
 		// support TLS connections
