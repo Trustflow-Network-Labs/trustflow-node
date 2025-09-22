@@ -132,10 +132,8 @@ type TopicAwareConnectionManager struct {
 	routingPeerRatio      float64 // % for routing peers
 	evaluationPeriod      time.Duration
 	routingScoreThreshold float64
-	cleanupInterval       time.Duration // Regular cleanup
 
 	evaluationTicker *time.Ticker // Evaluation ticker
-	cleanupTicker    *time.Ticker // Cleanup ticker
 	stopChan         chan struct{}
 
 	// Worker pool for peer evaluation with priority
@@ -191,7 +189,6 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		topicPeerRatio:         0.9, // 90% target for topic peers (unlimited - never disconnected)
 		routingPeerRatio:       0.1, // 10% for routing peers (capped at 50 max)
 		evaluationPeriod:       time.Minute * 60,
-		cleanupInterval:        time.Minute * 30,
 		routingScoreThreshold:  0.1,
 		stopChan:               make(chan struct{}),
 		topicPeerQueue:         make(chan peer.ID, 1000), // Large buffer for topic peers - never drop
@@ -200,9 +197,8 @@ func NewTopicAwareConnectionManager(p2pm *P2PManager, maxConnections int,
 		evaluationComplete:     make(chan struct{}, 1),   // Buffered channel for completion signal
 	}
 
-	// Start periodic evaluation and cleanup
+	// Start periodic evaluation only - cleanup will be called from evaluation
 	tcm.startPeriodicEvaluation(10 * time.Minute)
-	tcm.startPeriodicCleanup()
 
 	// Start worker pool for peer evaluation
 	tcm.startWorkerPool(3) // Start 3 worker goroutines
@@ -258,26 +254,7 @@ func (tcm *TopicAwareConnectionManager) StopPeriodicEvaluation() {
 	}
 }
 
-// Periodic cleanup to prevent unbounded growth
-func (tcm *TopicAwareConnectionManager) startPeriodicCleanup() {
-	tcm.cleanupTicker = time.NewTicker(tcm.cleanupInterval)
-
-	gt := tcm.p2pm.GetGoroutineTracker()
-	gt.SafeStart("tcm-periodic-cleanup", func() {
-		defer tcm.cleanupTicker.Stop()
-
-		for {
-			select {
-			case <-tcm.cleanupTicker.C:
-				tcm.cleanupStaleData()
-			case <-tcm.stopChan:
-				return
-			case <-tcm.ctx.Done():
-				return
-			}
-		}
-	})
-}
+// Periodic cleanup removed - now called directly after TrimOpenConns
 
 // Cleanup stale peer data
 func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
@@ -285,9 +262,9 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 	defer tcm.mu.Unlock()
 
 	now := time.Now()
-	staleThreshold := time.Hour * 2 // Remove data older than 2 hours
+	staleThreshold := time.Hour * 8 // Remove data older than 8 hours
 
-	// Clean up topicPeers
+	// Clean up topicPeers - only remove disconnected peers
 	topicPeersBeforeCleanup := len(tcm.topicPeers)
 	if len(tcm.topicPeers) > tcm.maxPeerTracking {
 		// Keep only connected peers if over limit
@@ -302,7 +279,7 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 			topicPeersBeforeCleanup, len(tcm.topicPeers), topicPeersBeforeCleanup-len(tcm.topicPeers)), "p2p")
 	}
 
-	// Clean up routingPeers
+	// Clean up routingPeers - prioritize connected peers
 	if len(tcm.routingPeers) > tcm.maxPeerTracking {
 		// Keep only recent and connected peers
 		newRoutingPeers := make(map[peer.ID]float64)
@@ -315,18 +292,19 @@ func (tcm *TopicAwareConnectionManager) cleanupStaleData() {
 		tcm.routingPeers = newRoutingPeers
 	}
 
-	// Clean up lastEvaluation and lastTopicCheck
+	// Clean up lastEvaluation and lastTopicCheck - only for truly stale and disconnected peers
 	stalePeers := make([]peer.ID, 0)
 	for peerID, lastEval := range tcm.lastEvaluation {
-		if now.Sub(lastEval) > staleThreshold {
+		// Only mark as stale if peer is disconnected AND data is old
+		if tcm.host.Network().Connectedness(peerID) != network.Connected && now.Sub(lastEval) > staleThreshold {
 			delete(tcm.lastEvaluation, peerID)
 			stalePeers = append(stalePeers, peerID)
 		}
 	}
 
-	// Clean up topic check timestamps
+	// Clean up topic check timestamps - only for disconnected peers
 	for peerID, lastCheck := range tcm.lastTopicCheck {
-		if now.Sub(lastCheck) > staleThreshold {
+		if tcm.host.Network().Connectedness(peerID) != network.Connected && now.Sub(lastCheck) > staleThreshold {
 			delete(tcm.lastTopicCheck, peerID)
 		}
 	}
@@ -424,6 +402,9 @@ func (tcm *TopicAwareConnectionManager) peersEvaluation() {
 	ctx, cancel := context.WithTimeout(tcm.ctx, time.Minute*2)
 	defer cancel()
 	tcm.TrimOpenConns(ctx)
+
+	// Cleanup stale data AFTER trimming to ensure connected peers are not marked as stale
+	tcm.cleanupStaleData()
 
 	// Log statistics (with nil check)
 	if tcm.lm != nil {
@@ -953,7 +934,7 @@ func (tcm *TopicAwareConnectionManager) waitForEvaluationComplete() {
 	select {
 	case <-tcm.evaluationComplete:
 		tcm.lm.Log("debug", "All peer evaluations completed, proceeding with trimming", "p2p")
-	case <-time.After(time.Minute * 2):
+	case <-time.After(time.Minute * 5):
 		tcm.lm.Log("warning", "Timeout waiting for peer evaluations to complete, proceeding with trimming anyway", "p2p")
 	case <-tcm.ctx.Done():
 		tcm.lm.Log("debug", "Context cancelled while waiting for evaluations", "p2p")
@@ -1160,10 +1141,6 @@ func (tcm *TopicAwareConnectionManager) Shutdown() {
 	if tcm.evaluationTicker != nil {
 		tcm.evaluationTicker.Stop()
 		tcm.evaluationTicker = nil
-	}
-	if tcm.cleanupTicker != nil {
-		tcm.cleanupTicker.Stop()
-		tcm.cleanupTicker = nil
 	}
 
 	// Clear all tracking data
