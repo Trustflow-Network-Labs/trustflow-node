@@ -2822,10 +2822,7 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		case 13:
 			// Received a Service Catalogue Request from the remote peer
 			if err := p2pm.serviceCatalogueRequestReceived(data, remotePeerId); err != nil {
-				p2pm.Lm.Log("error", fmt.Sprintf("Service catalogue request processing failed: %v", err), "p2p")
-				if closeErr := s.Close(); closeErr != nil {
-					s.Reset() // Fallback to reset if close fails
-				}
+				p2pm.handleStreamError(s, "Service catalogue request processing failed", err)
 				return
 			}
 		case 0:
@@ -2897,6 +2894,9 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 		}
 	case 2:
 		// Received binary stream from the remote peer	// OBSOLETE, to remove
+		err := fmt.Errorf("received binary stream from the remote peer; OBSOLETE, to remove")
+		p2pm.handleStreamError(s, err.Error(), err)
+		return
 	case 3:
 		// Received file from remote peer
 		if err := p2pm.fileReceived(s, remotePeerId, streamData); err != nil {
@@ -2904,8 +2904,9 @@ func (p2pm *P2PManager) receivedStream(s network.Stream, streamData node_types.S
 			return
 		}
 	default:
-		message := fmt.Sprintf("Unknown stream type %d is received", streamData.Type)
-		p2pm.Lm.Log("warn", message, "p2p")
+		err := fmt.Errorf("unknown stream type %d is received", streamData.Type)
+		p2pm.handleStreamError(s, err.Error(), err)
+		return
 	}
 
 	message := fmt.Sprintf("Receiving ended %s", s.ID())
