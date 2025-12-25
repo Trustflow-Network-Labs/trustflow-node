@@ -130,6 +130,18 @@ func (rbr *RelayBandwidthReporter) GetBandwidthByProtocol() map[protocol.ID]metr
 	return make(map[protocol.ID]metrics.Stats) // Not used, we store in database
 }
 
+// Reset clears all bandwidth data (unused - implemented for interface)
+func (rbr *RelayBandwidthReporter) Reset() {
+	// We use database storage, so reset is not applicable
+	// Batched data will be cleared during normal flush operations
+}
+
+// TrimIdle removes bandwidth data for peers idle since the given time (unused - implemented for interface)
+func (rbr *RelayBandwidthReporter) TrimIdle(since time.Time) {
+	// We use database storage with batched operations
+	// Old data trimming would be handled by database maintenance, not in-memory cleanup
+}
+
 // isRelayTraffic determines if traffic with a peer is going through relay
 func (rbr *RelayBandwidthReporter) isRelayTraffic(peerID peer.ID) bool {
 	if rbr.p2pm == nil || rbr.p2pm.h == nil {

@@ -1,8 +1,6 @@
 module github.com/Trustflow-Network-Labs/trustflow-node
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.24.6
 
 require (
 	github.com/compose-spec/compose-go v1.20.2
@@ -223,3 +221,5 @@ replace github.com/Trustflow-Network-Labs/trustflow-node/internal/utils => ./int
 replace github.com/Trustflow-Network-Labs/trustflow-node/internal/database => ./internal/database
 
 replace github.com/Trustflow-Network-Labs/trustflow-node/internal/node_types => ./internal/node_types
+
+replace github.com/libp2p/go-libp2p => /Users/momcilo.dzunic/_workspace-coding/_testgound/go-libp2p
